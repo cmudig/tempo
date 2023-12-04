@@ -47,33 +47,32 @@ if __name__ == '__main__':
         "BMI": {"category": "Demographics", "query": "{weight} / (({height} / 100) * ({height} / 100)) [impute median]"}
     }
     for col in NUMERICAL_COLUMNS:
-        variable_spec[f"{col} Missing"] = {"category": "Vitals", "query": f"exists {{{col}}} from now - {n_hours} h to now"}
-        variable_spec[col] = {"category": "Vitals", "query": f"last {{{col}}} from now - {n_hours} h to now [carry 8 hours, impute mean]"}
-        variable_spec[f"Delta {col}"] = {"category": "Vitals", "query": f"(mean {{{col}}} from now - {n_hours} h to now) - (mean {{{col}}} from now - {n_hours * 2} h to now - {n_hours} h) [impute 0]"}
+        variable_spec[f"{col} Missing"] = {"category": "Vitals", "query": f"exists {{{col}}} from #now - {n_hours} h to #now"}
+        variable_spec[col] = {"category": "Vitals", "query": f"last {{{col}}} from #now - {n_hours} h to #now [carry 8 hours, impute mean]"}
+        variable_spec[f"Delta {col}"] = {"category": "Vitals", "query": f"(mean {{{col}}} from #now - {n_hours} h to #now) - (mean {{{col}}} from #now - {n_hours * 2} h to #now - {n_hours} h) [impute 0]"}
     for col in DISCRETE_EVENT_COLUMNS:
         variable_spec[col] = {"category": "Vitals" if col == "Heart Rhythm" else "Assessments",
-                              "query": f"last {{{col}}} from now - {n_hours} h to now [carry 8 hours]"}
+                              "query": f"last {{{col}}} from #now - {n_hours} h to #now [carry 8 hours]"}
     for col in FLUID_TYPES:
         variable_spec[col] = {"category": "Fluids", 
-                              "query": f"sum amount {{{col}}} from now - {n_hours} h to now [impute 0]"}
+                              "query": f"sum amount {{{col}}} from #now - {n_hours} h to #now [impute 0]"}
     for col in OUTPUT_EVENTS:
         variable_spec[col] = {"category": "Fluids", 
-                              "query": f"sum {{{col}}} from now - {n_hours} h to now [impute 0]"}
-    # TODO re-enable these after making agg functions numba-compiled
-    # variable_spec["Total Input"] = {"category": "Fluids",
-    #                                 "query": f"(sum amount {{{', '.join(FLUID_TYPES)}}} from {{intime}} to now) + {{input_preadm}} [impute 0]"}
-    # variable_spec["Total Output"] = {"category": "Fluids",
-    #                                  "query": f"(sum {{{', '.join(OUTPUT_EVENTS)}}} from {{intime}} to now) + {{uo_preadm}} [impute 0]"}
+                              "query": f"sum {{{col}}} from #now - {n_hours} h to #now [impute 0]"}
+    variable_spec["Input Last 24 h"] = {"category": "Fluids",
+                                    "query": f"(sum amount {{{', '.join(FLUID_TYPES)}}} from #now - 24 h to #now) + (case when #now - {{intime}} < 24 h then {{inputpreadm}} else 0 end) [impute 0]"}
+    variable_spec["Output Last 24 h"] = {"category": "Fluids",
+                                     "query": f"(sum {{{', '.join(OUTPUT_EVENTS)}}} from #now - 24 h to #now) + (case when #now - {{intime}} < 24 h then {{uopreadm}} else 0 end) [impute 0]"}
     for col in VASOPRESSOR_TYPES:
         variable_spec[col] = {"category": "Vasopressors",
-                              "query": f"integral rate {{{col}}} from now - {n_hours} h to now [impute 0]"}
+                              "query": f"integral rate {{{col}}} from #now - {n_hours} h to #now [impute 0]"}
     for col, names in MICROORGANISMS.items():
         names = ",".join('"' + n + '"' for n in names)
         variable_spec[col] = {"category": "Cultures",
-                              "query": f"(max ({{Culture}} in [{names}]) from {{intime}} to now) > 0 [impute 0]"}
+                              "query": f"(max ({{Culture}} in [{names}]) from {{intime}} to #now) > 0 [impute 0]"}
     for col in PROCEDURE_TYPES + list(PRESCRIPTIONS.keys()):
         variable_spec[col] = {"category": "Procedures" if col in PROCEDURE_TYPES else "Prescriptions",
-                              "query": f"exists {{{col}}} from now - {n_hours} h to now [impute 0]"}
+                              "query": f"exists {{{col}}} from #now - {n_hours} h to #now [impute 0]"}
 
     for val in variable_spec.values(): val["enabled"] = True
     
@@ -84,22 +83,22 @@ if __name__ == '__main__':
     modeling_tasks = {
         "vasopressor_8h": {
             "variables": variable_spec,
-            "outcome": f"(integral rate {{Norepinephrine, Phenylephrine, Epinephrine, Dopamine, Vasopressin}} from now to now + 8 h) > 0.01",
-            "cohort": f"({{outtime}} - now >= 8 hours) and not (exists {{Norepinephrine, Phenylephrine, Epinephrine, Dopamine, Vasopressin}} from {{intime}} to now)",
+            "outcome": f"(integral rate {{Norepinephrine, Phenylephrine, Epinephrine, Dopamine, Vasopressin}} from #now to #now + 8 h) > 0.01",
+            "cohort": f"({{outtime}} - #now >= 8 hours) and not (exists {{Norepinephrine, Phenylephrine, Epinephrine, Dopamine, Vasopressin}} from {{intime}} to #now)",
             "timestep_definition": timestep_definition,
             "regression": False
         },
         "ventilation_8h": {
             "variables": variable_spec,
-            "outcome": f"exists {{Invasive Ventilation, Non-invasive Ventilation}} from now to now + 8 h",
-            "cohort": f"({{outtime}} - now >= 8 hours) and not (exists {{Invasive Ventilation, Non-invasive Ventilation}} from {{intime}} to now)",
+            "outcome": f"exists {{Invasive Ventilation, Non-invasive Ventilation}} from #now to #now + 8 h",
+            "cohort": f"({{outtime}} - #now >= 8 hours) and not (exists {{Invasive Ventilation, Non-invasive Ventilation}} from {{intime}} to #now)",
             "timestep_definition": timestep_definition,
             "regression": False
         },
         "antimicrobial_8h": {
             "variables": variable_spec,
-            "outcome": f"exists {{Antibiotic, Antiviral, Antifungal}} from now to now + 8 h",
-            "cohort": f"({{outtime}} - now >= 8 hours) and not (exists {{Antibiotic, Antiviral, Antifungal}} from {{intime}} to now)",
+            "outcome": f"exists {{Antibiotic, Antiviral, Antifungal}} from #now to #now + 8 h",
+            "cohort": f"({{outtime}} - #now >= 8 hours) and not (exists {{Antibiotic, Antiviral, Antifungal}} from {{intime}} to #now)",
             "timestep_definition": timestep_definition,
             "regression": False
         }

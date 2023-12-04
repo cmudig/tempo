@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
-from query_language.numba_functions import numba_join_events, numba_join_intervals, numba_carry_forward
+from query_language.numba_functions import numba_join_events, numba_join_intervals, numba_carry_forward, AGG_FUNCTIONS, convert_numba_result_dtype
+from numba.typed import List
 
 def make_aligned_value_series(value_set, other):
     """value_set must have get_ids() and get_values()"""
@@ -170,7 +171,7 @@ class AttributeSet(TimeSeriesQueryable):
         return f"<AttributeSet: {len(self.df)} rows, {self.df.shape[1]} attributes>"
     
 class Events(TimeSeriesQueryable):
-    def __init__(self, df, type_field="eventtype", time_field="charttime", value_field="value", id_field="id", name=None):
+    def __init__(self, df, type_field="eventtype", time_field="time", value_field="value", id_field="id", name=None):
         self.df = df
         self.type_field = type_field
         self.time_field = time_field
@@ -245,45 +246,58 @@ class Events(TimeSeriesQueryable):
                 return wrap_pandas_method
         raise AttributeError(name)
 
-    def aggregate(self, index, start_times, end_times, agg_func):
+    def aggregate(self, start_times, end_times, agg_func):
         """
+        Performs an aggregation that returns a single value per ID. Returns an
+        Attributes object.
+        """
+        result = self.bin_aggregate(start_times, start_times, end_times, agg_func)
+        return Attributes(result.series.set_axis(result.index.get_ids()))
+        
+    def bin_aggregate(self, index, start_times, end_times, agg_func):
+        """
+        Performs an aggregation within given time bins.
+        
         index: TimeIndex to use as the master time index
         start_times, end_times: TimeIndex objects
         agg_func: string name or function to use to aggregate values
         """
+        agg_func = agg_func.lower()
         ids = start_times.get_ids()
         assert all(ids == end_times.get_ids()), "Start times and end times must have equal sets of IDs"
-        starts = start_times.get_times()
-        ends = end_times.get_times()
+        starts = np.array(start_times.get_times(), dtype=np.int64)
+        ends = np.array(end_times.get_times(), dtype=np.int64)
         assert all(starts <= ends), "Start times must be <= end times"
         
         event_ids = self.df[self.id_field]
         event_times = self.df[self.time_field].astype(np.float64)
+        event_values = self.df[self.value_field].astype(np.float64)
+        if pd.api.types.is_object_dtype(event_values.dtype):
+            # Convert to numbers before using numba
+            if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
+                raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
+            event_values, uniques = pd.factorize(event_values)
+            event_values = np.where(pd.isna(event_values), np.nan, event_values)
+        else:
+            event_values = event_values.values.astype(np.float64)
+            uniques = None
         
-        time_indexes, event_indexes = numba_join_events(ids.values,
-                                             starts.values, 
-                                             ends.values, 
+        grouped_values = numba_join_events(List(ids.values.tolist()),
+                                             starts, 
+                                             ends, 
                                              event_ids.values, 
-                                             event_times.values)
-        time_indexes = np.array(time_indexes)
-        event_indexes = np.array(event_indexes)
-        if agg_func.lower() == "exists":
-            # Replace existing NaNs with zeros, since the important thing is that
-            # these rows are present
-            values_to_sub = self.df[self.value_field].where(~pd.isna(self.df[self.value_field]), 0)
-        else:
-            values_to_sub = self.df[self.value_field]
-
-        matched_df = pd.DataFrame({
-            "time_index": time_indexes.astype(int),
-            self.value_field: np.where(event_indexes < 0, np.nan,
-                                       values_to_sub.iloc[event_indexes]),
-        })
-        if agg_func.lower() == "exists":
-            results = (matched_df.groupby("time_index").count() > 0).reset_index(drop=True)
-        else:
-            results = matched_df.groupby("time_index").agg({self.value_field: agg_func.lower()}).reset_index(drop=True)
-        return TimeSeries(index, results[self.value_field].rename(self.name))
+                                             event_times.values,
+                                             event_values,
+                                             AGG_FUNCTIONS[agg_func])
+        grouped_values = convert_numba_result_dtype(grouped_values, agg_func)
+        
+        if uniques is not None:
+            grouped_values = np.where(np.isnan(grouped_values), 
+                                    np.nan, 
+                                    uniques[np.where(np.isnan(grouped_values), -1, grouped_values).astype(int)])
+        
+        assert len(grouped_values) == len(index)
+        return TimeSeries(index, pd.Series(grouped_values, name=self.name))
         
     def with_values(self, new_values):
         return Events(self.df.assign(**{self.value_field: new_values}),
@@ -334,7 +348,7 @@ class Events(TimeSeriesQueryable):
 
     
 class EventSet(TimeSeriesQueryable):
-    def __init__(self, df, type_field="eventtype", time_field="charttime", id_field="id", value_field="value"):
+    def __init__(self, df, type_field="eventtype", time_field="time", id_field="id", value_field="value"):
         self.df = df.sort_values([id_field, time_field], kind='stable')
         self.type_field = type_field
         self.time_field = time_field
@@ -445,6 +459,12 @@ class Intervals(TimeSeriesQueryable):
     def get_values(self):
         return self.df[self.value_field]
     
+    def get_start_times(self):
+        return self.df[self.start_time_field]
+    
+    def get_end_times(self):
+        return self.df[self.end_time_field]
+    
     def start_events(self):
         """returns an Events where the time is the start time of each interval"""
         return Events(self.df.drop(columns=[self.end_time_field]),
@@ -483,71 +503,64 @@ class Intervals(TimeSeriesQueryable):
                 return wrap_pandas_method
         raise AttributeError(name)
     
-    def aggregate(self, index, start_times, end_times, agg_type, agg_func):
+    def aggregate(self, start_times, end_times, agg_type, agg_func):
+        """
+        Performs an aggregation that returns a single value per ID. Returns an
+        Attributes object.
+        """
+        result = self.bin_aggregate(start_times, start_times, end_times, agg_type, agg_func)
+        return Attributes(result.series.set_axis(result.index.get_ids()))
+        
+    def bin_aggregate(self, index, start_times, end_times, agg_type, agg_func):
         """
         index: TimeIndex to use as the master time index
         start_times, end_times: TimeIndex objects
-        agg_type: either "value", "amount", or "rate" - determines how value
+        agg_type: either "value", "amount", "rate", or "duration" - determines how value
             will be used
         agg_func: string name or function to use to aggregate values. "integral"
             on a "rate" agg_type specifies that the values should be multiplied
             by the time interval length
         """
+        agg_func = agg_func.lower()
         ids = start_times.get_ids()
         assert all(ids == end_times.get_ids()), "Start times and end times must have equal sets of IDs"
-        starts = start_times.get_times()
-        ends = end_times.get_times()
+        starts = np.array(start_times.get_times(), dtype=np.int64)
+        ends = np.array(end_times.get_times(), dtype=np.int64)
         assert all(starts <= ends), "Start times must be <= end times"
         
         event_ids = self.df[self.id_field]
         interval_starts = self.df[self.start_time_field].astype(np.float64)
         interval_ends = self.df[self.end_time_field].astype(np.float64)
+        interval_values = self.df[self.value_field].astype(np.float64)
         
-        time_indexes, event_indexes = numba_join_intervals(ids.values,
-                                             starts.values, 
-                                             ends.values, 
+        if pd.api.types.is_object_dtype(interval_values.dtype):
+            # Convert to numbers before using numba
+            if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
+                raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
+            interval_values, uniques = pd.factorize(interval_values)
+            interval_values = np.where(pd.isna(interval_values), np.nan, interval_values)
+        else:
+            interval_values = interval_values.values
+            uniques = None
+        
+        grouped_values = numba_join_intervals(List(ids.values.tolist()),
+                                             starts, 
+                                             ends, 
                                              event_ids.values, 
                                              interval_starts.values,
-                                             interval_ends.values)
-        time_indexes = np.array(time_indexes)
-        event_indexes = np.array(event_indexes)
-        if agg_func.lower() == "exists":
-            # Replace existing NaNs with zeros, since the important thing is that
-            # these rows are present
-            values_to_sub = self.df[self.value_field].where(~pd.isna(self.df[self.value_field]), 0)
-        else:
-            values_to_sub = self.df[self.value_field]
-        matched_df = pd.DataFrame({
-            "time_index": time_indexes.astype(int),
-            self.start_time_field: np.where(event_indexes < 0, np.nan,
-                                       self.df[self.start_time_field].iloc[event_indexes]),
-            self.end_time_field: np.where(event_indexes < 0, np.nan,
-                                       self.df[self.end_time_field].iloc[event_indexes]),
-            self.value_field: np.where(event_indexes < 0, np.nan,
-                                       values_to_sub.iloc[event_indexes]),
-        })
-        event_ids = event_ids.iloc[event_indexes].reset_index(drop=True)
-        starts = starts.iloc[time_indexes].reset_index(drop=True)
-        ends = ends.iloc[time_indexes].reset_index(drop=True)
-        if agg_type == "rate":
-            matched_df[self.value_field] *= ((np.minimum(ends, matched_df[self.end_time_field]) - 
-                                              np.maximum(starts, matched_df[self.start_time_field])) / 
-                                             (ends - starts))
-        elif agg_type == "amount":
-            interval_durations = matched_df[self.end_time_field] - matched_df[self.start_time_field]
-            matched_df[self.value_field] *= np.where(interval_durations == 0, 1,
-                                                     ((np.minimum(ends, matched_df[self.end_time_field]) - 
-                                                       np.maximum(starts, matched_df[self.start_time_field])) / 
-                                                      np.maximum(interval_durations, 1)))
-            
-        if agg_func.lower() == "exists":
-            results = (matched_df.groupby("time_index").count() > 0).reset_index(drop=True)
-        elif agg_func.lower() == "integral":
-            results = matched_df.groupby("time_index").agg({self.value_field: "sum"}).reset_index(drop=True)
-            results[self.value_field] *= (ends - starts).astype(float)
-        else:
-            results = matched_df.groupby("time_index").agg({self.value_field: agg_func.lower()}).reset_index(drop=True)
-        return TimeSeries(index, results[self.value_field].rename(self.name))
+                                             interval_ends.values,
+                                             interval_values,
+                                             agg_type.lower(),
+                                             AGG_FUNCTIONS[agg_func])
+        grouped_values = convert_numba_result_dtype(grouped_values, agg_func)
+        
+        if uniques is not None:
+            grouped_values = np.where(np.isnan(grouped_values), 
+                                    np.nan, 
+                                    uniques[np.where(np.isnan(grouped_values), -1, grouped_values).astype(int)])
+        
+        assert len(grouped_values) == len(index)
+        return TimeSeries(index, pd.Series(grouped_values, name=self.name))
     
     def with_values(self, new_values):
         return Intervals(self.df.assign(**{self.value_field: new_values}),
@@ -628,6 +641,12 @@ class IntervalSet(TimeSeriesQueryable):
         
     def get_ids(self):
         return self.df[self.id_field]
+    
+    def get_start_times(self):
+        return self.df[self.start_time_field]
+    
+    def get_end_times(self):
+        return self.df[self.end_time_field]
     
     def filter(self, mask):
         """Returns a new Intervals with only steps for which the mask is True."""
@@ -778,6 +797,27 @@ class TimeIndex(TimeSeriesQueryable):
                          time_field=attributes.name)
         
     @staticmethod
+    def from_times(times):
+        """Constructs a time index from a series of other time indexes, Attributes, or Events."""
+        # Concatenate all the time indexes together, then re-sort
+        indexes = []
+        for time_element in times:
+            if isinstance(time_element, (Events, EventSet)):
+                indexes.append(TimeIndex.from_events(time_element))
+            elif isinstance(time_element, Attributes):
+                indexes.append(TimeIndex.from_attributes(time_element))
+            elif isinstance(time_element, TimeIndex):
+                indexes.append(time_element)
+            elif isinstance(time_element, (TimeSeries, TimeSeriesSet)):
+                indexes.append(time_element.index)
+            else:
+                raise ValueError(f"Unsupported argument of type '{type(time_element)}' for from_times")
+        return TimeIndex(pd.DataFrame({
+            "id": np.concatenate([i.get_ids().values for i in indexes]),
+            "time": np.concatenate([i.get_times().values for i in indexes]),
+        }).sort_values(["id", "time"]))
+        
+    @staticmethod
     def range(starts, ends, interval=Duration(1, 'hr')):
         """Creates a time index where each timestep is interval apart starting
         from each start to each end"""
@@ -820,13 +860,13 @@ class TimeIndex(TimeSeriesQueryable):
                              id_field=self.id_field,
                              time_field=self.time_field)
         elif isinstance(duration, Attributes):
-            increments = pd.merge(duration.series, self.timesteps, how='right', left_index=True, right_on=self.id_field)
-            return TimeIndex(self.timesteps.assign(**{self.time_field: self.timesteps[self.time_field] - increments[duration.series.name]}),
+            increments = pd.merge(duration.series.rename("__merged_duration"), self.timesteps, how='right', left_index=True, right_on=self.id_field)
+            return TimeIndex(self.timesteps.assign(**{self.time_field: self.timesteps[self.time_field] - increments["__merged_duration"]}),
                              id_field=self.id_field,
                              time_field=self.time_field)
         elif hasattr(duration, "get_values"):
             # Create a TimeSeries containing the result of subtracting the given value from the times
-            return TimeSeries(self, self.timesteps[self.time_field] - duration.get_values())
+            return TimeSeries(self, self.timesteps[self.time_field].reset_index(drop=True) - duration.get_values().reset_index(drop=True))
         else:
             return NotImplemented
 
@@ -921,6 +961,9 @@ class TimeSeries(TimeSeriesQueryable):
     def get_ids(self):
         return self.index.get_ids()
 
+    def get_times(self):
+        return self.index.get_times()
+    
     def get_values(self):
         return self.series
     
@@ -947,11 +990,29 @@ class TimeSeries(TimeSeriesQueryable):
         else:
             codes = self.series.values
             uniques = None
-        result = numba_carry_forward(self.index.get_ids().values, self.index.get_times().values, codes, duration)
+        result = numba_carry_forward(List(self.index.get_ids().values.tolist()), 
+                                     np.array(self.index.get_times().values, dtype=np.int64), 
+                                     codes, 
+                                     duration)
         if uniques is not None:
             result = np.where(np.isnan(result), np.nan, uniques[np.where(np.isnan(result), -1, result).astype(int)])
         return self.with_values(pd.Series(result, index=self.series.index, name=self.series.name))
 
+    def aggregate(self, start_times, end_times, agg_func):
+        """
+        Performs an aggregation that returns a single value per ID. Returns an
+        Attributes object.
+        """
+        # Construct an events object using the time series index time as the time
+        events = Events(pd.DataFrame({
+            "id": self.index.get_ids(),
+            "time": self.index.get_times(),
+            "eventtype": self.name or "event",
+            "value": self.series.values
+        }))
+        result = events.bin_aggregate(start_times, start_times, end_times, agg_func)
+        return Attributes(result.series.set_axis(result.index.get_ids()))
+    
     def __getattr__(self, name):
         if hasattr(self.series, name) and name not in EXCLUDE_SERIES_METHODS:
             pd_method = getattr(self.series, name)
@@ -977,7 +1038,7 @@ class TimeSeries(TimeSeriesQueryable):
         if isinstance(other, (Events, Intervals, TimeIndex)):
             return NotImplemented
         if isinstance(other, Attributes):
-            return self.with_values(getattr(self.series, opname)(other.series))
+            return self.with_values(getattr(self.series, opname)(make_aligned_value_series(self, other)))
         if isinstance(other, TimeSeries):
             return self.with_values(getattr(self.series, opname)(other.series))
         if isinstance(other, Duration):
@@ -1084,10 +1145,10 @@ if __name__ == "__main__":
             
     events = EventSet(pd.DataFrame([{
         'id': np.random.choice(ids),
-        'charttime': np.random.randint(0, 100),
+        'time': np.random.randint(0, 100),
         'eventtype': np.random.choice(['e1', 'e2', 'e3']),
         'value': np.random.uniform(0, 100)
-    } for _ in range(10)]))
+    } for _ in range(50)]))
     
     intervals = IntervalSet(pd.DataFrame([{
         'id': np.random.choice(ids),
@@ -1098,18 +1159,16 @@ if __name__ == "__main__":
     } for _ in range(10)]))
     
     print(events.get('e1').df, attributes.get('a2').fillna(0).series)
-    print((attributes.get('a2').fillna(0) < events.get('e1')).df)
+    # print((attributes.get('a2').fillna(0) < events.get('e1')).df)
     
     print(intervals.get('i1').df)
     
     start_times = TimeIndex.from_attributes(attributes.get('start'))
     end_times = TimeIndex.from_attributes(attributes.get('end'))
     times = TimeIndex.range(start_times, end_times, Duration(30))
-    print("Durations:", (times > attributes.get('start')).get_values())
-    times = TimeIndex.from_events(events.get('e1'), starts=attributes.get('start'), ends=attributes.get('end'))
-    print(times.timesteps)
-    print(times.timesteps, (Duration(30, 'sec') + times).timesteps)
     
-    print(intervals.get('i1').aggregate(
-        times, times, Duration(30, 'sec') + times, "rate", "integral"
-    ).series)
+    print(intervals.get('i1').bin_aggregate(
+        times,
+        times, times + Duration(30),
+        "amount", "sum"
+    ))

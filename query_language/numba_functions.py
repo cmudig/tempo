@@ -1,11 +1,48 @@
 from numba import njit
 import numpy as np
 
-# TODO: make all agg functions numba compiled so that aggregation can happen here
-# instead of returning the full merged dataframe
+@njit 
+def numba_sum(x, t0, t1): return np.nansum(x) if len(x) else np.nan
+@njit 
+def numba_mean(x, t0, t1): return np.nanmean(x) if len(x) else np.nan
+@njit 
+def numba_median(x, t0, t1): return np.nanmedian(x) if len(x) else np.nan
+@njit 
+def numba_min(x, t0, t1): return np.nanmin(x) if len(x) else np.nan
+@njit 
+def numba_max(x, t0, t1): return np.nanmax(x) if len(x) else np.nan
+@njit 
+def numba_first(x, t0, t1): return x[~np.isnan(x)][0] if (~np.isnan(x)).sum() else np.nan
+@njit 
+def numba_last(x, t0, t1): return x[~np.isnan(x)][-1] if (~np.isnan(x)).sum() else np.nan
+@njit 
+def numba_exists(x, t0, t1): return 1.0 if len(x) else 0.0
+@njit 
+def numba_count(x, t0, t1): return len(x)
+@njit
+def numba_integral(x, t0, t1): return np.nansum(x) * (t1 - t0) if len(x) else np.nan
+    
+AGG_FUNCTIONS = {
+    "sum": numba_sum,
+    "mean": numba_mean,
+    "median": numba_median,
+    "min": numba_min,
+    "max": numba_max,
+    "first": numba_first,
+    "last": numba_last,
+    "exists": numba_exists,
+    "count": numba_count,
+    "integral": numba_integral
+}
+
+def convert_numba_result_dtype(x, agg_func):
+    """Converts the output of a numba join events/intervals call to the right dtype."""
+    if agg_func == "exists":
+        return (np.array(x) > 0)
+    return np.array(x)
 
 @njit
-def numba_join_events(ids, starts, ends, event_ids, event_times):
+def numba_join_events(ids, starts, ends, event_ids, event_times, event_values, agg_func):
     """
     Assumes both sets of IDs are in sorted order.
     
@@ -17,8 +54,7 @@ def numba_join_events(ids, starts, ends, event_ids, event_times):
     current_id_time_start = 0
     current_id_event_start = 0
     
-    all_time_indexes = [np.float64(x) for x in range(0)]
-    all_event_indexes = [np.float64(x) for x in range(0)]
+    grouped_values = [np.float64(x) for x in range(0)]
     
     for i in range(len(ids) + 1):
         if i >= len(ids) or (last_id is not None and ids[i] != last_id):
@@ -36,22 +72,20 @@ def numba_join_events(ids, starts, ends, event_ids, event_times):
                 current_id_event_end = j
                 
                 time_idxs = np.arange(current_id_time_start, i)
-                event_idxs = np.arange(current_id_event_start, current_id_event_end)
+                event_idxs = np.arange(current_id_event_start, current_id_event_end, dtype=np.int64)
                 
                 # Match the events and times together
                 for t in time_idxs:
-                    matched_events = event_idxs[np.logical_and(event_times[event_idxs] >= starts[t],
+                    matched_idxs = event_idxs[np.logical_and(event_times[event_idxs] >= starts[t],
                                                             event_times[event_idxs] < ends[t])]
-                    if len(matched_events) == 0:
-                        all_time_indexes.append(t)
-                        all_event_indexes.append(-1)
+                    if len(matched_idxs) == 0:
+                        grouped_values.append(agg_func(np.empty((0,), dtype=np.float64), starts[t], ends[t]))
                     else:
-                        all_time_indexes += [t] * len(matched_events)
-                        all_event_indexes += list(matched_events)
+                        matched_events = event_values[matched_idxs]
+                        grouped_values.append(agg_func(matched_events, starts[t], ends[t]))
             else:
                 time_idxs = list(range(current_id_time_start, i))
-                all_time_indexes += time_idxs
-                all_event_indexes += [-1] * len(time_idxs)
+                grouped_values += [np.nan] * len(time_idxs)
                 
             current_id_time_start = i
             current_id_event_start = j
@@ -59,10 +93,10 @@ def numba_join_events(ids, starts, ends, event_ids, event_times):
         if i < len(ids):
             last_id = ids[i]
 
-    return all_time_indexes, all_event_indexes
+    return grouped_values
     
 @njit
-def numba_join_intervals(ids, starts, ends, interval_ids, interval_starts, interval_ends):
+def numba_join_intervals(ids, starts, ends, interval_ids, interval_starts, interval_ends, interval_values, agg_type, agg_func):
     """
     Assumes both sets of IDs are in sorted order.
     
@@ -75,8 +109,7 @@ def numba_join_intervals(ids, starts, ends, interval_ids, interval_starts, inter
     current_id_time_start = 0
     current_id_event_start = 0
     
-    all_time_indexes = [np.float64(x) for x in range(0)]
-    all_event_indexes = [np.float64(x) for x in range(0)]
+    grouped_values = [np.float64(x) for x in range(0)]
     
     for i in range(len(ids) + 1):
         if i >= len(ids) or (last_id is not None and ids[i] != last_id):
@@ -98,18 +131,31 @@ def numba_join_intervals(ids, starts, ends, interval_ids, interval_starts, inter
                 
                 # Match the events and times together
                 for t in time_idxs:
-                    matched_events = event_idxs[np.logical_and(interval_starts[event_idxs] < ends[t],
+                    matched_idxs = event_idxs[np.logical_and(interval_starts[event_idxs] < ends[t],
                                                             interval_ends[event_idxs] >= starts[t])]
-                    if len(matched_events) == 0:
-                        all_time_indexes.append(t)
-                        all_event_indexes.append(-1)
+                    if len(matched_idxs) == 0:
+                        grouped_values.append(agg_func(np.empty((0,), dtype=np.float64), starts[t], ends[t]))
                     else:
-                        all_time_indexes += [t] * len(matched_events)
-                        all_event_indexes += list(matched_events)
+                        matched_intervals = interval_values[matched_idxs]
+
+                        if agg_type == "rate":
+                            matched_intervals *= ((np.minimum(ends[t], interval_ends[matched_idxs]) - 
+                                                   np.maximum(starts[t], interval_starts[matched_idxs])) / 
+                                                  (ends[t] - starts[t]))
+                        elif agg_type == "amount":
+                            interval_durations = interval_ends[matched_idxs] - interval_starts[matched_idxs]
+                            matched_intervals *= np.where(interval_durations == 0, 1,
+                                                          ((np.minimum(ends[t], interval_ends[matched_idxs]) - 
+                                                            np.maximum(starts[t], interval_starts[matched_idxs])) / 
+                                                           np.maximum(interval_durations, 1)))
+                        elif agg_type == "duration":
+                            matched_intervals = (np.minimum(ends[t], interval_ends[matched_idxs]) - 
+                                                   np.maximum(starts[t], interval_starts[matched_idxs]))
+                            
+                        grouped_values.append(agg_func(matched_intervals, starts[t], ends[t]))
             else:
                 time_idxs = list(range(current_id_time_start, i))
-                all_time_indexes += time_idxs
-                all_event_indexes += [-1] * len(time_idxs)
+                grouped_values += [np.nan] * len(time_idxs)
                 
             current_id_time_start = i
             current_id_event_start = j
@@ -117,7 +163,7 @@ def numba_join_intervals(ids, starts, ends, interval_ids, interval_starts, inter
         if i < len(ids):
             last_id = ids[i]
 
-    return all_time_indexes, all_event_indexes
+    return grouped_values
     
 @njit
 def numba_carry_forward(ids, times, values, max_carry_time):

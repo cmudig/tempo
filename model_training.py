@@ -6,6 +6,7 @@ from query_language.data_types import *
 from query_language.evaluator import TrajectoryDataset
 import xgboost
 from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve
+from sklearn.model_selection import train_test_split
 
 MICROORGANISMS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "microorganism_categories.csv")
 DRUG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "drug_categories.csv")
