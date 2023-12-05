@@ -12,7 +12,8 @@
   } from './model';
   import Checkbox from './utils/Checkbox.svelte';
   import Fa from 'svelte-fa/src/fa.svelte';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
+  import VariableEditor from './VariableEditor.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -28,9 +29,8 @@
   let newModelName: string = modelName;
 
   let trainingStatus: {
-    status: string;
+    state: string;
     message: string;
-    model_name: string;
   } | null = null;
 
   $: if (!!modelName) {
@@ -40,14 +40,13 @@
 
   async function loadModelSpec() {
     try {
-      await checkTrainingStatus();
-      if (!!trainingStatus) {
-        pollTrainingStatus();
-        return;
-      }
       saveError = null;
       let result = await fetch(`/models/${modelName}/spec`);
       let spec = await result.json();
+      if (spec.training) {
+        pollTrainingStatus();
+        return;
+      }
       inputVariables = spec.variables;
       outcomeVariable = spec.outcome;
       patientCohort = spec.cohort;
@@ -57,24 +56,10 @@
     }
   }
 
-  async function checkTrainingStatus() {
-    trainingStatus = await (await fetch('/training_status')).json();
-    if (trainingStatus!.status == 'error') saveError = trainingStatus!.message;
-    else saveError = null;
-    if (
-      trainingStatus!.status == 'none' ||
-      trainingStatus!.status == 'complete' ||
-      !!saveError
-    )
-      trainingStatus = null;
-  }
-
   let visibleInputVariableCategory: VariableCategory =
     VariableCategory.Demographics;
 
   let currentEditingVariableName: string | null = null;
-  let newVariableName: string | null = null;
-  let newVariableQuery: string | null = null;
 
   function defineNewVariable() {
     let varName = 'Unnamed';
@@ -94,7 +79,10 @@
     currentEditingVariableName = varName;
   }
 
-  function saveVariableEdits() {
+  function saveVariableEdits(
+    newVariableName: string,
+    newVariableQuery: string
+  ) {
     inputVariables = Object.fromEntries([
       ...Object.entries(inputVariables).filter(
         (item) => item[0] != currentEditingVariableName
@@ -111,16 +99,6 @@
     currentEditingVariableName = null;
   }
 
-  $: if (currentEditingVariableName != null) {
-    if (newVariableName == null) {
-      newVariableName = currentEditingVariableName;
-      newVariableQuery = inputVariables[currentEditingVariableName].query;
-    }
-  } else {
-    newVariableName = null;
-    newVariableQuery = null;
-  }
-
   $: visibleInputVariableCategory,
     (() => (currentEditingVariableName = null))();
 
@@ -129,6 +107,8 @@
   }
 
   async function trainModel() {
+    dispatch('train', newModelName);
+
     try {
       let result = await fetch('/models', {
         method: 'POST',
@@ -168,10 +148,36 @@
     trainModel();
   }
 
+  let trainingStatusTimer: NodeJS.Timeout | null = null;
+
+  onDestroy(() => {
+    if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
+  });
+
+  async function checkTrainingStatus() {
+    trainingStatus = await (
+      await fetch(`/training_status/${modelName}`)
+    ).json();
+    if (trainingStatus!.state == 'error') saveError = trainingStatus!.message;
+    else saveError = null;
+    if (
+      trainingStatus!.state == 'none' ||
+      trainingStatus!.state == 'complete' ||
+      !!saveError
+    )
+      trainingStatus = null;
+  }
+
   function pollTrainingStatus() {
+    let wasTraining = !!trainingStatus;
     checkTrainingStatus();
-    if (!trainingStatus) dispatch('viewmodel', newModelName);
-    else setTimeout(pollTrainingStatus, 2000);
+    if (!!trainingStatus) {
+      if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
+      trainingStatusTimer = setTimeout(pollTrainingStatus, 2000);
+    } else {
+      trainingStatusTimer = null;
+      if (wasTraining) loadModelSpec();
+    }
   }
 </script>
 
@@ -233,45 +239,16 @@
         {#each Object.entries(inputVariables)
           .filter((c) => c[1].category == visibleInputVariableCategory)
           .sort((a, b) => a[0].localeCompare(b[0])) as [varName, varInfo]}
-          <div class="ml-2 mb-1 flex items-center gap-1">
-            <Checkbox
-              checked={varInfo.enabled}
-              on:change={(e) => {
-                inputVariables[varName].enabled = e.detail;
-              }}
-            />
-            <div class="w-2" />
-            {#if currentEditingVariableName == varName}
-              <div class="font-bold text-slate-500 text-sm">Name:</div>
-              <input
-                type="text"
-                class="bg-slate-200 appearance-none border-2 border-slate-200 w-1/4 rounded text-slate-700 font-mono text-xs p-2 leading-tight focus:outline-none focus:border-blue-600 focus:bg-white"
-                style="max-width: 300px;"
-                bind:value={newVariableName}
-              />
-              <div class="font-bold text-slate-500 text-sm ml-2">Query:</div>
-              <input
-                type="text"
-                class="bg-slate-200 appearance-none border-2 border-slate-200 flex-auto rounded text-slate-700 font-mono text-xs p-2 leading-tight focus:outline-none focus:border-blue-600 focus:bg-white"
-                bind:value={newVariableQuery}
-              />
-              <button
-                class="hover:opacity-50 p-2"
-                on:click={() => (currentEditingVariableName = null)}
-                ><Fa icon={faXmark} /></button
-              >
-              <button class="hover:opacity-50 p-2" on:click={saveVariableEdits}
-                ><Fa icon={faCheck} /></button
-              >
-            {:else}
-              <div class="font-mono">{varName}</div>
-              <button
-                class="hover:opacity-50 p-2 text-sm"
-                on:click={() => (currentEditingVariableName = varName)}
-                ><Fa icon={faPencil} /></button
-              >
-            {/if}
-          </div>
+          <VariableEditor
+            {varName}
+            {varInfo}
+            {timestepDefinition}
+            editing={currentEditingVariableName == varName}
+            on:cancel={() => (currentEditingVariableName = null)}
+            on:edit={() => (currentEditingVariableName = varName)}
+            on:save={(e) => saveVariableEdits(e.detail.name, e.detail.query)}
+            on:toggle={(e) => (inputVariables[varName].enabled = e.detail)}
+          />
         {/each}
         <button
           class="my-1 py-1 text-sm px-3 rounded text-slate-800 bg-slate-200 hover:bg-slate-300 font-bold"

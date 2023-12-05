@@ -339,7 +339,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
         try:
             # We only cache the main expression, so variable names and options can be adjusted later without recomputing
             # expensive aggregations
-            if isinstance(tree.children[1], TimeSeries):
+            if isinstance(tree.children[1], (TimeSeries, TimeSeriesSet)):
                 var_exp = tree.children[1]
             elif (var_exp := self.cache_lookup((tree.children[1], self.time_index_tree))) is None:
                 var_exp = self.evaluator.transform(tree.children[1])
@@ -523,6 +523,9 @@ class TrajectoryDataset:
         self.parser = lark.Lark(GRAMMAR, parser="earley")
         self.query_evaluator = EvaluateQuery(attributes, events, intervals, eventtype_macros=eventtype_macros, cache_dir=cache_dir)
         
+    def get_ids(self):
+        return self.attributes.get_ids()
+    
     def query(self, query_string, use_cache=True):
         tree = self.parser.parse(query_string)
         self.query_evaluator.use_cache = use_cache

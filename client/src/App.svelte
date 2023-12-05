@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import type { ModelSummary } from './lib/model';
   import ModelEditor from './lib/ModelEditor.svelte';
   import ModelResultsView from './lib/ModelResultsView.svelte';
@@ -16,9 +16,21 @@
   let currentModel = 'vasopressor_8h';
 
   onMount(async () => {
+    await refreshModels();
+  });
+
+  async function refreshModels() {
     let result = await fetch('/models');
     models = (await result.json()).models;
     console.log('models:', models);
+    if (!!refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refreshModels, 5000);
+  }
+
+  let refreshTimer: NodeJS.Timeout | null = null;
+
+  onDestroy(() => {
+    if (!!refreshTimer) clearTimeout(refreshTimer);
   });
 </script>
 
@@ -30,11 +42,25 @@
     <div class="my-2 text-lg font-bold px-4">Models</div>
     {#each Object.entries(models) as [modelName, model]}
       <button
-        class="text-left py-2 px-4 font-mono w-full {currentModel == modelName
+        class="flex items-center text-left py-2 px-4 font-mono w-full {currentModel ==
+        modelName
           ? 'bg-blue-600 text-white hover:bg-blue-700'
           : 'hover:bg-slate-100'}"
-        on:click={() => (currentModel = modelName)}>{modelName}</button
+        on:click={() => (currentModel = modelName)}
       >
+        <div class="flex-auto">
+          {modelName}
+        </div>
+        {#if model.training && !!model.status}
+          <div
+            class="text-xs font-sans {currentModel == modelName
+              ? 'text-slate-50'
+              : 'text-slate-500'}"
+          >
+            {model.status.state}
+          </div>
+        {/if}
+      </button>
     {/each}
   </div>
   <div class="flex-auto h-full flex flex-col">
@@ -57,6 +83,11 @@
           on:viewmodel={(e) => {
             currentView = View.results;
             currentModel = e.detail;
+          }}
+          on:train={(e) => {
+            currentView = View.results;
+            currentModel = e.detail;
+            refreshModels();
           }}
         />
       {/if}

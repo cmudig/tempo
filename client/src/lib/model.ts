@@ -11,10 +11,12 @@ export type ModelMetrics = {
 };
 
 export type ModelSummary = {
-  target_name: string;
-  type: 'classification' | 'regression';
+  outcome?: string;
+  regression?: boolean;
   likely_trivial?: boolean;
-  metrics: ModelMetrics;
+  metrics?: ModelMetrics;
+  training?: boolean;
+  status?: { state: string; message: string };
 };
 
 export enum VariableCategory {
@@ -47,4 +49,16 @@ export type VariableDefinition = {
   category: VariableCategory;
   query: string;
   enabled: boolean;
+};
+
+export type VariableEvaluationSummary = {
+  query: string;
+  n_values: number;
+  n_trajectories: number;
+  type: 'binary' | 'continuous' | 'categorical';
+  rate?: number;
+  counts?: { [key: string]: number };
+  mean?: number;
+  std?: number;
+  hist?: { counts: number[]; bins: number[] };
 };

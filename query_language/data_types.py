@@ -271,13 +271,13 @@ class Events(TimeSeriesQueryable):
         
         event_ids = self.df[self.id_field]
         event_times = self.df[self.time_field].astype(np.float64)
-        event_values = self.df[self.value_field].astype(np.float64)
+        event_values = self.df[self.value_field]
         if pd.api.types.is_object_dtype(event_values.dtype):
             # Convert to numbers before using numba
             if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
                 raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
             event_values, uniques = pd.factorize(event_values)
-            event_values = np.where(pd.isna(event_values), np.nan, event_values)
+            event_values = np.where(pd.isna(event_values), np.nan, event_values).astype(np.float64)
         else:
             event_values = event_values.values.astype(np.float64)
             uniques = None
@@ -531,14 +531,14 @@ class Intervals(TimeSeriesQueryable):
         event_ids = self.df[self.id_field]
         interval_starts = self.df[self.start_time_field].astype(np.float64)
         interval_ends = self.df[self.end_time_field].astype(np.float64)
-        interval_values = self.df[self.value_field].astype(np.float64)
+        interval_values = self.df[self.value_field]
         
         if pd.api.types.is_object_dtype(interval_values.dtype):
             # Convert to numbers before using numba
             if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
                 raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
             interval_values, uniques = pd.factorize(interval_values)
-            interval_values = np.where(pd.isna(interval_values), np.nan, interval_values)
+            interval_values = np.where(pd.isna(interval_values), np.nan, interval_values).astype(np.float64)
         else:
             interval_values = interval_values.values
             uniques = None

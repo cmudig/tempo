@@ -29,13 +29,16 @@ for col in drug_categories.columns:
     assert not any("," in n for n in matching_names.values)
     PRESCRIPTIONS[col] = matching_names.values.tolist()
 
-def load_raw_data():
+def load_raw_data(sample=False):
     attributes = AttributeSet(pd.read_feather("data/attributes.arrow"))
     events = EventSet(pd.read_feather("data/events.arrow"), id_field="icustayid", time_field="charttime")
     intervals = IntervalSet(pd.read_feather("data/intervals.arrow"), id_field="icustayid")
     
     los = attributes.get("outtime") - attributes.get("intime")
     valid_patients = los.filter((los >= Duration(4, 'hr')) & (los <= Duration(30, 'days'))).get_ids()
+    if sample:
+        np.random.seed(1234)
+        valid_patients = np.random.choice(valid_patients, size=5000, replace=False)
     attributes = attributes.filter(los.get_ids().isin(valid_patients))
     events = events.filter(events.get_ids().isin(valid_patients))
     intervals = intervals.filter(intervals.get_ids().isin(valid_patients))
@@ -155,12 +158,15 @@ def make_model(dataset, model_meta, train_patients, val_patients, modeling_df=No
     if modeling_df is None:
         modeling_df = make_modeling_variables(dataset, model_meta["variables"], model_meta["timestep_definition"])
         
-    outcome = dataset.query(model_meta['outcome'] + 
-                                (f" [where {model_meta['cohort']}]" if model_meta.get('cohort', '') else '') + 
+    outcome = dataset.query("(" + model_meta['outcome'] + 
+                                (f" where {model_meta['cohort']}" if model_meta.get('cohort', '') else '') + ")" + 
                                 " " + model_meta["timestep_definition"])
         
     print((~pd.isna(outcome.get_values())).sum())
     
+    if "regression" not in model_meta:
+        model_meta["regression"] = len(np.unique(outcome.get_values()[~pd.isna(outcome.get_values())])) > 2
+        
     train_mask = outcome.get_ids().isin(train_patients)
     val_mask = outcome.get_ids().isin(val_patients)
     

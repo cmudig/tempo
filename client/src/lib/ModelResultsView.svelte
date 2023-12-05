@@ -6,7 +6,7 @@
     type VariableDefinition,
   } from './model';
   import Fa from 'svelte-fa/src/fa.svelte';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import * as d3 from 'd3';
 
   const dispatch = createEventDispatcher();
@@ -15,7 +15,7 @@
   let metrics: ModelMetrics | null = null;
 
   let trainingStatus: {
-    status: string;
+    state: string;
     message: string;
     model_name: string;
   } | null = null;
@@ -33,17 +33,35 @@
       console.log(metrics);
     } catch (e) {
       console.error('error loading model metrics:', e);
+      setTimeout(checkTrainingStatus, 1000);
     }
   }
 
+  let trainingStatusTimer: NodeJS.Timeout | null = null;
+
+  onDestroy(() => {
+    if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
+  });
+
   async function checkTrainingStatus() {
-    trainingStatus = await (await fetch('/training_status')).json();
+    let wasTraining = !!trainingStatus;
+    trainingStatus = await (
+      await fetch(`/training_status/${modelName}`)
+    ).json();
     if (
-      trainingStatus!.status == 'none' ||
-      trainingStatus!.status == 'complete' ||
-      trainingStatus!.status == 'error'
+      trainingStatus!.state == 'none' ||
+      trainingStatus!.state == 'complete' ||
+      trainingStatus!.state == 'error'
     )
       trainingStatus = null;
+
+    if (!!trainingStatus) {
+      if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
+      trainingStatusTimer = setTimeout(checkTrainingStatus, 2000);
+    } else {
+      trainingStatusTimer = null;
+      if (wasTraining) loadModelResults();
+    }
   }
 
   const rocFormat = d3.format('.3~');
