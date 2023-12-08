@@ -7,6 +7,16 @@ from sklearn.model_selection import train_test_split
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 
+COMORBIDITY_FIELDS = ['congestive_heart_failure', 'cardiac_arrhythmias',
+       'valvular_disease', 'pulmonary_circulation', 'peripheral_vascular',
+       'hypertension', 'paralysis', 'other_neurological', 'chronic_pulmonary',
+       'diabetes_uncomplicated', 'diabetes_complicated', 'hypothyroidism',
+       'renal_failure', 'liver_disease', 'peptic_ulcer', 'aids', 'lymphoma',
+       'metastatic_cancer', 'solid_tumor', 'rheumatoid_arthritis',
+       'coagulopathy', 'obesity', 'weight_loss', 'fluid_electrolyte',
+       'blood_loss_anemia', 'deficiency_anemias', 'alcohol_abuse',
+       'drug_abuse', 'psychoses', 'depression']
+
 NUMERICAL_COLUMNS = [
     'GCS Eye Opening', 'GCS Verbal Response', 'GCS Motor Response', 'RASS', 'Heart Rate', 
     'SysBP', 'mAP', 'DiaBP', 'Respiratory Rate', 'Temperature C', 'Potassium', 'Sodium', 
@@ -46,10 +56,12 @@ if __name__ == '__main__':
         "height": {"category": "Demographics", "query": "{height} [impute median]"},
         "BMI": {"category": "Demographics", "query": "{weight} / (({height} / 100) * ({height} / 100)) [impute median]"}
     }
+    for col in COMORBIDITY_FIELDS:
+        variable_spec[col] = {"category": "Demographics", "query": f"{{{col}}} [impute 0]"}
     for col in NUMERICAL_COLUMNS:
-        variable_spec[f"{col} Missing"] = {"category": "Vitals", "query": f"exists {{{col}}} from #now - {n_hours} h to #now"}
+        variable_spec[f"{col} Present"] = {"category": "Vitals", "query": f"exists {{{col}}} from #now - {n_hours} h to #now"}
         variable_spec[col] = {"category": "Vitals", "query": f"last {{{col}}} from #now - {n_hours} h to #now [carry 8 hours, impute mean]"}
-        variable_spec[f"Delta {col}"] = {"category": "Vitals", "query": f"(mean {{{col}}} from #now - {n_hours} h to #now) - (mean {{{col}}} from #now - {n_hours * 2} h to #now - {n_hours} h) [impute 0]"}
+        variable_spec[f"{col} Delta"] = {"category": "Vitals", "query": f"(mean {{{col}}} from #now - {n_hours} h to #now) - (mean {{{col}}} from #now - {n_hours * 2} h to #now - {n_hours} h) [impute 0]"}
     for col in DISCRETE_EVENT_COLUMNS:
         variable_spec[col] = {"category": "Vitals" if col == "Heart Rhythm" else "Assessments",
                               "query": f"last {{{col}}} from #now - {n_hours} h to #now [carry 8 hours]"}
@@ -79,7 +91,7 @@ if __name__ == '__main__':
     timestep_definition = f"every {period_hours} h from {{intime}} + {period_hours} h to {{outtime}}"
     
     modeling_df = make_modeling_variables(dataset, variable_spec, timestep_definition)
-    
+        
     modeling_tasks = {
         "vasopressor_8h": {
             "variables": variable_spec,

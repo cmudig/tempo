@@ -16,6 +16,7 @@ class EvaluateExpression(lark.visitors.Transformer):
         self.time_index = None
         self.eventtype_macros = eventtype_macros if eventtype_macros is not None else {}
         self.value_placeholder = None
+        self.variables = {}
         
     def _get_data_element(self, query):
         comps = query.split(":")
@@ -57,6 +58,11 @@ class EvaluateExpression(lark.visitors.Transformer):
         match = re.match(r"\{([^\}]+)\}", args[0], flags=re.I)
         query = match.group(1)
         return self._get_data_element(query)
+        
+    def var_name(self, args):
+        if args[0] in self.variables:
+            return self.variables[args[0]]
+        raise KeyError(f"No variable named {args[0]}")
         
     def time_quantity(self, args):
         return Duration(self._parse_literal(args[0]), args[1])
@@ -182,7 +188,7 @@ class EvaluateExpression(lark.visitors.Transformer):
                 if len(result.get_values()) != len(condition.get_values()):
                     raise ValueError(f"Case expression operands must be same length")
                 result = result.where(~condition, value)
-            elif isinstance(condition, (Events, Intervals)):
+            elif isinstance(condition, (Attributes, Events, Intervals, TimeSeries)):
                 # We need to broadcast both value and result to condition's type
                 result = condition.apply(lambda x: value if x else result)
                 
@@ -239,6 +245,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
         self.eventtype_macros = eventtype_macros if eventtype_macros is not None else {}
         self.verbose = verbose
         self._query_cache = {}
+        self._in_memory_cache = {} # for items to be stored in memory instead of loaded from disk every time
         self.use_cache = True
         self.load_cache()
         self.evaluator = EvaluateExpression(self.attributes, self.events, self.intervals, self.eventtype_macros)
@@ -254,24 +261,47 @@ class EvaluateQuery(lark.visitors.Interpreter):
         else:
             self._query_cache = {}
     
-    def cache_lookup(self, tree):
+    def cache_lookup(self, tree, time_index_tree=None, save_in_memory=False):
         """Returns the result of a variable parse if it exists in the cache."""
         if not self.cache_dir or not self.use_cache: return
-        if str(tree) in self._query_cache:
-            result_info = self._query_cache[str(tree)]
+        query_cache_key = str(tree) + ("_" + str(time_index_tree) if time_index_tree is not None else "")
+        if query_cache_key in self._in_memory_cache:
+            return self._in_memory_cache[query_cache_key]
+        elif query_cache_key in self._query_cache:
+            result_info = self._query_cache[query_cache_key]
+            if "time_index_tree" in result_info:
+                index = self.cache_lookup("time_index_" + result_info["time_index_tree"], time_index_tree=None, save_in_memory=True)
+            else:
+                index = None
             fpath = os.path.join(self.cache_dir, result_info["fname"])
             if not os.path.exists(fpath): return
             df = pd.read_feather(fpath)
-            return TimeSeriesQueryable.deserialize(result_info["meta"], df)
+            result = TimeSeriesQueryable.deserialize(result_info["meta"], df, **({"index": index} if index is not None else {}))
+            if save_in_memory:
+                self._in_memory_cache[query_cache_key] = result
+            return result
+        return None
         
-    def save_to_cache(self, tree, result):
+    def save_to_cache(self, tree, result, time_index_tree=None):
         """Saves the given result object to the cache for the given tree description."""
         if not self.cache_dir or not self.use_cache: return
-        meta, df = result.serialize()
+        query_cache_name = str(tree) + ("_" + str(time_index_tree) if time_index_tree is not None else "")
+        if query_cache_name in self._query_cache and (time_index_tree is None or "time_index_" + str(time_index_tree) in self._query_cache):
+            return
+        
+        if time_index_tree is not None and isinstance(result, (TimeSeries, TimeSeriesSet)):
+            time_index_key = "time_index_" + str(time_index_tree)
+            if time_index_key not in self._query_cache:
+                self.save_to_cache(time_index_key, result.index)
+            meta, df = result.serialize(include_index=False)
+        else:
+            meta, df = result.serialize()
+            
         fname = ('%015x' % random.randrange(16**15)) + ".arrow" # 15-character long random hex string
-        self._query_cache[str(tree)] = {
+        self._query_cache[query_cache_name] = {
             "meta": meta,
-            "fname": fname
+            "fname": fname,
+            **({"time_index_tree": str(time_index_tree)} if time_index_tree is not None else {})
         }
         df.to_feather(os.path.join(self.cache_dir, fname))
         with open(os.path.join(self.cache_dir, "query_cache.json"), "w") as file:
@@ -330,10 +360,26 @@ class EvaluateQuery(lark.visitors.Interpreter):
         
     def _parse_variable_expr(self, tree):            
         # Parse where clauses first (these require top-down processing in case of a value placeholder)
+        tree_desc = str(tree.children[1])
+        options_desc = str(tree.children[2]) if len(tree.children) > 2 else ''
         for node in tree.iter_subtrees():
             if node is None: continue
             node.children = [lark.Tree('atom', [self._parse_where_clause(n)]) if isinstance(n, lark.Tree) and n.data == "where_clause" else n for n in node.children]
             
+        set_variables = set()
+        for node in tree.iter_subtrees():
+            if node is None: continue
+            new_children = []
+            for n in node.children:
+                if isinstance(n, lark.Tree) and n.data == "with_clause":
+                    # Defining a temporary variable
+                    base_expr, var_name = self._parse_with_clause(n)
+                    set_variables.add(var_name)
+                    new_children.append(base_expr)
+                else:
+                    new_children.append(n)
+            node.children = new_children
+        
         var_name = tree.children[0].children[0].value if tree.children[0] and tree.children[0].children[0].value else None
         
         try:
@@ -341,7 +387,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
             # expensive aggregations
             if isinstance(tree.children[1], (TimeSeries, TimeSeriesSet)):
                 var_exp = tree.children[1]
-            elif (var_exp := self.cache_lookup((tree.children[1], self.time_index_tree))) is None:
+            elif (var_exp := self.cache_lookup((tree_desc, options_desc), time_index_tree=self.time_index_tree)) is None:
                 var_exp = self.evaluator.transform(tree.children[1])
                 if self.evaluator.time_index is not None:
                     if isinstance(var_exp, Attributes):
@@ -350,42 +396,38 @@ class EvaluateQuery(lark.visitors.Interpreter):
                     elif isinstance(var_exp, TimeIndex):
                         # Use the times as the time series values
                         var_exp = TimeSeries(var_exp, var_exp.get_times())
-                self.save_to_cache((tree.children[1], self.time_index_tree), var_exp)
+                        
+                if len(tree.children) > 2:
+                    # Options clauses are executed IN ORDER of appearance
+                    for child in tree.children[2:]:
+                        if child.data == "carry_clause":
+                            # Defines how far the values in the time series should be
+                            # carried forward within a given ID
+                            if child.children[0].data == "step_quantity":
+                                steps = int(child.children[0].children[0].value)
+                                var_exp = var_exp.carry_forward_steps(steps)
+                            else:
+                                duration = self.evaluator.transform(child.children[0])
+                                var_exp = var_exp.carry_forward_duration(duration)
+                        elif child.data == "impute_clause":
+                            # Defines how NaN values should be substituted
+                            nan_mask = ~pd.isna(var_exp.get_values())
+                            impute_method = child.children[0].value.lower()
+                            if child.children[0].type == "LITERAL":
+                                constant_val = self.evaluator._parse_literal(child.children[0])
+                                var_exp = var_exp.where(nan_mask, constant_val)
+                            elif impute_method in ("mean", "median"):
+                                numpy_func = {"mean": np.nanmean, "median": np.nanmedian}[impute_method]
+                                var_exp = var_exp.where(nan_mask, numpy_func(var_exp.get_values()))
             
             if var_name is not None:
                 var_exp = var_exp.rename(var_name)
             
-            if len(tree.children) > 2:
-                # Options clauses are executed IN ORDER of appearance
-                for child in tree.children[2:]:
-                    if child.data == "carry_clause":
-                        # Defines how far the values in the time series should be
-                        # carried forward within a given ID
-                        if child.children[0].data == "step_quantity":
-                            steps = int(child.children[0].children[0].value)
-                            var_exp = var_exp.carry_forward_steps(steps)
-                        else:
-                            duration = self.evaluator.transform(child.children[0])
-                            var_exp = var_exp.carry_forward_duration(duration)
-                    elif child.data == "impute_clause":
-                        # Defines how NaN values should be substituted
-                        nan_mask = ~pd.isna(var_exp.get_values())
-                        impute_method = child.children[0].value.lower()
-                        if impute_method in ("mean", "median"):
-                            numpy_func = {"mean": np.nanmean, "median": np.nanmedian}[impute_method]
-                            var_exp = var_exp.where(nan_mask, numpy_func(var_exp.get_values()))
-                        else:
-                            try:
-                                constant_val = float(impute_method)
-                                if round(constant_val) == constant_val:
-                                    constant_val = int(constant_val)
-                            except ValueError:
-                                raise ValueError(f"Impute method must either be a number or 'mean', 'median', not '{impute_method}'")
-                            else:
-                                var_exp = var_exp.where(nan_mask, constant_val)
         except Exception as e:
             raise ValueError(f"Exception occurred when processing variable '{var_name}': {e}")
         else:
+            var_exp = var_exp.compress()
+            self.save_to_cache((tree_desc, options_desc), var_exp, time_index_tree=self.time_index_tree)
             return var_exp
         
     def _parse_time_series(self, tree):
@@ -413,6 +455,12 @@ class EvaluateQuery(lark.visitors.Interpreter):
             return base.filter(where)
         else:
             return base.where(where, pd.NA)
+        
+    def _parse_with_clause(self, tree):
+        var_name = tree.children[1].value
+        var_value = self.evaluator.transform(tree.children[-1])
+        self.evaluator.variables[var_name] = var_value
+        return tree.children[0], var_name
         
     def start(self, tree):
         # First replace all time series
@@ -459,6 +507,7 @@ AGG_TYPE: "rate"i|"amount"i|"value"i|"duration"i
 
 ?expr: variable_list time_index             -> time_series
     | expr "WHERE"i expr                    -> where_clause
+    | expr "WITH"i VAR_NAME "AS"i logical   -> with_clause
     | logical
     
 ?logical: logical "AND"i negation                -> logical_and
@@ -498,13 +547,14 @@ atom: VAR_NAME "(" expr ("," expr)* ")"                 -> function_call
     | "#VALUE"i                              -> where_value
     | "CASE"i (case_when)+ "ELSE"i expr "END"i -> case_expr     // if/else
     | "(" expr ")"
+    | VAR_NAME                               -> var_name
 
 time_quantity: LITERAL UNIT
 step_quantity: LITERAL /steps?/i
 UNIT: /hours?|minutes?|seconds?|hrs?|mins?|secs?|[hms]/i
 
 DATA_NAME: /\{[^}]*\}/
-VAR_NAME: /(?!(and|or|not|case|when|else|in|then|every|at|from|to)\b)[A-Za-z][A-Za-z_]*/ 
+VAR_NAME: /(?!(and|or|not|case|when|else|in|then|every|at|from|to|with|as)\b)[A-Za-z][A-Za-z0-9_]*/ 
 
 LITERAL: SIGNED_NUMBER | QUOTED_STRING
 QUOTED_STRING: /["'`][^"'`]*["'`]/
@@ -565,6 +615,6 @@ if __name__ == '__main__':
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
     # print(dataset.query("min {'e1', e2} from now - 30 seconds to now at every {e1} from {start} to {end}"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))
-    print(dataset.query("#now - (last time({e1}) from {start} to #now) at every {e1} from {start} to {end}"))
+    print(dataset.query("(age: case when last_val < 25 then '< 25' else '> 65' end with last_val as last {e1} from #now - 10 sec to #now [impute 'Missing']) every 3 sec from {start} to {end}"))
     # print(dataset.query("mean {e1} * 3 from now - 30 s to now"))
     # print(dataset.query("max(mean {e2} from now - 30 seconds to now, mean {e1} from now - 30 seconds to now) at every {e2} from {start} to {end}"))

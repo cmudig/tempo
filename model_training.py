@@ -83,9 +83,10 @@ def make_modeling_variables(dataset, variable_definitions, timestep_definition):
     modeling_df = modeling_variables.values
 
     print("Before:", modeling_df.shape)
-    for c in list(modeling_df.columns):
-        if pd.api.types.is_object_dtype(modeling_df[c].dtype):
-            modeling_df = pd.concat([modeling_df, pd.get_dummies(modeling_df[c])], axis=1).drop(columns=[c])
+    modeling_df = pd.get_dummies(modeling_df, 
+                                 columns=[c for c in modeling_df.columns 
+                                          if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
+                                          or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)])
     print("After:", modeling_df.shape)
 
     del modeling_variables

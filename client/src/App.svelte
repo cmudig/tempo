@@ -85,7 +85,6 @@
             currentModel = e.detail;
           }}
           on:train={(e) => {
-            currentView = View.results;
             currentModel = e.detail;
             refreshModels();
           }}

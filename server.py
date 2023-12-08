@@ -3,6 +3,7 @@ from query_language.evaluator import TrajectoryDataset
 from model_training import make_model, load_raw_data, make_modeling_variables
 import json
 import os
+import signal
 import pandas as pd
 import numpy as np
 from shutil import rmtree
@@ -17,7 +18,7 @@ TASK_PROGRESS_DIR = os.path.join(os.path.dirname(__file__), "task_progress")
 if os.path.exists(TASK_PROGRESS_DIR): rmtree(TASK_PROGRESS_DIR)
 os.mkdir(TASK_PROGRESS_DIR)
 
-SAMPLE_MODEL_TRAINING_DATA = True
+SAMPLE_MODEL_TRAINING_DATA = False
 
 def _background_model_generation(queue):
     while True:
@@ -34,6 +35,10 @@ def _background_model_generation(queue):
             with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
                 json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Building model"}}, file)
             make_model(dataset, meta, train_patients, val_patients, save_name=model_name, modeling_df=modeling_df)
+        except KeyboardInterrupt:
+            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                json.dump(meta, file)
+            return
         except Exception as e:
             import traceback
             print(traceback.format_exc())
@@ -155,7 +160,7 @@ if __name__ == '__main__':
                 summary["rate"] = values.mean().astype(float)
             elif pd.api.types.is_object_dtype(values.dtype) or num_unique <= 10:
                 summary["type"] = "categorical"
-                summary["counts"] = {k: int(v) for k, v in zip(*np.unique(values, return_counts=True))}
+                summary["counts"] = {str(k): int(v) for k, v in zip(*np.unique(values, return_counts=True))}
             else:
                 summary["type"] = "continuous"
                 summary["mean"] = np.mean(values.astype(float))
@@ -176,12 +181,30 @@ if __name__ == '__main__':
                                 "bins": hist_bins.astype(float).tolist()}
             return jsonify({"summary": summary})
         except Exception as e:
+            import traceback
+            print(traceback.format_exc())
             return jsonify({"error": str(e)})
         
         
-    @app.route("/training_status/<model_name>")
+    @app.route("/models/status/<model_name>")
     def model_training_status(model_name):
         return jsonify(_get_model_training_status(model_name))
+        
+    @app.route("/models/stop_training/<model_name>", methods=["POST"])
+    def stop_model_training(model_name):
+        state = _get_model_training_status(model_name)["state"]
+        if state == "loading":
+            os.kill(model_worker.pid, signal.SIGINT)
+            model_worker.join()
+            print("Restarting model worker")
+            queue = mp.Queue()
+            model_worker = mp.Process(target=_background_model_generation, args=(queue,))
+            model_worker.start()
+        elif state in ("waiting", "error"):
+            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "r") as file:
+                meta = json.load(file)
+            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                json.dump({k: v for k, v in meta.items() if k not in ("training", "status")}, file)
         
     # Path for our main Svelte page
     @app.route("/")

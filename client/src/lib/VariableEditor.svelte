@@ -38,13 +38,13 @@
     newVariableQuery = null;
   }
 
-  $: if (
-    editing &&
-    !!newVariableQuery &&
-    !evaluationSummary &&
-    !evaluationError
-  ) {
-    evaluateQuery();
+  $: if (editing && !!newVariableQuery) {
+    if (!evaluationSummary && !evaluationError) {
+      evaluateQuery();
+    }
+  } else {
+    evaluationSummary = null;
+    evaluationError = null;
   }
 
   async function evaluateQuery() {

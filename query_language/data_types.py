@@ -20,32 +20,55 @@ def make_aligned_value_series(value_set, other):
     elif isinstance(other, pd.DataFrame):
         raise ValueError("Can't perform binary operations on Events with a DataFrame")
     return other
+
+def compress_series(v):
+    if pd.api.types.is_object_dtype(v.dtype) or isinstance(v.dtype, pd.CategoricalDtype):
+        if len(v.unique()) < 64:
+            return v.astype("category")
+        return v
+    isnan = pd.isna(v)
+    try:
+        if np.array_equal(v[~isnan], v[~isnan].astype(int)):
+            has_nans = isnan.sum() > 0
+            if v.min() >= 0 and v.max() < 2**8:
+                return v.astype(pd.UInt8Dtype() if has_nans else np.uint8)
+            elif v.abs().max() < 2**7:
+                return v.astype(pd.Int8Dtype() if has_nans else np.int8)
+            if v.min() >= 0 and v.max() < 2**16:
+                return v.astype(pd.UInt16Dtype() if has_nans else np.uint16)
+            elif v.abs().max() < 2**15:
+                return v.astype(pd.Int16Dtype() if has_nans else np.int16)
+            return v.astype(pd.Int64Dtype() if has_nans else np.int64)
+    except:
+        pass
+    return v.astype(np.float32)
+
     
 EXCLUDE_SERIES_METHODS = ("_repr_latex_",)
 
 class TimeSeriesQueryable:
     """Base class for time-series data structures"""
     @staticmethod
-    def deserialize(metadata, df):
+    def deserialize(metadata, df, **kwargs):
         assert "type" in metadata, "Serialized time series information must have a 'type' key"
         if metadata["type"] == "Attributes":
-            return Attributes.deserialize(metadata, df)
+            return Attributes.deserialize(metadata, df, **kwargs)
         elif metadata["type"] == "AttributeSet":
-            return AttributeSet.deserialize(metadata, df)
+            return AttributeSet.deserialize(metadata, df, **kwargs)
         elif metadata["type"] == "Events":
-            return Events.deserialize(metadata, df)
+            return Events.deserialize(metadata, df, **kwargs)
         elif metadata["type"] == "EventSet":
-            return EventSet.deserialize(metadata, df)
+            return EventSet.deserialize(metadata, df, **kwargs)
         elif metadata["type"] == "Intervals":
-            return Intervals.deserialize(metadata, df)
+            return Intervals.deserialize(metadata, df, **kwargs)
         elif metadata["type"] == "IntervalSet":
-            return IntervalSet.deserialize(metadata, df)
+            return IntervalSet.deserialize(metadata, df, **kwargs)
         elif metadata["type"] == "TimeIndex":
-            return TimeIndex.deserialize(metadata, df)
+            return TimeIndex.deserialize(metadata, df, **kwargs)
         elif metadata["type"] == "TimeSeries":
-            return TimeSeries.deserialize(metadata, df)
+            return TimeSeries.deserialize(metadata, df, **kwargs)
         elif metadata["type"] == "TimeSeriesSet":
-            return TimeSeriesSet.deserialize(metadata, df)
+            return TimeSeriesSet.deserialize(metadata, df, **kwargs)
         else:
             raise ValueError(f"Unknown serialization type '{metadata['type']}'")
 
@@ -66,6 +89,11 @@ class Attributes(TimeSeriesQueryable):
     def get_values(self):
         return self.series
     
+    def compress(self):
+        """Returns a new TimeSeries with values compressed to the minimum size
+        needed to represent them."""
+        return self.with_values(compress_series(self.get_values()))
+        
     def with_values(self, new_values):
         return Attributes(pd.Series(new_values, index=self.series.index, name=self.series.name))
     
@@ -89,7 +117,7 @@ class Attributes(TimeSeriesQueryable):
                     args = [a.get_values() if hasattr(a, "get_values") else a for a in args]
                     kwargs = {k: v.get_values() if hasattr(v, "get_values") else v for k, v in kwargs.items()}
                     result = pd_method(*args, **kwargs)
-                    if isinstance(result, pd.Series) and all(self.series.index == result.index):
+                    if isinstance(result, pd.Series) and (self.series.index == result.index).all():
                         return Attributes(result)
                     if isinstance(result, pd.Series):
                         raise ValueError(f"Cannot complete pandas method call '{name}' on {type(self)} because it returned a Series that isn't aligned with the original Series.")
@@ -238,7 +266,7 @@ class Events(TimeSeriesQueryable):
                     args = [make_aligned_value_series(self, a) if isinstance(a, TimeSeriesQueryable) else a for a in args]
                     kwargs = {k: make_aligned_value_series(self, v) if isinstance(v, TimeSeriesQueryable) else v for k, v in kwargs.items()}
                     result = pd_method(*args, **kwargs)
-                    if isinstance(result, pd.Series) and all(value_series.index == result.index):
+                    if isinstance(result, pd.Series) and (value_series.index == result.index).all():
                         return self.with_values(result)
                     if isinstance(result, pd.Series):
                         raise ValueError(f"Cannot complete pandas method call '{name}' on {type(self)} because it returned a Series that isn't aligned with the original Series.")
@@ -264,15 +292,15 @@ class Events(TimeSeriesQueryable):
         """
         agg_func = agg_func.lower()
         ids = start_times.get_ids()
-        assert all(ids == end_times.get_ids()), "Start times and end times must have equal sets of IDs"
+        assert (ids == end_times.get_ids()).all(), "Start times and end times must have equal sets of IDs"
         starts = np.array(start_times.get_times(), dtype=np.int64)
         ends = np.array(end_times.get_times(), dtype=np.int64)
-        assert all(starts <= ends), "Start times must be <= end times"
+        assert (starts <= ends).all(), "Start times must be <= end times"
         
         event_ids = self.df[self.id_field]
         event_times = self.df[self.time_field].astype(np.float64)
         event_values = self.df[self.value_field]
-        if pd.api.types.is_object_dtype(event_values.dtype):
+        if isinstance(event_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(event_values.dtype):
             # Convert to numbers before using numba
             if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
                 raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
@@ -298,6 +326,11 @@ class Events(TimeSeriesQueryable):
         
         assert len(grouped_values) == len(index)
         return TimeSeries(index, pd.Series(grouped_values, name=self.name))
+        
+    def compress(self):
+        """Returns a new TimeSeries with values compressed to the minimum size
+        needed to represent them."""
+        return self.with_values(compress_series(self.get_values()))
         
     def with_values(self, new_values):
         return Events(self.df.assign(**{self.value_field: new_values}),
@@ -483,6 +516,11 @@ class Intervals(TimeSeriesQueryable):
                       id_field=self.id_field,
                       name=self.name)
         
+    def compress(self):
+        """Returns a new TimeSeries with values compressed to the minimum size
+        needed to represent them."""
+        return self.with_values(compress_series(self.get_values()))
+        
     def __repr__(self):
         return f"<Intervals '{self.name}': {len(self.df)} values>\n{repr(self.df)}"
     
@@ -495,7 +533,7 @@ class Intervals(TimeSeriesQueryable):
                     args = [make_aligned_value_series(self, a) if isinstance(a, TimeSeriesQueryable) else a for a in args]
                     kwargs = {k: make_aligned_value_series(self, v) if isinstance(v, TimeSeriesQueryable) else v for k, v in kwargs.items()}
                     result = pd_method(*args, **kwargs)
-                    if isinstance(result, pd.Series) and all(value_series.index == result.index):
+                    if isinstance(result, pd.Series) and (value_series.index == result.index).all():
                         return self.with_values(result)
                     if isinstance(result, pd.Series):
                         raise ValueError(f"Cannot complete pandas method call '{name}' on {type(self)} because it returned a Series that isn't aligned with the original Series.")
@@ -523,17 +561,17 @@ class Intervals(TimeSeriesQueryable):
         """
         agg_func = agg_func.lower()
         ids = start_times.get_ids()
-        assert all(ids == end_times.get_ids()), "Start times and end times must have equal sets of IDs"
+        assert (ids == end_times.get_ids()).all(), "Start times and end times must have equal sets of IDs"
         starts = np.array(start_times.get_times(), dtype=np.int64)
         ends = np.array(end_times.get_times(), dtype=np.int64)
-        assert all(starts <= ends), "Start times must be <= end times"
+        assert (starts <= ends).all(), "Start times must be <= end times"
         
         event_ids = self.df[self.id_field]
         interval_starts = self.df[self.start_time_field].astype(np.float64)
         interval_ends = self.df[self.end_time_field].astype(np.float64)
         interval_values = self.df[self.value_field]
         
-        if pd.api.types.is_object_dtype(interval_values.dtype):
+        if isinstance(interval_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(interval_values.dtype):
             # Convert to numbers before using numba
             if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
                 raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
@@ -890,7 +928,7 @@ class TimeIndex(TimeSeriesQueryable):
                     args = [make_aligned_value_series(self, a) if isinstance(a, TimeSeriesQueryable) else a for a in args]
                     kwargs = {k: make_aligned_value_series(self, v) if isinstance(v, TimeSeriesQueryable) else v for k, v in kwargs.items()}
                     result = pd_method(*args, **kwargs)
-                    if isinstance(result, pd.Series) and all(value_series.index == result.index):
+                    if isinstance(result, pd.Series) and (value_series.index == result.index).all():
                         return self.with_times(result)
                     if isinstance(result, pd.Series):
                         raise ValueError(f"Cannot complete pandas method call '{name}' on {type(self)} because it returned a Series that isn't aligned with the original Series.")
@@ -932,17 +970,26 @@ class TimeSeries(TimeSeriesQueryable):
         self.name = self.series.name
         assert len(self.index) == len(self.series)
         
-    def serialize(self):
-        index_meta, index_df = self.index.serialize()
-        return {
-            "type": "TimeSeries", 
-            "name": self.name,
-            "index_meta": index_meta
-        }, pd.concat([index_df.reset_index(drop=True),
-                      pd.DataFrame(self.series).reset_index(drop=True)], axis=1)
+    def serialize(self, include_index=True):
+        if include_index:
+            index_meta, index_df = self.index.serialize()
+            return {
+                "type": "TimeSeries", 
+                "name": self.name,
+                "index_meta": index_meta
+            }, pd.concat([index_df.reset_index(drop=True),
+                        pd.DataFrame(self.series).reset_index(drop=True)], axis=1)
+        else:
+            return {
+                "type": "TimeSeries", 
+                "name": self.name,
+            }, pd.DataFrame(self.series.reset_index(drop=True))
     
     @staticmethod
-    def deserialize(metadata, df):
+    def deserialize(metadata, df, index=None):
+        if index is not None:
+            return TimeSeries(index, df[df.columns[0]].rename(metadata["name"]))
+        
         index = TimeIndex.deserialize(metadata["index_meta"], df[df.columns[:2]])
         return TimeSeries(index, df[df.columns[2]])
     
@@ -958,6 +1005,11 @@ class TimeSeries(TimeSeriesQueryable):
     def __repr__(self):
         return f"<TimeSeries {self.name}: {len(self.series)} rows>\n{repr(self.index.timesteps.assign(**{self.series.name or 'Series': self.series.values}))}"
     
+    def compress(self):
+        """Returns a new TimeSeries with values compressed to the minimum size
+        needed to represent them."""
+        return self.with_values(compress_series(self.get_values()))
+        
     def get_ids(self):
         return self.index.get_ids()
 
@@ -1087,16 +1139,23 @@ class TimeSeriesSet:
         self.values = values
         assert len(self.index) == len(self.values)
 
-    def serialize(self):
-        index_meta, index_df = self.index.serialize()
-        return {
-            "type": "TimeSeriesSet", 
-            "index_meta": index_meta
-        }, pd.concat([index_df.reset_index(drop=True),
-                      self.values.reset_index(drop=True)], axis=1)
-    
+    def serialize(self, include_index=True):
+        if include_index:
+            index_meta, index_df = self.index.serialize()
+            return {
+                "type": "TimeSeriesSet", 
+                "index_meta": index_meta
+            }, pd.concat([index_df.reset_index(drop=True),
+                        self.values.reset_index(drop=True)], axis=1)
+        else:
+            return {
+                "type": "TimeSeriesSet", 
+            }, self.values.reset_index(drop=True)
+
     @staticmethod
-    def deserialize(metadata, df):
+    def deserialize(metadata, df, index=None):
+        if index is not None:
+            return TimeSeriesSet(index, df)
         index = TimeIndex.deserialize(metadata["index_meta"], df[df.columns[:2]])
         return TimeSeriesSet(index, df[df.columns[2:]])
         
@@ -1114,10 +1173,15 @@ class TimeSeriesSet:
             raise ValueError("Need at least 1 time series")
         for series in time_series:
             assert (isinstance(series, TimeSeries) and 
-                    all(series.index.get_ids() == time_series[0].index.get_ids()) and
-                    all(series.index.get_times() == time_series[0].index.get_times())), "TimeSeries must be identically indexed"
+                    (series.index.get_ids() == time_series[0].index.get_ids()).all() and
+                    (series.index.get_times() == time_series[0].index.get_times()).all()), "TimeSeries must be identically indexed"
         return TimeSeriesSet(time_series[0].index, 
                              pd.DataFrame({series.name or i: series.series for i, series in enumerate(time_series)}))
+        
+    def compress(self):
+        """Returns a new TimeSeries with values compressed to the minimum size
+        needed to represent them."""
+        return TimeSeriesSet(self.index, pd.DataFrame({col: compress_series(self.values[col]) for col in self.values.columns}))
         
     def has(self, col): return col in self.values.columns
     
