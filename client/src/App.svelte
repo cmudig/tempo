@@ -3,6 +3,7 @@
   import type { ModelSummary } from './lib/model';
   import ModelEditor from './lib/ModelEditor.svelte';
   import ModelResultsView from './lib/ModelResultsView.svelte';
+  import SlicesView from './lib/SlicesView.svelte';
 
   let models: { [key: string]: ModelSummary } = {};
 
@@ -11,7 +12,7 @@
     slices = 'Slices',
     editor = 'Edit',
   }
-  let currentView = View.editor;
+  let currentView = View.slices;
 
   let currentModel = 'vasopressor_8h';
 
@@ -63,7 +64,7 @@
       </button>
     {/each}
   </div>
-  <div class="flex-auto h-full flex flex-col">
+  <div class="flex-auto h-full flex flex-col w-0">
     <div class="w-full px-4 py-2 flex gap-6">
       {#each [View.results, View.slices, View.editor] as view}
         <button
@@ -74,9 +75,14 @@
         >
       {/each}
     </div>
-    <div class="w-full flex-auto overflow-scroll">
+    <div
+      class="w-full flex-auto"
+      class:overflow-scroll={currentView != View.slices}
+    >
       {#if currentView == View.results}
         <ModelResultsView modelName={currentModel} />
+      {:else if currentView == View.slices}
+        <SlicesView modelName={currentModel} />
       {:else if currentView == View.editor}
         <ModelEditor
           modelName={currentModel}

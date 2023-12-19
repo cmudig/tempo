@@ -42,3 +42,17 @@ export interface Slice {
   isEmpty: boolean;
   metrics?: { [key: string]: SliceMetric };
 }
+
+export enum SliceSearchControl {
+  containsSlice = 'contains_slice',
+  containedInSlice = 'contained_in_slice',
+  similarToSlice = 'similar_to_slice',
+  subsliceOfSlice = 'subslice_of_slice',
+}
+
+export const SliceControlStrings: { [key: string]: string } = {
+  [SliceSearchControl.containsSlice]: 'Contains',
+  [SliceSearchControl.containedInSlice]: 'Contained in',
+  [SliceSearchControl.similarToSlice]: 'Similar to',
+  [SliceSearchControl.subsliceOfSlice]: 'Subslice of',
+};

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Slice } from '../utils/slice.type';
+  import { SliceSearchControl, type Slice } from '../utils/slice.type';
   import SliceMetricBar from '../metric_charts/SliceMetricBar.svelte';
   import { format } from 'd3-format';
   import SliceMetricHistogram from '../metric_charts/SliceMetricHistogram.svelte';
@@ -26,18 +26,17 @@
 
   const dispatch = createEventDispatcher();
 
-  export let slice: Slice = null;
+  export let slice: Slice | null = null;
   export let scoreNames: Array<string> = [];
   export let showScores = false;
   export let metricNames: Array<string> = [];
   export let positiveOnly = false;
-  export let valueNames: any = {}; // svelte store
   export let allowedValues: any = null;
 
   export let fixedFeatureOrder: Array<any> = [];
 
-  export let customSlice: Slice = null; // if the slice is custom-created
-  export let temporarySlice: Slice = null; // if a variable is adjusted dynamically
+  export let customSlice: Slice | null = null; // if the slice is custom-created
+  export let temporarySlice: Slice | null = null; // if a variable is adjusted dynamically
 
   export let scoreCellWidth = 100;
   export let scoreWidthScalers = {};
@@ -50,6 +49,12 @@
   export let isSaved = false;
   export let isSelected = false;
   export let isEditing = false;
+
+  export let allowFavorite: boolean = true;
+  export let allowEdit: boolean = true;
+  export let allowSearch: boolean = true;
+  export let allowSelect: boolean = false;
+
   let showButtons = false;
 
   const indentAmount = 24;
@@ -80,39 +85,39 @@
 
   function searchContainsSlice() {
     dispatch('newsearch', {
-      type: 'containsSlice',
+      type: SliceSearchControl.containsSlice,
       base_slice: sliceToShow.feature,
     });
   }
 
   function searchContainedInSlice() {
     dispatch('newsearch', {
-      type: 'containedInSlice',
+      type: SliceSearchControl.containedInSlice,
       base_slice: sliceToShow.feature,
     });
   }
 
   function searchSubslices() {
     dispatch('newsearch', {
-      type: 'subsliceOfSlice',
+      type: SliceSearchControl.subsliceOfSlice,
       base_slice: sliceToShow.feature,
     });
   }
 
   function searchSimilarSlices() {
     dispatch('newsearch', {
-      type: 'similarToSlice',
+      type: SliceSearchControl.similarToSlice,
       base_slice: sliceToShow.feature,
     });
   }
 
-  let revertedScores = false;
-  function temporaryRevertSlice(revert) {
+  let revertedScores: boolean = false;
+  function temporaryRevertSlice(revert: boolean) {
     revertedScores = revert;
   }
 </script>
 
-{#if !!sliceToShow}
+{#if !!sliceToShow && !!slice}
   <div
     class="slice-row {rowClass
       ? rowClass
@@ -120,6 +125,14 @@
     style="margin-left: {indentAmount * (maxIndent - indent)}px;"
     on:mouseenter={() => (showButtons = true)}
     on:mouseleave={() => (showButtons = false)}
+    on:click={() => {
+      if (allowSelect) dispatch('select', sliceToShow);
+    }}
+    on:keypress={(e) => {
+      if (allowSelect && e.key === 'Enter') dispatch('select', sliceToShow);
+    }}
+    role="button"
+    tabindex="-1"
   >
     <div class="p-2" style="width: {TableWidths.Checkbox}px;">
       <Checkbox

@@ -23,11 +23,11 @@ class EvaluateExpression(lark.visitors.Transformer):
         el_name = comps[-1]
         # substitute with macro if available
         if el_name in self.eventtype_macros:
-            el_name = self.eventtype_macros[el_name]
+            el_name = self.eventtype_macros[el_name].strip()
         if "," in el_name:
             el_name = list(csv.reader([el_name], skipinitialspace=True))[0]
             # Substitute macros again
-            el_name = [x for el in el_name for x in self.eventtype_macros.get(el, el).split(",")]
+            el_name = [x.strip() for el in el_name for x in self.eventtype_macros.get(el, el).split(",")]
         if len(comps) > 1:
             scope = comps[0].lower()
             # Only search within the given scope
@@ -184,13 +184,14 @@ class EvaluateExpression(lark.visitors.Transformer):
                 if len(value.get_values()) != len(condition.get_values()):
                     raise ValueError(f"Case expression operands must be same length")
                 result = value.where(condition, result)
+                result = result.where(~condition.isna(), pd.NA)
             elif isinstance(result, (Events, Attributes, Intervals, TimeSeries)):
                 if len(result.get_values()) != len(condition.get_values()):
                     raise ValueError(f"Case expression operands must be same length")
                 result = result.where(~condition, value)
             elif isinstance(condition, (Attributes, Events, Intervals, TimeSeries)):
                 # We need to broadcast both value and result to condition's type
-                result = condition.apply(lambda x: value if x else result)
+                result = condition.apply(lambda x: pd.NA if pd.isna(x) else (value if x else result))
                 
         return result
         
@@ -206,11 +207,11 @@ class EvaluateExpression(lark.visitors.Transformer):
             elif function_name == "start":
                 if not hasattr(operands[0], "get_start_times"):
                     raise ValueError("start function requires interval objects")
-                return operands[0].with_values(operands[0].get_start_times())
+                return operands[0].start_events().with_values(operands[0].get_start_times())
             elif function_name == "end":
                 if not hasattr(operands[0], "get_end_times"):
                     raise ValueError("end function requires interval objects")
-                return operands[0].with_values(operands[0].get_end_times())
+                return operands[0].end_events().with_values(operands[0].get_end_times())
         elif function_name in ("abs", ):
             if len(operands) != 1: raise ValueError(f"{function_name} function requires exactly one operand")
             return getattr(operands[0], function_name)()
@@ -358,10 +359,22 @@ class EvaluateQuery(lark.visitors.Interpreter):
         times = [self.evaluator.transform(c) for c in tree.children]
         return TimeIndex.from_times(times)
         
-    def _parse_variable_expr(self, tree):            
+    def _parse_variable_expr(self, tree, cache_only=False):            
         # Parse where clauses first (these require top-down processing in case of a value placeholder)
         tree_desc = str(tree.children[1])
         options_desc = str(tree.children[2]) if len(tree.children) > 2 else ''
+        
+        var_name = tree.children[0].children[0].value if tree.children[0] and tree.children[0].children[0].value else None
+        if isinstance(tree.children[1], (TimeSeries, TimeSeriesSet)):
+            var_exp = tree.children[1]
+        else:
+            var_exp = self.cache_lookup((tree_desc, options_desc), time_index_tree=self.time_index_tree)
+        if cache_only and var_exp is None: return tree
+        elif var_exp is not None:
+            if var_name is not None:
+                var_exp = var_exp.rename(var_name)
+            return var_exp.compress()
+    
         for node in tree.iter_subtrees():
             if node is None: continue
             node.children = [lark.Tree('atom', [self._parse_where_clause(n)]) if isinstance(n, lark.Tree) and n.data == "where_clause" else n for n in node.children]
@@ -380,14 +393,10 @@ class EvaluateQuery(lark.visitors.Interpreter):
                     new_children.append(n)
             node.children = new_children
         
-        var_name = tree.children[0].children[0].value if tree.children[0] and tree.children[0].children[0].value else None
-        
         try:
             # We only cache the main expression, so variable names and options can be adjusted later without recomputing
             # expensive aggregations
-            if isinstance(tree.children[1], (TimeSeries, TimeSeriesSet)):
-                var_exp = tree.children[1]
-            elif (var_exp := self.cache_lookup((tree_desc, options_desc), time_index_tree=self.time_index_tree)) is None:
+            if var_exp is None:
                 var_exp = self.evaluator.transform(tree.children[1])
                 if self.evaluator.time_index is not None:
                     if isinstance(var_exp, Attributes):
@@ -466,6 +475,12 @@ class EvaluateQuery(lark.visitors.Interpreter):
         # First replace all time series
         if isinstance(tree.children[0], lark.Tree) and tree.children[0].data == "time_series":
             return self._parse_time_series(tree.children[0])
+
+        if self.use_cache:
+            # First parse cached expressions
+            for node in tree.iter_subtrees():
+                if node is None: continue
+                node.children = [self._parse_variable_expr(n, cache_only=True) if isinstance(n, lark.Tree) and n.data == "variable_expr" else n for n in node.children]
         
         # Parse time series first
         for node in tree.iter_subtrees():

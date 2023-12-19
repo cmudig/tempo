@@ -27,7 +27,7 @@
   export let selectedSlices: Array<Slice> = [];
   export let savedSlices: Array<Slice> = [];
 
-  export let baseSlice: Slice = null;
+  export let baseSlice: Slice | null = null;
   export let sliceRequests: { [key: string]: any } = {};
   export let sliceRequestResults: { [key: string]: Slice } = {};
 
@@ -289,7 +289,6 @@
       {showScores}
       {metricNames}
       {metricInfo}
-      {valueNames}
       {allowedValues}
       {fixedFeatureOrder}
       rowClass={!!searchBaseSlice &&

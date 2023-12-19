@@ -29,7 +29,7 @@ for col in drug_categories.columns:
     assert not any("," in n for n in matching_names.values)
     PRESCRIPTIONS[col] = matching_names.values.tolist()
 
-def load_raw_data(sample=False):
+def load_raw_data(sample=False, cache_dir=None, val_only=False):
     attributes = AttributeSet(pd.read_feather("data/attributes.arrow"))
     events = EventSet(pd.read_feather("data/events.arrow"), id_field="icustayid", time_field="charttime")
     intervals = IntervalSet(pd.read_feather("data/intervals.arrow"), id_field="icustayid")
@@ -42,11 +42,6 @@ def load_raw_data(sample=False):
     attributes = attributes.filter(los.get_ids().isin(valid_patients))
     events = events.filter(events.get_ids().isin(valid_patients))
     intervals = intervals.filter(intervals.get_ids().isin(valid_patients))
-
-    macros = {p: ', '.join(PRESCRIPTIONS[p]) for p in PRESCRIPTIONS}
-    print(macros.keys())
-    dataset = TrajectoryDataset(attributes, events, intervals, cache_dir=CACHE_DIR, eventtype_macros=macros)
-    dataset.query_evaluator.verbose = True
     
     if not os.path.exists("data/train_test_split.pkl"):
         train_patients, val_patients = train_test_split(attributes.index.unique(), train_size=0.333)
@@ -57,6 +52,16 @@ def load_raw_data(sample=False):
         with open("data/train_test_split.pkl", "rb") as file:
             train_patients, val_patients, test_patients = pickle.load(file)
 
+    if val_only:
+        attributes = attributes.filter(attributes.get_ids().isin(val_patients))
+        events = events.filter(events.get_ids().isin(val_patients))
+        intervals = intervals.filter(intervals.get_ids().isin(val_patients))
+
+    macros = {p: ', '.join(PRESCRIPTIONS[p]) for p in PRESCRIPTIONS}
+    print(macros.keys())
+    dataset = TrajectoryDataset(attributes, events, intervals, cache_dir=cache_dir or CACHE_DIR, eventtype_macros=macros)
+    dataset.query_evaluator.verbose = True
+    
     return dataset, (train_patients, val_patients, test_patients)
 
 def make_query(variable_definitions, timestep_definition):
@@ -161,8 +166,7 @@ def make_model(dataset, model_meta, train_patients, val_patients, modeling_df=No
         
     outcome = dataset.query("(" + model_meta['outcome'] + 
                                 (f" where {model_meta['cohort']}" if model_meta.get('cohort', '') else '') + ")" + 
-                                " " + model_meta["timestep_definition"])
-        
+                                " " + model_meta["timestep_definition"], use_cache=False)    
     print((~pd.isna(outcome.get_values())).sum())
     
     if "regression" not in model_meta:

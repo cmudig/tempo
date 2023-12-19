@@ -164,7 +164,9 @@
       Edit Model <span class="font-mono">{modelName}</span>
     </h2>
     {#if !!saveError}
-      <div class="mt-2 text-red-500">Training error: {saveError}</div>
+      <div class="mt-2 text-red-500">
+        Training error: <span class="font-mono">{saveError}</span>
+      </div>
     {/if}
     <h3 class="font-bold mt-3 mb-1">Timestep Definition</h3>
     <textarea

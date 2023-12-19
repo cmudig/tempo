@@ -1,8 +1,12 @@
 from flask import Flask, send_from_directory, request, jsonify, send_file
 from query_language.evaluator import TrajectoryDataset
-from model_training import make_model, load_raw_data, make_modeling_variables
+from initial_models import NUMERICAL_COLUMNS, DISCRETE_EVENT_COLUMNS, COMORBIDITY_FIELDS # todo remove these
+from model_training import make_model, load_raw_data, make_modeling_variables, MICROORGANISMS, PRESCRIPTIONS
+from model_slice_finding import SliceDiscoveryHelper, SliceEvaluationHelper
+import slice_finding as sf
 import json
 import os
+import pickle
 import signal
 import pandas as pd
 import numpy as np
@@ -14,37 +18,60 @@ import multiprocessing as mp
 import atexit
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
+if not os.path.exists(MODEL_DIR): os.mkdir(MODEL_DIR)
+SLICES_DIR = os.path.join(os.path.dirname(__file__), "slices")
+if not os.path.exists(SLICES_DIR): os.mkdir(SLICES_DIR)
 TASK_PROGRESS_DIR = os.path.join(os.path.dirname(__file__), "task_progress")
-if os.path.exists(TASK_PROGRESS_DIR): rmtree(TASK_PROGRESS_DIR)
-os.mkdir(TASK_PROGRESS_DIR)
 
 SAMPLE_MODEL_TRAINING_DATA = False
 
 def _background_model_generation(queue):
+    finder = None
     while True:
         arg = queue.get()
         if arg == "STOP": return
-        model_name, meta = arg
-        try:
-            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
-                json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Loading data"}}, file)
-            dataset, (train_patients, val_patients, _) = load_raw_data(sample=SAMPLE_MODEL_TRAINING_DATA)
-            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
-                json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Loading variables"}}, file)
-            modeling_df = make_modeling_variables(dataset, meta["variables"], meta["timestep_definition"])
-            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
-                json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Building model"}}, file)
-            make_model(dataset, meta, train_patients, val_patients, save_name=model_name, modeling_df=modeling_df)
-        except KeyboardInterrupt:
-            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
-                json.dump(meta, file)
-            return
-        except Exception as e:
-            import traceback
-            print(traceback.format_exc())
-            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
-                json.dump({**meta, "training": True, "status": {"state": "error", "message": str(e)}}, file)
-    
+        command, model_name, meta = arg
+        if command == "train_model":
+            try:
+                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                    json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Loading data"}}, file)
+                dataset, (train_patients, val_patients, _) = load_raw_data(sample=SAMPLE_MODEL_TRAINING_DATA)
+                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                    json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Loading variables"}}, file)
+                modeling_df = make_modeling_variables(dataset, meta["variables"], meta["timestep_definition"])
+                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                    json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Building model"}}, file)
+                make_model(dataset, meta, train_patients, val_patients, save_name=model_name, modeling_df=modeling_df)
+            except KeyboardInterrupt:
+                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                    json.dump(meta, file)
+                return
+            except Exception as e:
+                import traceback
+                print(traceback.format_exc())
+                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                    json.dump({**meta, "training": True, "status": {"state": "error", "message": str(e)}}, file)
+        elif command == "find_slices":
+            if finder is None:
+                finder = SliceDiscoveryHelper(MODEL_DIR, 
+                                                SLICES_DIR, 
+                                                min_items_fraction=0.01,
+                                                samples_per_model=100,
+                                            max_features=3,
+                                            scoring_fraction=0.05,
+                                            num_candidates=20,
+                                            similarity_threshold=0.7)
+            finder.find_slices(model_name, lambda valid_df: {"group_filter": valid_df.encode_filter(sf.filters.ExcludeIfAny([
+                                                sf.filters.ExcludeFeatureValueSet(COMORBIDITY_FIELDS, ["No"]),
+                                                sf.filters.ExcludeFeatureValueSet([
+                                                    'Invasive Ventilation', 'Non-invasive Ventilation', 'Dialysis', 'Thoracentesis', 'Cardioversion/Defibrillation'
+                                                ], ["No"]),
+                                                sf.filters.ExcludeFeatureValueSet(list(PRESCRIPTIONS.keys()), ["No"]),
+                                                sf.filters.ExcludeFeatureValueSet([c for c in (DISCRETE_EVENT_COLUMNS + [x + " Delta" for x in NUMERICAL_COLUMNS] + ["Pain Level", "BMI"])
+                                                                                   if c in valid_df], ["Missing"]),
+                                                sf.filters.ExcludeFeatureValueSet([c for c in NUMERICAL_COLUMNS if c in valid_df], ["missing"])
+                                                ]))})
+
 def _get_model_training_status(model_name):
     if os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
         with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "r") as file:
@@ -69,8 +96,14 @@ if __name__ == '__main__':
     queue = mp.Queue()
     model_worker = mp.Process(target=_background_model_generation, args=(queue,))
     model_worker.start()
+    
+    if os.path.exists(TASK_PROGRESS_DIR): rmtree(TASK_PROGRESS_DIR)
+    os.mkdir(TASK_PROGRESS_DIR)
 
-    sample_dataset, _ = load_raw_data(sample=True)
+    # sample_dataset, _ = load_raw_data(sample=True)
+    
+    sample_dataset, _ = load_raw_data(sample=SAMPLE_MODEL_TRAINING_DATA, cache_dir="data/slicing_variables", val_only=True)
+    evaluator = SliceEvaluationHelper(MODEL_DIR, SLICES_DIR)
 
     @app.route('/models', methods=["GET"])
     def get_models():
@@ -139,7 +172,7 @@ if __name__ == '__main__':
                     "state": "loading", 
                     "message": "Starting"
                 }}, file)
-        queue.put((model_name, meta))
+        queue.put(("train_model", model_name, meta))
         return f"Started training model '{model_name}'", 200
         
     @app.route("/data/query")
@@ -205,6 +238,116 @@ if __name__ == '__main__':
                 meta = json.load(file)
             with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
                 json.dump({k: v for k, v in meta.items() if k not in ("training", "status")}, file)
+        
+    @app.route("/slices/<model_name>/start")
+    def start_slice_finding(model_name):
+        if os.path.exists(os.path.join(MODEL_DIR, f"slices_{model_name}.json")):
+            with open(os.path.join(MODEL_DIR, f"slices_{model_name}.json"), "r") as file:
+                slice_progress = json.load(file)
+                if slice_progress.get("searching", False) and slice_progress["status"]["state"] != "error":
+                    return "Already finding slices", 400
+        else:
+            slice_progress = {}
+    
+        if not os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
+            return "Model does not exist", 404
+        
+        with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "r") as file:
+            spec = json.load(file)
+
+        if spec.get("training", False):
+            return "Model is being trained", 400
+        
+        # Start searching
+        queue.put(("find_slices", model_name, slice_progress))
+        search_status = {"state": "loading", "message": "Starting", "model_name": model_name}
+        finder = SliceDiscoveryHelper(MODEL_DIR, SLICES_DIR)
+        finder.write_status(True, search_status=search_status)
+        return jsonify(finder.get_status())
+            
+    @app.route("/slices/status")
+    def get_slice_status():
+        slice_finder = SliceDiscoveryHelper(MODEL_DIR, SLICES_DIR)
+        status = slice_finder.get_status()
+        return jsonify(status)
+    
+    @app.route("/slices/<model_names>")
+    def get_slices(model_names):
+        # TODO add weights as a query parameter
+        model_names = model_names.split(",")
+        
+        timestep_def = None
+        for name in model_names:
+            with open(os.path.join(MODEL_DIR, f"spec_{name}.json"), "r") as file:
+                spec = json.load(file)
+            if timestep_def is not None and spec["timestep_definition"] != timestep_def:
+                return "Cannot get slices for models with multiple timestep definitions", 400
+            timestep_def = spec["timestep_definition"]
+            
+        weights = evaluator.get_default_weights(model_names)
+
+        result = evaluator.get_results(timestep_def, model_names)
+        if result is None:
+            return jsonify({"results": {}})
+        
+        rank_list, metrics, df = result
+        ranked = rank_list.rank(weights, n_slices=20)
+        print(ranked)
+        results_json = [
+            evaluator.describe_slice(rank_list,
+                                     metrics,
+                                     slice_obj,
+                                     model_names)
+            for slice_obj in ranked
+        ]
+        base_slice = sf.slices.Slice(sf.slices.SliceFeatureBase())
+        response = {
+            "state": "complete", "results": {
+                "slices": results_json,
+                "score_weights": weights,
+                "value_names": df.value_names,
+                "base_slice": evaluator.describe_slice(rank_list,
+                                                       metrics,
+                                                       base_slice.rescore(rank_list.score_slice(base_slice)), 
+                                                       model_names)
+            }
+        }
+        response = sf.utils.convert_to_native_types(response)
+        return jsonify(response)
+        
+    @app.route("/slices/<model_names>/score", methods=["POST"])
+    def score_slice(model_names):
+        model_names = model_names.split(",")
+        
+        timestep_def = None
+        for name in model_names:
+            with open(os.path.join(MODEL_DIR, f"spec_{name}.json"), "r") as file:
+                spec = json.load(file)
+            if timestep_def is not None and spec["timestep_definition"] != timestep_def:
+                return "Cannot get slices for models with multiple timestep definitions", 400
+            timestep_def = spec["timestep_definition"]
+
+        body = request.json
+        if "sliceRequests" not in body:
+            return "'sliceRequests' key required", 400
+        
+        if len(body["sliceRequests"]) == 0:
+            return jsonify({"sliceRequestResults": {}})
+        
+        result = evaluator.get_results(timestep_def, model_names)
+        if result is None:
+            return jsonify({"sliceRequestResults": {}})
+        
+        rank_list, metrics, df = result
+        slices_to_score = {k: rank_list.encode_slice(v) for k, v in body["sliceRequests"].items()}
+        results_json = sf.utils.convert_to_native_types({
+            k: evaluator.describe_slice(rank_list,
+                                        metrics, 
+                                        slice_obj.rescore(rank_list.score_slice(slice_obj)),
+                                        model_names)
+            for k, slice_obj in slices_to_score.items()
+        })
+        return jsonify({ "sliceRequestResults": results_json })
         
     # Path for our main Svelte page
     @app.route("/")

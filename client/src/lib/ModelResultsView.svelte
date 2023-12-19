@@ -35,11 +35,11 @@
       console.log(metrics);
     } catch (e) {
       console.error('error loading model metrics:', e);
-      setTimeout(checkTrainingStatus, 1000);
+      trainingStatusTimer = setTimeout(checkTrainingStatus, 1000);
     }
   }
 
-  let trainingStatusTimer: NodeJS.Timeout | null = null;
+  let trainingStatusTimer: any | null = null;
 
   onDestroy(() => {
     if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
