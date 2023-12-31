@@ -4,6 +4,7 @@
   import ModelEditor from './lib/ModelEditor.svelte';
   import ModelResultsView from './lib/ModelResultsView.svelte';
   import SlicesView from './lib/SlicesView.svelte';
+  import Sidebar from './lib/Sidebar.svelte';
 
   let models: { [key: string]: ModelSummary } = {};
 
@@ -40,29 +41,7 @@
     class="w-1/4 border-r border-slate-400 h-full shrink-0 grow-0"
     style="max-width: 500px;"
   >
-    <div class="my-2 text-lg font-bold px-4">Models</div>
-    {#each Object.entries(models) as [modelName, model]}
-      <button
-        class="flex items-center text-left py-2 px-4 font-mono w-full {currentModel ==
-        modelName
-          ? 'bg-blue-600 text-white hover:bg-blue-700'
-          : 'hover:bg-slate-100'}"
-        on:click={() => (currentModel = modelName)}
-      >
-        <div class="flex-auto">
-          {modelName}
-        </div>
-        {#if model.training && !!model.status}
-          <div
-            class="text-xs font-sans {currentModel == modelName
-              ? 'text-slate-50'
-              : 'text-slate-500'}"
-          >
-            {model.status.state}
-          </div>
-        {/if}
-      </button>
-    {/each}
+    <Sidebar {models} bind:activeModel={currentModel} />
   </div>
   <div class="flex-auto h-full flex flex-col w-0">
     <div
