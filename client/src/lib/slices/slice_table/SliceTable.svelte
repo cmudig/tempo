@@ -1,5 +1,10 @@
 <script lang="ts">
-  import type { Slice, SliceFeatureBase } from '../utils/slice.type';
+  import type {
+    Slice,
+    SliceFeatureBase,
+    SliceMetric,
+    SliceMetricInfo,
+  } from '../utils/slice.type';
   import SliceRow from './SliceRow.svelte';
   import Fa from 'svelte-fa/src/fa.svelte';
   import Hoverable from '../utils/Hoverable.svelte';
@@ -24,8 +29,9 @@
   export let showHeader = true;
 
   export let slices: Array<Slice> = [];
-  export let selectedSlices: Array<Slice> = [];
-  export let savedSlices: Array<Slice> = [];
+  export let selectedSlices: Array<SliceFeatureBase> = [];
+  export let selectedSlice: SliceFeatureBase | null = null; // if not allowMultiselect
+  export let savedSlices: Array<SliceFeatureBase> = [];
 
   export let baseSlice: Slice | null = null;
   export let sliceRequests: { [key: string]: any } = {};
@@ -34,29 +40,42 @@
   export let fixedFeatureOrder: Array<any> = [];
   export let searchBaseSlice: any = null;
 
+  export let showCheckboxes = true;
+  export let allowShowScores = true;
   export let showScores = false;
   export let positiveOnly = false;
 
   export let valueNames: any = {};
   export let allowedValues: any = {};
 
-  export let metricNames = [];
-  export let metricInfo = {};
-  export let scoreNames = [];
+  export let metricGroups: string[] | null = null;
+  export let metricNames: any[] = [];
+  export let metricGetter: (slice: Slice, key: any) => SliceMetric = (
+    slice,
+    key
+  ) => slice.metrics![key] as SliceMetric;
+  export let metricInfo:
+    | { [key: string]: SliceMetricInfo }
+    | ((key: string) => SliceMetricInfo) = {};
+  export let scoreNames: string[] = [];
   export let scoreWidthScalers = {};
 
-  let editingSlice = null;
-  let tempRevertedSlice = null;
+  export let allowFavorite: boolean = true;
+  export let allowEdit: boolean = true;
+  export let allowSearch: boolean = true;
+  export let allowMultiselect: boolean = true;
+
+  let editingSlice: string | null = null;
+  let tempRevertedSlice: string | null = null;
 
   // Drag and drop metrics logic
 
-  let clickingColumn = null; // prepare for drag
-  let draggingColumn = null; // track drag action
-  let droppingColumn = null;
+  let clickingColumn: string | null = null; // prepare for drag
+  let draggingColumn: string | null = null; // track drag action
   let dropRight = false;
 
-  function metricDragStart(e, colName) {
-    e.dataTransfer.effectAllowed = 'move';
+  function metricDragStart(e: DragEvent, colName: string) {
+    if (!!e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
     draggingColumn = colName;
   }
 
@@ -65,12 +84,12 @@
   }
 
   function metricDragEnter(e: any, colName: string) {
-    if (colName == draggingColumn) {
-      droppingColumn = null;
+    if (!draggingColumn || colName == draggingColumn) {
       return false;
     }
-    let startIdx = metricNames.indexOf(draggingColumn);
-    let endIdx = metricNames.indexOf(colName);
+    let names = metricGroups ?? metricNames;
+    let startIdx = names.indexOf(draggingColumn);
+    let endIdx = names.indexOf(colName);
     dropRight = startIdx < endIdx;
     e.target.classList.add('drop-zone');
     e.target.classList.add(dropRight ? 'drop-zone-r' : 'drop-zone-l');
@@ -84,18 +103,20 @@
 
   function metricDrop(e: any, colName: string) {
     e.target.classList.remove('drop-zone');
-    if (draggingColumn != colName) {
-      let startIdx = metricNames.indexOf(draggingColumn);
-      let endIdx = metricNames.indexOf(colName);
-      let newOrder = Array.from(metricNames);
+    if (!!draggingColumn && draggingColumn != colName) {
+      let names = metricGroups ?? metricNames;
+      let startIdx = names.indexOf(draggingColumn);
+      let endIdx = names.indexOf(colName);
+      let newOrder = Array.from(names);
       newOrder.splice(startIdx, 1);
-      metricNames = [
+      let newNames = [
         ...newOrder.slice(0, endIdx),
         draggingColumn,
         ...newOrder.slice(endIdx),
       ];
+      if (!!metricGroups) metricGroups = newNames;
+      else metricNames = newNames;
     }
-    droppingColumn = null;
     return false;
   }
 
@@ -128,7 +149,19 @@
   }
 
   function selectSlice(slice: Slice, selected: boolean = true) {
-    if (selected) selectedSlices = [...selectedSlices, slice];
+    if (!allowMultiselect) {
+      if (selected) {
+        selectedSlice = slice.feature;
+        selectedSlices = [slice.feature];
+      } else {
+        selectedSlice = null;
+        selectedSlices = [];
+      }
+      console.log('selected:', selectedSlices);
+      return;
+    }
+
+    if (selected) selectedSlices = [...selectedSlices, slice.feature];
     else {
       let idx = selectedSlices.findIndex((s) =>
         areObjectsEqual(s, slice.feature)
@@ -140,11 +173,6 @@
         ];
     }
   }
-
-  $: console.log(
-    `table with ${slices.length} slices has selected slices:`,
-    selectedSlices
-  );
 </script>
 
 <div class="relative">
@@ -152,64 +180,124 @@
     <div
       class="text-left inline-flex align-top font-bold slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600"
     >
-      <div style="width: {TableWidths.Checkbox}px;">
+      <div
+        style="width: {showCheckboxes
+          ? TableWidths.Checkbox
+          : TableWidths.LeftPadding}px;"
+      >
         <div class="p-2 w-full h-full" />
       </div>
       <div style="width: {TableWidths.FeatureList}px;">
         <div class="p-2">Slice</div>
       </div>
-      {#each metricNames as name}
-        <div
-          class="bg-slate-100 hover:bg-slate-200"
-          style="width: {metricInfo[name].visible
-            ? TableWidths.Metric
-            : TableWidths.CollapsedMetric}px;"
-          class:opacity-30={draggingColumn == name}
-          draggable={clickingColumn == name}
-          on:dragstart={(e) => metricDragStart(e, name)}
-          on:dragend={(e) => metricDragEnd(e, name)}
-          on:dragover|preventDefault={() => false}
-          on:dragenter={(e) => metricDragEnter(e, name)}
-          on:dragleave={(e) => metricDragLeave(e, name)}
-          on:drop|preventDefault|stopPropagation={(e) => metricDrop(e, name)}
-        >
-          <Hoverable class="potential-drop-zone p-2 " let:hovering>
-            {#if metricInfo[name].visible}
-              <div class="flex items-center">
-                <div>{name}</div>
-                <div class="flex-1" />
+      {#if !!metricGroups}
+        {#each metricGroups as groupName}
+          {@const matchingMetrics = metricNames.filter(
+            (n) => n[0] == groupName
+          )}
+          <div
+            class="flex flex-col"
+            style="width: {TableWidths.Metric * matchingMetrics.length}px;"
+          >
+            <div
+              class="bg-slate-100 hover:bg-slate-200 w-full"
+              class:opacity-30={draggingColumn == groupName}
+              draggable={clickingColumn == groupName}
+              on:dragstart={(e) => metricDragStart(e, groupName)}
+              on:dragend={(e) => metricDragEnd(e, groupName)}
+              on:dragover|preventDefault={() => false}
+              on:dragenter={(e) => metricDragEnter(e, groupName)}
+              on:dragleave={(e) => metricDragLeave(e, groupName)}
+              on:drop|preventDefault|stopPropagation={(e) =>
+                metricDrop(e, groupName)}
+            >
+              <Hoverable class="potential-drop-zone p-2" let:hovering>
+                <div class="flex items-center">
+                  <div>{groupName}</div>
+                  <div class="flex-1" />
+                  <button
+                    class="ml-2 bg-transparent text-slate-400 cursor-move"
+                    on:mousedown={() => (clickingColumn = groupName)}
+                    on:mouseup={() => (clickingColumn = null)}
+                    class:opacity-0={!hovering}
+                    class:disabled={!hovering}
+                    ><Fa icon={faGripLinesVertical} /></button
+                  >
+                </div>
+              </Hoverable>
+            </div>
+            <div class="flex items-center w-full">
+              {#each matchingMetrics as [_, name]}
+                <div
+                  class="bg-slate-100 text-sm font-normal p-2"
+                  style="width: {TableWidths.Metric}px;"
+                >
+                  {name}
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/each}
+      {:else}
+        {#each metricNames as name}
+          {@const metInfo =
+            typeof metricInfo === 'function'
+              ? metricInfo(name)
+              : metricInfo[name]}
+          <div
+            class="bg-slate-100 hover:bg-slate-200"
+            style="width: {metInfo.visible
+              ? TableWidths.Metric
+              : TableWidths.CollapsedMetric}px;"
+            class:opacity-30={draggingColumn == name}
+            draggable={clickingColumn == name}
+            on:dragstart={(e) => metricDragStart(e, name)}
+            on:dragend={(e) => metricDragEnd(e, name)}
+            on:dragover|preventDefault={() => false}
+            on:dragenter={(e) => metricDragEnter(e, name)}
+            on:dragleave={(e) => metricDragLeave(e, name)}
+            on:drop|preventDefault|stopPropagation={(e) => metricDrop(e, name)}
+          >
+            <Hoverable class="potential-drop-zone p-2 " let:hovering>
+              {#if metInfo.visible}
+                <div class="flex items-center">
+                  <div>{name}</div>
+                  <div class="flex-1" />
+                  <button
+                    class="bg-transparent hover:opacity-60"
+                    class:opacity-0={!hovering}
+                    class:disabled={!hovering}
+                    on:click={(e) => {
+                      if (typeof metricInfo !== 'function') {
+                        let mi = Object.assign({}, metricInfo);
+                        mi[name].visible = !mi[name].visible;
+                        metricInfo = mi;
+                      }
+                    }}><Fa icon={faEye} /></button
+                  >
+                  <button
+                    class="ml-2 bg-transparent text-slate-400 cursor-move"
+                    on:mousedown={() => (clickingColumn = name)}
+                    on:mouseup={() => (clickingColumn = null)}
+                    class:opacity-0={!hovering}
+                    class:disabled={!hovering}
+                    ><Fa icon={faGripLinesVertical} /></button
+                  >
+                </div>
+              {:else}
                 <button
-                  class="bg-transparent hover:opacity-60"
-                  class:opacity-0={!hovering}
-                  class:disabled={!hovering}
+                  class="bg-transparent opacity-30 hover:opacity-60"
                   on:click={(e) => {
                     let mi = Object.assign({}, metricInfo);
                     mi[name].visible = !mi[name].visible;
                     metricInfo = mi;
-                  }}><Fa icon={faEye} /></button
+                  }}><Fa icon={faEyeSlash} /></button
                 >
-                <button
-                  class="ml-2 bg-transparent text-slate-400 cursor-move"
-                  on:mousedown={() => (clickingColumn = name)}
-                  on:mouseup={() => (clickingColumn = null)}
-                  class:opacity-0={!hovering}
-                  class:disabled={!hovering}
-                  ><Fa icon={faGripLinesVertical} /></button
-                >
-              </div>
-            {:else}
-              <button
-                class="bg-transparent opacity-30 hover:opacity-60"
-                on:click={(e) => {
-                  let mi = Object.assign({}, metricInfo);
-                  mi[name].visible = !mi[name].visible;
-                  metricInfo = mi;
-                }}><Fa icon={faEyeSlash} /></button
-              >
-            {/if}
-          </Hoverable>
-        </div>
-      {/each}
+              {/if}
+            </Hoverable>
+          </div>
+        {/each}
+      {/if}
       {#if showScores}
         {#each scoreNames as score, i}
           <div class="bg-slate-100" style="width: {TableWidths.Score}px;">
@@ -219,18 +307,20 @@
           </div>
         {/each}
       {/if}
-      <div
-        class="bg-slate-100 hover:bg-slate-200"
-        on:click={() => (showScores = !showScores)}
-      >
-        <div class="w-full h-full px-4 flex justify-center items-center">
-          {#if showScores}
-            <Fa icon={faAngleLeft} />
-          {:else}
-            <Fa icon={faAngleRight} />
-          {/if}
+      {#if allowShowScores}
+        <div
+          class="bg-slate-100 hover:bg-slate-200"
+          on:click={() => (showScores = !showScores)}
+        >
+          <div class="w-full h-full px-4 flex justify-center items-center">
+            {#if showScores}
+              <Fa icon={faAngleLeft} />
+            {:else}
+              <Fa icon={faAngleRight} />
+            {/if}
+          </div>
         </div>
-      </div>
+      {/if}
     </div>
   {/if}
   {#if !!baseSlice}
@@ -241,19 +331,24 @@
       scoreCellWidth={100}
       {scoreWidthScalers}
       {showScores}
+      showCheckbox={showCheckboxes}
       {metricNames}
       {metricInfo}
-      {valueNames}
+      {metricGetter}
       {allowedValues}
+      {allowEdit}
+      {allowFavorite}
+      {allowSearch}
+      allowSelect={false}
       isSaved={!!savedSlices.find((s) =>
         areObjectsEqual(
-          s.feature,
+          s,
           (sliceRequestResults[baseSlice.stringRep] || baseSlice).feature
         )
       )}
       isSelected={!!selectedSlices.find((s) =>
         areObjectsEqual(
-          s.feature,
+          s,
           (sliceRequestResults[baseSlice.stringRep] || baseSlice).feature
         )
       )}
@@ -285,21 +380,23 @@
       {scoreNames}
       {positiveOnly}
       scoreCellWidth={100}
+      showCheckbox={showCheckboxes}
       {scoreWidthScalers}
       {showScores}
       {metricNames}
       {metricInfo}
+      {metricGetter}
       {allowedValues}
+      {allowEdit}
+      {allowFavorite}
+      {allowSearch}
+      allowSelect={!allowMultiselect}
       {fixedFeatureOrder}
-      rowClass={!!searchBaseSlice &&
-      areObjectsEqual(searchBaseSlice, slice.feature)
-        ? 'bg-indigo-100 hover:bg-indigo-200'
-        : 'hover:bg-slate-100'}
       isSaved={!!savedSlices.find((s) =>
-        areObjectsEqual(s.feature, sliceToShow.feature)
+        areObjectsEqual(s, sliceToShow.feature)
       )}
       isSelected={!!selectedSlices.find((s) =>
-        areObjectsEqual(s.feature, sliceToShow.feature)
+        areObjectsEqual(s, sliceToShow.feature)
       )}
       temporarySlice={tempRevertedSlice == slice.stringRep
         ? slice

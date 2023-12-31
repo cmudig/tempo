@@ -164,7 +164,7 @@
       Edit Model <span class="font-mono">{modelName}</span>
     </h2>
     {#if !!saveError}
-      <div class="mt-2 text-red-500">
+      <div class="mt-2 p-3 text-red-500 bg-red-50">
         Training error: <span class="font-mono">{saveError}</span>
       </div>
     {/if}
@@ -235,16 +235,10 @@
       >
         Reset
       </button>
-      <button
-        class="my-1 py-1.5 text-sm px-4 rounded text-slate-800 bg-blue-100 hover:bg-blue-200 font-bold"
-        on:click={trainModel}
-      >
+      <button class="my-1 btn btn-blue" on:click={trainModel}>
         Overwrite Model
       </button>
-      <button
-        class="my-1 py-1.5 text-sm px-4 rounded text-slate-800 bg-blue-100 hover:bg-blue-200 font-bold"
-        on:click={saveAsNewModel}
-      >
+      <button class="my-1 btn btn-blue" on:click={saveAsNewModel}>
         Save as New Model...
       </button>
     </div>

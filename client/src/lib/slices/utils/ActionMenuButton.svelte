@@ -10,6 +10,12 @@
   export let buttonTitle = 'Show more actions';
   export let buttonStyle = '';
 
+  export let menuWidth = 240;
+
+  export let disabled: boolean = false;
+
+  export let singleClick: boolean = true;
+
   let optionsMenuOpacity = 0.0;
   let optionsMenu: Element;
 
@@ -35,6 +41,10 @@
     optionsMenuOpacity = 0;
     setTimeout(() => (visible = false), 200);
   }
+
+  function dismiss() {
+    visible = false;
+  }
 </script>
 
 <div class="relative">
@@ -43,6 +53,7 @@
     style={buttonStyle}
     id="menu-button"
     title={buttonTitle}
+    {disabled}
     on:click|stopPropagation={showOptionsMenu}
     aria-expanded={visible}
     aria-label="Options menu"
@@ -59,17 +70,17 @@
       on:keydown={(e) => {}}
     />
     <div
-      class="absolute left-0 z-20 w-60 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none transition-opacity duration-200"
-      style="opacity: {optionsMenuOpacity};"
+      class="absolute left-0 z-20 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none transition-opacity duration-200"
+      style="opacity: {optionsMenuOpacity}; width: {menuWidth}px;"
       role="menu"
       aria-orientation="vertical"
       aria-labelledby="menu-button"
       bind:this={optionsMenu}
-      on:click={hideOptionsMenu}
+      on:click={singleClick ? hideOptionsMenu : () => {}}
       on:keydown={(e) => {}}
     >
-      <div class="py-1 menu-options" role="none">
-        <slot name="options" />
+      <div class="menu-options py-1" role="none">
+        <slot name="options" {dismiss} />
       </div>
     </div>
   {/if}

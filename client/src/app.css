@@ -9,13 +9,13 @@
   background-color: #d7dfe9;
 }
 .btn {
-  @apply font-bold py-2 px-4 rounded;
+  @apply py-1.5 text-sm px-4 rounded font-bold;
 }
 .btn-blue {
-  @apply bg-blue-500 text-white;
+  @apply text-slate-800 bg-blue-100;
 }
 .btn-blue:hover {
-  @apply bg-blue-700;
+  @apply bg-blue-200;
 }
 .btn:disabled {
   @apply opacity-30;
@@ -29,7 +29,7 @@
 }
 
 .btn-slate {
-  @apply bg-slate-300;
+  @apply bg-slate-200;
 }
 .btn-slate:hover {
   @apply opacity-70;

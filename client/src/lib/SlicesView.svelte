@@ -16,6 +16,7 @@
   } from './training';
   import SliceSearchView from './SliceSearchView.svelte';
   import type { Slice } from './slices/utils/slice.type';
+  import { areObjectsEqual } from './slices/utils/utils';
 
   const dispatch = createEventDispatcher();
 
@@ -31,12 +32,14 @@
 
   let slices: Slice[] | null = null;
   let baseSlice: Slice | null = null;
+  let retrievedScoreWeights: { [key: string]: number } | null = null;
   let scoreWeights: { [key: string]: number } | null = null;
   let valueNames: { [key: string]: [any, { [key: string]: any }] } | null =
     null;
 
   $: if (modelName) {
     searchStatus = null;
+    scoreWeights = null;
     getSlicesIfAvailable();
     pollSliceStatus();
   }
@@ -75,13 +78,26 @@
     try {
       console.log('Fetching slices');
       retrievingSlices = true;
-      let result = await (await fetch(`/slices/${modelName}`)).json();
+      let result = await (
+        await fetch(`/slices/${modelName}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: !!scoreWeights
+            ? JSON.stringify({
+                score_weights: scoreWeights,
+              })
+            : '',
+        })
+      ).json();
       if (!!result.results.slices) {
         retrievingSlices = false;
         sliceSearchError = null;
         slices = result.results.slices;
         baseSlice = result.results.base_slice;
         scoreWeights = result.results.score_weights;
+        retrievedScoreWeights = result.results.score_weights;
         valueNames = result.results.value_names;
         console.log(slices, baseSlice, scoreWeights, valueNames);
       } else {
@@ -104,7 +120,11 @@
       isTraining = false;
 
       console.log('STARTING slice finding');
-      let result = await (await fetch(`/slices/${modelName}/start`)).json();
+      let result = await (
+        await fetch(`/slices/${modelName}/start`, {
+          method: 'POST',
+        })
+      ).json();
       if (result.searching) {
         searchStatus = result;
         pollSliceStatus();
@@ -118,6 +138,15 @@
     }
   }
 
+  async function stopFindingSlices() {
+    try {
+      await fetch(`/slices/stop_finding`, { method: 'POST' });
+      pollSliceStatus();
+    } catch (e) {
+      console.error("couldn't stop slice finding:", e);
+    }
+  }
+
   let trainingStatusTimer: any | null = null;
   let slicesStatusTimer: any | null = null;
 
@@ -125,11 +154,15 @@
     if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
     if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
   });
+
+  $: if (!areObjectsEqual(retrievedScoreWeights, scoreWeights)) {
+    getSlicesIfAvailable();
+  }
 </script>
 
 <div class="p-4 w-full flex flex-col h-full">
   {#if !!sliceSearchError}
-    <div class="mx-3 mb-2 text-red-500">
+    <div class="p-3 mb-2 text-red-500 bg-red-50">
       Slice search error: <span class="font-mono">{sliceSearchError}</span>
     </div>
   {/if}
@@ -138,7 +171,7 @@
       modelNames={[modelName]}
       slices={slices ?? []}
       {baseSlice}
-      {scoreWeights}
+      bind:scoreWeights
       {valueNames}
       runningSampler={!!searchStatus || loadingSliceStatus}
       {retrievingSlices}
@@ -149,6 +182,7 @@
         ? searchStatus.status.progress
         : null}
       on:load={loadSlices}
+      on:cancel={stopFindingSlices}
     />
   </div>
   <div class="mt-4 rounded bg-slate-100 h-64">Slice Details</div>

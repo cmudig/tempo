@@ -5,6 +5,7 @@
     type SliceFeatureBase,
     type SliceMetric,
     SliceControlStrings,
+    type SliceMetricInfo,
   } from './slices/utils/slice.type';
   import SliceRow from './slices/slice_table/SliceRow.svelte';
   import Hoverable from './slices/utils/Hoverable.svelte';
@@ -13,6 +14,7 @@
     faAngleRight,
     faEye,
     faEyeSlash,
+    faFilter,
     faGripLinesVertical,
     faMinus,
     faPencil,
@@ -20,7 +22,11 @@
     faScaleBalanced,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
-  import { areObjectsEqual, areSetsEqual } from './slices/utils/utils';
+  import {
+    areObjectsEqual,
+    areSetsEqual,
+    sortMetrics,
+  } from './slices/utils/utils';
   import { TableWidths } from './slices/slice_table/tablewidths';
   import SliceTable from './slices/slice_table/SliceTable.svelte';
   import SliceFeatureEditor from './slices/slice_table/SliceFeatureEditor.svelte';
@@ -28,6 +34,8 @@
   import SliceFeature from './slices/slice_table/SliceFeature.svelte';
   import ActionMenuButton from './slices/utils/ActionMenuButton.svelte';
   import { createEventDispatcher } from 'svelte';
+  import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
+  import ScoreWeightMenu from './slices/utils/ScoreWeightMenu.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -68,6 +76,8 @@
   export let selectedSlices: Slice[] = [];
   export let savedSlices: Slice[] = [];
 
+  export let groupedMetrics: boolean = false;
+
   let controlFeatures: { [key in SliceSearchControl]?: any };
   $: controlFeatures = {
     [SliceSearchControl.containsSlice]: containsSlice,
@@ -76,8 +86,11 @@
     [SliceSearchControl.subsliceOfSlice]: subsliceOfSlice,
   };
 
-  let metricNames: string[] = [];
-  let metricInfo = {};
+  let metricNames: any[] = [];
+  let metricGroups: string[] | null = null;
+  let metricInfo: {
+    [key: string]: SliceMetricInfo | { [key: string]: SliceMetricInfo };
+  } = {};
   let scoreNames: string[] = [];
   let scoreWidthScalers: { [key: string]: (v: number) => number } = {};
 
@@ -115,15 +128,42 @@
     // tabulate metric names and normalize
     if (!!testSlice.metrics) {
       let newMetricNames = Object.keys(testSlice.metrics);
-      if (!areSetsEqual(new Set(metricNames), new Set(newMetricNames))) {
-        metricNames = newMetricNames;
-        metricNames.sort();
+      if (
+        newMetricNames.length > 0 &&
+        !testSlice.metrics[newMetricNames[0]].hasOwnProperty('type')
+      ) {
+        // grouped metrics
+        groupedMetrics = true;
+        if (
+          metricGroups !== null &&
+          !areSetsEqual(new Set(metricGroups), new Set(newMetricNames))
+        ) {
+          metricGroups = newMetricNames;
+          metricGroups.sort();
+        } else if (metricGroups === null) metricGroups = newMetricNames;
+        metricNames = metricGroups
+          .map((g) =>
+            Object.keys(testSlice!.metrics![g])
+              .sort(sortMetrics)
+              .map((m) => [g, m])
+          )
+          .flat();
+      } else {
+        groupedMetrics = false;
+        metricGroups = null;
+        if (!areSetsEqual(new Set(metricNames), new Set(newMetricNames))) {
+          metricNames = newMetricNames;
+          metricNames.sort(sortMetrics);
+        }
       }
+
       updateMetricInfo(testSlice.metrics);
     }
   } else {
     scoreNames = [];
     scoreWidthScalers = {};
+    groupedMetrics = false;
+    metricGroups = null;
     metricNames = [];
     metricInfo = {};
   }
@@ -157,40 +197,64 @@
     allowedValues = null;
   }
 
-  function updateMetricInfo(testMetrics: { [key: string]: SliceMetric }) {
+  function getMetric<T>(
+    metrics: { [key: string]: T | { [key: string]: T } },
+    key: string | [string, string]
+  ): T | undefined {
+    if (Array.isArray(key)) {
+      if (!metrics[key[0]]) return undefined;
+      return (metrics[key[0]] as { [key: string]: T })[key[1]]! as T;
+    } else return metrics[key]! as T;
+  }
+
+  function updateMetricInfo(
+    testMetrics:
+      | { [key: string]: SliceMetric }
+      | { [key: string]: { [key: string]: SliceMetric } }
+  ) {
     let oldMetricInfo = metricInfo;
     metricInfo = {};
     metricNames.forEach((n) => {
-      if (testMetrics[n].type == 'binary' || testMetrics[n].type == 'count') {
+      let met = getMetric(testMetrics, n);
+      if (!met) return;
+
+      let newInfo: SliceMetricInfo = { visible: true };
+
+      if (met.type == 'binary' || met.type == 'count') {
         let maxScore =
-          testMetrics[n].type == 'count'
+          met.type == 'count'
             ? allSlices.reduce(
-                (curr, next) => Math.max(curr, next.metrics[n].mean),
+                (curr, next) =>
+                  Math.max(curr, getMetric(next.metrics!, n)!.mean!),
                 -1e9
               ) + 0.01
             : 1;
         let minScore =
           allSlices.reduce(
-            (curr, next) => Math.min(curr, next.metrics[n].mean),
+            (curr, next) => Math.min(curr, getMetric(next.metrics!, n)!.mean!),
             1e9
           ) - 0.01;
-        metricInfo[n] = { scale: (v: number) => v / maxScore };
-      } else if (testMetrics[n].type == 'categorical') {
+        newInfo.scale = (v: number) => v / maxScore;
+      } else if (met.type == 'categorical') {
         let uniqueKeys: Set<string> = new Set();
         allSlices.forEach((s) =>
-          Object.keys(s.metrics[n].counts).forEach((v) => uniqueKeys.add(v))
+          Object.keys(s.metrics![n].counts!).forEach((v) => uniqueKeys.add(v))
         );
         let order = Array.from(uniqueKeys);
-        order.sort(
-          (a, b) => testMetrics[n].counts[b] - testMetrics[n].counts[a]
-        );
-        metricInfo[n] = { order };
-      } else {
-        metricInfo[n] = {};
+        order.sort((a, b) => met.counts![b] - met.counts![a]);
+        newInfo.order = order;
       }
-      metricInfo[n].visible = (oldMetricInfo[n] || { visible: true }).visible;
+      newInfo.visible = (
+        getMetric<SliceMetricInfo>(oldMetricInfo, n) || { visible: true }
+      ).visible;
+
+      if (groupedMetrics) {
+        if (!metricInfo[n[0]]) metricInfo[n[0]] = {};
+        (metricInfo[n[0]] as { [key: string]: SliceMetricInfo })[n[1]] =
+          newInfo;
+      } else metricInfo[n] = newInfo;
     });
-    console.log('metric info:', metricInfo, testMetrics);
+    console.log('metric info:', metricNames, metricInfo, testMetrics);
   }
 
   let searchViewHeader: HTMLElement;
@@ -233,11 +297,11 @@
 </script>
 
 <div class="w-full h-full flex flex-col">
-  <div class="mb-2">
+  <div class="mb-3">
     {#if runningSampler}
-      <div class="flex items-center py-3">
+      <div class="flex items-center">
         <button
-          class="ml-2 mr-4 btn btn-blue disabled:opacity-50"
+          class="mr-4 btn btn-blue disabled:opacity-50"
           on:click={() => dispatch('cancel')}>Stop</button
         >
         {#if samplerRunProgress == null}
@@ -283,9 +347,9 @@
         </div>
       </div>
     {:else}
-      <div class="flex pl-3 items-stretch">
+      <div class="flex items-stretch">
         <div class="flex-1 w-0 pr-3">
-          <div class="flex items-center whitespace-nowrap py-3 gap-3">
+          <div class="flex items-center whitespace-nowrap gap-3">
             <button
               class="btn btn-blue"
               on:click={() => dispatch('load')}
@@ -296,10 +360,11 @@
               buttonClass="btn btn-slate"
               buttonStyle="padding-left: 1rem;"
               buttonTitle="Add a filter option"
+              disabled={retrievingSlices}
             >
               <span slot="button-content"
-                ><Fa icon={faPlus} class="inline mr-1" />
-                Filter</span
+                ><Fa icon={faFilter} class="inline mr-1" />
+                Add Filter</span
               >
               <div slot="options">
                 {#each Object.values(SliceSearchControl) as control}
@@ -313,6 +378,37 @@
                     >
                   {/if}
                 {/each}
+              </div>
+            </ActionMenuButton>
+            <ActionMenuButton
+              buttonClass="btn btn-slate"
+              buttonStyle="padding-left: 1rem;"
+              buttonTitle="Adjust weights for how slices are ranked"
+              disabled={retrievingSlices}
+              menuWidth={400}
+              singleClick={false}
+            >
+              <span slot="button-content"
+                ><Fa icon={faScaleBalanced} class="inline mr-1" />
+                Sort</span
+              >
+              <div
+                slot="options"
+                let:dismiss
+                class="p-4 overflow-scroll relative"
+                style="max-height: 500px;"
+              >
+                <ScoreWeightMenu
+                  collapsible={false}
+                  showApplyButton
+                  weights={scoreWeights}
+                  {scoreNames}
+                  on:apply={(e) => {
+                    scoreWeights = e.detail;
+                    dismiss();
+                  }}
+                  on:cancel={dismiss}
+                />
               </div>
             </ActionMenuButton>
           </div>
@@ -333,11 +429,16 @@
           {positiveOnly}
           {valueNames}
           {allowedValues}
-          bind:metricInfo
+          {metricGroups}
+          allowFavorite={false}
+          allowMultiselect={false}
+          metricInfo={(n) => getMetric(metricInfo, n)}
+          metricGetter={(s, name) => getMetric(s.metrics, name)}
           bind:metricNames
           bind:scoreNames
           bind:scoreWidthScalers
-          bind:showScores
+          allowShowScores={false}
+          showCheckboxes={false}
           on:newsearch={(e) => {
             updateEditingControl(e.detail.type, e.detail.base_slice);
             toggleSliceControl(e.detail.type, true);
@@ -351,7 +452,7 @@
           bind:this={samplerPanel}
         >
           <div
-            class="mx-2 pt-3 rounded transition-colors duration-300 bg-slate-200 text-gray-700 border-slate-200 border-2 box-border"
+            class="pt-3 rounded bg-slate-100 text-gray-700 border-slate-100 border-2 box-border"
           >
             <div class="flex pl-3 items-stretch">
               <div class="flex-1 w-0 pr-3">
@@ -426,11 +527,16 @@
           {valueNames}
           {allowedValues}
           showHeader={false}
-          bind:metricInfo
+          {metricGroups}
+          allowFavorite={false}
+          allowMultiselect={false}
+          metricInfo={(n) => getMetric(metricInfo, n)}
+          metricGetter={(s, name) => getMetric(s.metrics, name)}
           bind:metricNames
           bind:scoreNames
           bind:scoreWidthScalers
-          bind:showScores
+          allowShowScores={false}
+          showCheckboxes={false}
           on:newsearch={(e) => {
             updateEditingControl(e.detail.type, e.detail.base_slice);
             toggleSliceControl(e.detail.type, true);

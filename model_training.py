@@ -29,10 +29,11 @@ for col in drug_categories.columns:
     assert not any("," in n for n in matching_names.values)
     PRESCRIPTIONS[col] = matching_names.values.tolist()
 
-def load_raw_data(sample=False, cache_dir=None, val_only=False):
-    attributes = AttributeSet(pd.read_feather("data/attributes.arrow"))
-    events = EventSet(pd.read_feather("data/events.arrow"), id_field="icustayid", time_field="charttime")
-    intervals = IntervalSet(pd.read_feather("data/intervals.arrow"), id_field="icustayid")
+def load_raw_data(sample=False, data_dir=None, cache_dir=None, val_only=False):
+    if data_dir is None: data_dir = "data"
+    attributes = AttributeSet(pd.read_feather(f"{data_dir}/attributes.arrow"))
+    events = EventSet(pd.read_feather(f"{data_dir}/events.arrow"), id_field="icustayid", time_field="charttime")
+    intervals = IntervalSet(pd.read_feather(f"{data_dir}/intervals.arrow"), id_field="icustayid")
     
     los = attributes.get("outtime") - attributes.get("intime")
     valid_patients = los.filter((los >= Duration(4, 'hr')) & (los <= Duration(30, 'days'))).get_ids()
@@ -43,13 +44,13 @@ def load_raw_data(sample=False, cache_dir=None, val_only=False):
     events = events.filter(events.get_ids().isin(valid_patients))
     intervals = intervals.filter(intervals.get_ids().isin(valid_patients))
     
-    if not os.path.exists("data/train_test_split.pkl"):
+    if not os.path.exists(f"{data_dir}/train_test_split.pkl"):
         train_patients, val_patients = train_test_split(attributes.index.unique(), train_size=0.333)
         val_patients, test_patients = train_test_split(val_patients, test_size=0.5)
-        with open("data/train_test_split.pkl", "wb") as file:
+        with open(f"{data_dir}/train_test_split.pkl", "wb") as file:
             pickle.dump((train_patients, val_patients, test_patients), file)
     else:
-        with open("data/train_test_split.pkl", "rb") as file:
+        with open(f"{data_dir}/train_test_split.pkl", "rb") as file:
             train_patients, val_patients, test_patients = pickle.load(file)
 
     if val_only:
@@ -166,7 +167,8 @@ def make_model(dataset, model_meta, train_patients, val_patients, modeling_df=No
         
     outcome = dataset.query("(" + model_meta['outcome'] + 
                                 (f" where {model_meta['cohort']}" if model_meta.get('cohort', '') else '') + ")" + 
-                                " " + model_meta["timestep_definition"], use_cache=False)    
+                                " " + ("[impute 0]" if not model_meta.get("regression", False) else "") + 
+                                model_meta["timestep_definition"]) 
     print((~pd.isna(outcome.get_values())).sum())
     
     if "regression" not in model_meta:

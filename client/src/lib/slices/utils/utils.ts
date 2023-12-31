@@ -148,3 +148,14 @@ export function featuresHaveSameTree(
   }
   return true;
 }
+
+const prefixMetrics = ['count', 'timesteps', 'trajectories'];
+
+export function sortMetrics(a: string, b: string): number {
+  if (prefixMetrics.includes(a.toLocaleLowerCase())) {
+    if (prefixMetrics.includes(b.toLocaleLowerCase()))
+      return a.localeCompare(b);
+    else return -1;
+  } else if (prefixMetrics.includes(b.toLocaleLowerCase())) return 1;
+  return a.localeCompare(b);
+}

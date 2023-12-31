@@ -5,20 +5,20 @@ import json
 import pickle
 from query_language.data_types import *
 from model_training import make_query, MODEL_DIR, load_raw_data
+from sklearn.metrics import roc_curve
 import slice_finding as sf
   
 def make_slicing_variables(dataset, variable_definitions, timestep_definition):
     """Creates the slicing variables dataframe."""
     query = make_query(variable_definitions, timestep_definition)
     print(query)
-    variable_df = dataset.query(query).values
+    variable_df = dataset.query(query)
     
-    discrete_df = sf.discretization.discretize_data(variable_df, {
+    discrete_df = sf.discretization.discretize_data(variable_df.values, {
         col: { "method": "unique" }
-        for col in variable_df.columns
+        for col in variable_df.values.columns
     })
-    del variable_df
-    return discrete_df
+    return discrete_df, variable_df.index.get_ids()
 
 HOLDOUT_FRACTION = 0.5
 
@@ -51,7 +51,7 @@ def find_slices(discrete_df, score_fns, progress_fn=None, n_samples=100, seen_sl
         **kwargs
     )
     if seen_slices is not None:
-        finder.seen_slices = seen_slices
+        finder.seen_slices = {**seen_slices}
         finder.all_scores += list(seen_slices.keys())
     
     finder.progress_fn = progress_fn
@@ -159,8 +159,7 @@ class SliceDiscoveryHelper(SliceHelper):
                 self.write_status(True, search_status={"state": "loading", "message": "Loading variables", "model_name": model_name})
                 
                 with open(os.path.join("data", "slice_variables.json"), "r") as file:
-                    discrete_df = make_slicing_variables(dataset, json.load(file), timestep_def) 
-                    print(timestep_def)
+                    discrete_df, _ = make_slicing_variables(dataset, json.load(file), timestep_def) 
                     discovery_mask = get_slicing_split(self.results_dir, discrete_df, timestep_def)[0]
                     valid_df = discrete_df.filter(discovery_mask)
                     self.discrete_dfs[timestep_def] = valid_df
@@ -206,7 +205,7 @@ class SliceDiscoveryHelper(SliceHelper):
                                                             min_items=min_items, 
                                                             device='cpu')
             
-            for r in results:
+            for r in new_results:
                 r = r.rescore({**r.score_values, **(rescored_results[r].score_values if rescored_results.get(r, None) is not None else {})})
                 if r in self.slice_scores[timestep_def]:
                     del self.slice_scores[timestep_def][r]
@@ -231,6 +230,7 @@ class SliceEvaluationHelper(SliceHelper):
         self.discrete_dfs = {}
         self.eval_score_caches = {}
         self.metrics = {}
+        self.eval_ids = {} 
         
     def get_default_weights(self, model_names):
         return {**{n: 1.0 for model_name in model_names
@@ -238,19 +238,45 @@ class SliceEvaluationHelper(SliceHelper):
                              f"{model_name}_pred", f"{model_name}_pred_share", f"{model_name}_pred_xf"]},
                 "size": 0.5, "complexity": 0.5}
         
-    def describe_slice(self, rank_list, metrics, slice_obj, model_names):
+    def describe_slice(self, rank_list, metrics, ids, slice_obj, model_names):
         """
         Generates a slice description of the given slice, adding count variables
         for each model outcome.
         """
         desc, mask = rank_list.generate_slice_description(slice_obj, metrics=metrics, return_slice_mask=True)
-        del desc["metrics"]["Count"]
+        old_desc_metrics = desc["metrics"]
+        desc["metrics"] = {}
+        
         for model_name in model_names:
             true_outcome = metrics[f"{model_name} True"]
-            print(model_name, len(true_outcome), pd.isna(true_outcome).sum())
             total_nonna = (~pd.isna(true_outcome)).sum()
             matching_nonna = (~pd.isna(true_outcome[mask])).sum()
-            desc["metrics"][f"{model_name} Count"] = {"type": "count", "count": matching_nonna, "share": matching_nonna / total_nonna}
+            
+            total_unique_ids = len(np.unique(ids[~pd.isna(true_outcome)]))
+            
+            pred_outcome = metrics[f"{model_name} Predicted"]
+            slice_true = true_outcome[mask]
+            slice_pred = pred_outcome[mask]
+            fpr, tpr, thresholds = roc_curve(slice_true[~pd.isna(slice_true)], slice_pred[~pd.isna(slice_true)])
+            opt_threshold = thresholds[np.argmax(tpr - fpr)]
+            acc = ((slice_pred[~pd.isna(slice_true)] >= opt_threshold) == slice_true[~pd.isna(slice_true)]).mean()
+            matching_unique_ids = len(np.unique(ids[mask][~pd.isna(slice_true)]))
+            
+            print(desc["feature"], model_name, total_nonna, matching_nonna)
+            desc["metrics"][model_name] = {
+                "Timesteps": {"type": "count", "count": matching_nonna, "share": matching_nonna / total_nonna},
+                "Trajectories": {"type": "count", 
+                                 "count": matching_unique_ids, 
+                                 "share": matching_unique_ids / total_unique_ids},
+                "True": old_desc_metrics[f"{model_name} True"],
+                "Accuracy": {"type": "binary", 
+                             "count": matching_nonna, 
+                             "mean": acc}
+            }
+            
+        # Remove scores that aren't related to these model names
+        desc["scoreValues"] = {k: v for k, v in desc["scoreValues"].items() 
+                               if k in ("size", "complexity") or any(k.startswith(model_name + "_") for model_name in model_names)}
         return desc
         
     def get_results(self, timestep_def, model_names):
@@ -273,13 +299,16 @@ class SliceEvaluationHelper(SliceHelper):
             dataset, _ = load_raw_data(cache_dir="data/slicing_variables", val_only=True)
             
             with open(os.path.join("data", "slice_variables.json"), "r") as file:
-                discrete_df = make_slicing_variables(dataset, json.load(file), timestep_def) 
+                discrete_df, ids = make_slicing_variables(dataset, json.load(file), timestep_def) 
                 eval_mask = get_slicing_split(self.results_dir, discrete_df, timestep_def)[1]
                 valid_df = discrete_df.filter(eval_mask)
+                ids = ids.values[eval_mask]
                 self.discrete_dfs[timestep_def] = valid_df
+                self.eval_ids[timestep_def] = ids
         else:
             valid_df = self.discrete_dfs[timestep_def]
             eval_mask = get_slicing_split(self.results_dir, valid_df, timestep_def)[1]
+            ids = self.eval_ids[timestep_def]
             
         score_fns = self.get_score_functions(eval_mask)
         
@@ -291,10 +320,18 @@ class SliceEvaluationHelper(SliceHelper):
             
                 valid_outcomes = outcomes[eval_mask].astype(np.float64)
                 valid_preds = preds[eval_mask]
+                test_slice = valid_df.encode_slice(sf.slices.SliceFeatureNegation(
+                    sf.slices.SliceFeature("Phenylephrine", ["None"]),
+                ).to_dict())
+                test_mask = test_slice.make_mask(valid_df.df)
+                print(model_name)
+                print(pd.isna(np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)).sum(), len(valid_outcomes))
+                print(pd.isna(np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0))[test_mask].sum(), len(valid_outcomes[test_mask]))
+                test_slice = valid_df.encode_slice(sf.slices.SliceFeature("Phenylephrine", ["None"]).to_dict())
+                test_mask = test_slice.make_mask(valid_df.df)
+                print(pd.isna(np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0))[test_mask].sum(), len(valid_outcomes[test_mask]))
                 model_metrics[f"{model_name} True"] = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)
-                with open(os.path.join(self.model_dir, f"metrics_{model_name}.json"), "r") as file:
-                    threshold = json.load(file)['threshold']
-                    model_metrics[f"{model_name} Predicted"] = np.where(np.isnan(valid_preds), np.nan, valid_preds >= threshold)
+                model_metrics[f"{model_name} Predicted"] = np.where(np.isnan(valid_preds), np.nan, valid_preds)
                 self.metrics[model_name] = model_metrics
                 
             metrics.update(self.metrics[model_name])
@@ -304,4 +341,4 @@ class SliceEvaluationHelper(SliceHelper):
                                               score_fns, 
                                               similarity_threshold=0.7)
         rank_list.score_cache = self.eval_score_caches.setdefault(timestep_def, {})
-        return rank_list, metrics, valid_df
+        return rank_list, metrics, ids, valid_df

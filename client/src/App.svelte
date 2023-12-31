@@ -37,7 +37,7 @@
 
 <main class="w-screen h-screen flex">
   <div
-    class="w-1/5 border-r border-slate-400 h-full shrink-0 grow-0"
+    class="w-1/4 border-r border-slate-400 h-full shrink-0 grow-0"
     style="max-width: 500px;"
   >
     <div class="my-2 text-lg font-bold px-4">Models</div>
@@ -65,11 +65,13 @@
     {/each}
   </div>
   <div class="flex-auto h-full flex flex-col w-0">
-    <div class="w-full px-4 py-2 flex gap-6">
+    <div
+      class="w-full px-4 py-2 flex gap-3 bg-slate-300 border-b border-slate-400"
+    >
       {#each [View.results, View.slices, View.editor] as view}
         <button
-          class="rounded-lg my-2 py-1 px-6 {currentView == view
-            ? 'bg-blue-600 text-white hover:bg-blue-700'
+          class="rounded my-2 py-1 px-6 text-center w-32 {currentView == view
+            ? 'bg-blue-600 text-white font-bold hover:bg-blue-700'
             : 'text-slate-700 hover:bg-slate-200'}"
           on:click={() => (currentView = view)}>{view}</button
         >

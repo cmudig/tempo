@@ -23,8 +23,16 @@ def make_aligned_value_series(value_set, other):
 
 def compress_series(v):
     if pd.api.types.is_object_dtype(v.dtype) or isinstance(v.dtype, pd.CategoricalDtype):
+        # Convert category types if needed
         if len(v.unique()) < 64:
-            return v.astype("category")
+            v = v.astype("category")
+            
+        if isinstance(v.dtype, pd.CategoricalDtype) and pd.api.types.is_object_dtype(v.dtype.categories.dtype):
+            try:
+                v = v.cat.rename_categories(v.dtype.categories.astype(int))
+            except ValueError:
+                pass
+            
         return v
     isnan = pd.isna(v)
     try:
@@ -125,19 +133,22 @@ class Attributes(TimeSeriesQueryable):
                 return wrap_pandas_method
         raise AttributeError(name)
     
-    def __abs__(self): return Attributes(self.series.__abs__())
-    def __neg__(self): return Attributes(self.series.__neg__())
-    def __pos__(self): return Attributes(self.series.__pos__())
-    def __invert__(self): return Attributes(self.series.__invert__())
+    def preserve_nans(self, new_values):
+        return new_values.where(~pd.isna(self.series), pd.NA)
+        
+    def __abs__(self): return Attributes(self.preserve_nans(self.series.__abs__()))
+    def __neg__(self): return Attributes(self.preserve_nans(self.series.__neg__()))
+    def __pos__(self): return Attributes(self.preserve_nans(self.series.__pos__()))
+    def __invert__(self): return Attributes(self.preserve_nans(self.series.__invert__()))
     
     def _handle_binary_op(self, opname, other):
         if isinstance(other, (Events, Intervals, TimeIndex, TimeSeries)):
             return NotImplemented
         if isinstance(other, Attributes):
-            return Attributes(getattr(self.series, opname)(other.series).rename(self.name))
+            return Attributes(self.preserve_nans(getattr(self.series, opname)(other.series).rename(self.name)))
         if isinstance(other, Duration):
-            return Attributes(getattr(self.series, opname)(other.value()).rename(self.name))
-        return Attributes(getattr(self.series, opname)(other))
+            return Attributes(self.preserve_nans(getattr(self.series, opname)(other.value()).rename(self.name)))
+        return Attributes(self.preserve_nans(getattr(self.series, opname)(other)))
         
     def __eq__(self, other): return self._handle_binary_op("__eq__", other)
     def __ge__(self, other): return self._handle_binary_op("__ge__", other)
@@ -257,6 +268,9 @@ class Events(TimeSeriesQueryable):
     def get_times(self): return self.df[self.time_field]
     def get_values(self): return self.df[self.value_field]
     
+    def preserve_nans(self, new_values):
+        return new_values.where(~pd.isna(self.get_values()), pd.NA)
+        
     def __getattr__(self, name):
         value_series = self.df[self.value_field]
         if hasattr(value_series, name) and name not in EXCLUDE_SERIES_METHODS:
@@ -325,28 +339,28 @@ class Events(TimeSeriesQueryable):
                                     uniques[np.where(np.isnan(grouped_values), -1, grouped_values).astype(int)])
         
         assert len(grouped_values) == len(index)
-        return TimeSeries(index, pd.Series(grouped_values, name=self.name))
+        return TimeSeries(index, pd.Series(grouped_values, name=self.name).replace(np.nan, pd.NA))
         
     def compress(self):
         """Returns a new TimeSeries with values compressed to the minimum size
         needed to represent them."""
         return self.with_values(compress_series(self.get_values()))
         
-    def with_values(self, new_values):
-        return Events(self.df.assign(**{self.value_field: new_values}),
+    def with_values(self, new_values, preserve_nans=False):
+        return Events(self.df.assign(**{self.value_field: self.preserve_nans(new_values) if preserve_nans else new_values}),
                       type_field=self.type_field,
                       time_field=self.time_field,
                       id_field=self.id_field,
                       value_field=self.value_field,
                       name=self.name)
         
-    def __abs__(self): return self.with_values(self.df[self.value_field].__abs__())
-    def __neg__(self): return self.with_values(self.df[self.value_field].__neg__())
-    def __pos__(self): return self.with_values(self.df[self.value_field].__pos__())
-    def __invert__(self): return self.with_values(self.df[self.value_field].__invert__())
+    def __abs__(self): return self.with_values(self.df[self.value_field].__abs__(), preserve_nans=True)
+    def __neg__(self): return self.with_values(self.df[self.value_field].__neg__(), preserve_nans=True)
+    def __pos__(self): return self.with_values(self.df[self.value_field].__pos__(), preserve_nans=True)
+    def __invert__(self): return self.with_values(self.df[self.value_field].__invert__(), preserve_nans=True)
 
     def _handle_binary_op(self, opname, other):
-        return self.with_values(getattr(self.df[self.value_field], opname)(make_aligned_value_series(self, other)))
+        return self.with_values(getattr(self.df[self.value_field], opname)(make_aligned_value_series(self, other)), preserve_nans=True)
     
     def __eq__(self, other): return self._handle_binary_op("__eq__", other)
     def __ge__(self, other): return self._handle_binary_op("__ge__", other)
@@ -524,6 +538,9 @@ class Intervals(TimeSeriesQueryable):
     def __repr__(self):
         return f"<Intervals '{self.name}': {len(self.df)} values>\n{repr(self.df)}"
     
+    def preserve_nans(self, new_values):
+        return new_values.where(~pd.isna(self.get_values()), pd.NA)
+        
     def __getattr__(self, name):
         value_series = self.df[self.value_field]
         if hasattr(value_series, name) and name not in EXCLUDE_SERIES_METHODS:
@@ -598,10 +615,10 @@ class Intervals(TimeSeriesQueryable):
                                     uniques[np.where(np.isnan(grouped_values), -1, grouped_values).astype(int)])
         
         assert len(grouped_values) == len(index)
-        return TimeSeries(index, pd.Series(grouped_values, name=self.name))
+        return TimeSeries(index, pd.Series(grouped_values, name=self.name).replace(np.nan, pd.NA))
     
-    def with_values(self, new_values):
-        return Intervals(self.df.assign(**{self.value_field: new_values}),
+    def with_values(self, new_values, preserve_nans=False):
+        return Intervals(self.df.assign(**{self.value_field: self.preserve_nans(new_values) if preserve_nans else new_values}),
                       type_field=self.type_field,
                       start_time_field=self.start_time_field,
                       end_time_field=self.end_time_field,
@@ -609,13 +626,13 @@ class Intervals(TimeSeriesQueryable):
                       value_field=self.value_field,
                       name=self.name)
         
-    def __abs__(self): return self.with_values(self.df[self.value_field].__abs__())
-    def __neg__(self): return self.with_values(self.df[self.value_field].__neg__())
-    def __pos__(self): return self.with_values(self.df[self.value_field].__pos__())
-    def __invert__(self): return self.with_values(self.df[self.value_field].__invert__())
+    def __abs__(self): return self.with_values(self.df[self.value_field].__abs__(), preserve_nans=True)
+    def __neg__(self): return self.with_values(self.df[self.value_field].__neg__(), preserve_nans=True)
+    def __pos__(self): return self.with_values(self.df[self.value_field].__pos__(), preserve_nans=True)
+    def __invert__(self): return self.with_values(self.df[self.value_field].__invert__(), preserve_nans=True)
 
     def _handle_binary_op(self, opname, other):
-        return self.with_values(getattr(self.df[self.value_field], opname)(make_aligned_value_series(self, other)))
+        return self.with_values(getattr(self.df[self.value_field], opname)(make_aligned_value_series(self, other)), preserve_nans=True)
     
     def __eq__(self, other): return self._handle_binary_op("__eq__", other)
     def __ge__(self, other): return self._handle_binary_op("__ge__", other)
@@ -1019,8 +1036,11 @@ class TimeSeries(TimeSeriesQueryable):
     def get_values(self):
         return self.series
     
-    def with_values(self, new_values):
-        return TimeSeries(self.index, new_values)
+    def preserve_nans(self, new_values):
+        return new_values.where(~pd.isna(self.get_values()), pd.NA)
+        
+    def with_values(self, new_values, preserve_nans=False):
+        return TimeSeries(self.index, self.preserve_nans(new_values) if preserve_nans else new_values)
     
     def carry_forward_steps(self, steps):
         """Carries forward by the given number of timesteps."""
@@ -1048,7 +1068,7 @@ class TimeSeries(TimeSeriesQueryable):
                                      duration)
         if uniques is not None:
             result = np.where(np.isnan(result), np.nan, uniques[np.where(np.isnan(result), -1, result).astype(int)])
-        return self.with_values(pd.Series(result, index=self.series.index, name=self.series.name))
+        return self.with_values(pd.Series(result, index=self.series.index, name=self.series.name).replace(np.nan, pd.NA))
 
     def aggregate(self, start_times, end_times, agg_func):
         """
@@ -1081,21 +1101,21 @@ class TimeSeries(TimeSeriesQueryable):
             return wrap_pandas_method
         raise AttributeError(name)
     
-    def __abs__(self): return self.with_values(self.series.__abs__())
-    def __neg__(self): return self.with_values(self.series.__neg__())
-    def __pos__(self): return self.with_values(self.series.__pos__())
-    def __invert__(self): return self.with_values(self.series.__invert__())
+    def __abs__(self): return self.with_values(self.series.__abs__(), preserve_nans=True)
+    def __neg__(self): return self.with_values(self.series.__neg__(), preserve_nans=True)
+    def __pos__(self): return self.with_values(self.series.__pos__(), preserve_nans=True)
+    def __invert__(self): return self.with_values(self.series.__invert__(), preserve_nans=True)
     
     def _handle_binary_op(self, opname, other):
         if isinstance(other, (Events, Intervals, TimeIndex)):
             return NotImplemented
         if isinstance(other, Attributes):
-            return self.with_values(getattr(self.series, opname)(make_aligned_value_series(self, other)))
+            return self.with_values(getattr(self.series, opname)(make_aligned_value_series(self, other)), preserve_nans=True)
         if isinstance(other, TimeSeries):
-            return self.with_values(getattr(self.series, opname)(other.series))
+            return self.with_values(getattr(self.series, opname)(other.series), preserve_nans=True)
         if isinstance(other, Duration):
-            return self.with_values(getattr(self.series, opname)(other.value()))
-        return self.with_values(getattr(self.series, opname)(other))
+            return self.with_values(getattr(self.series, opname)(other.value()), preserve_nans=True)
+        return self.with_values(getattr(self.series, opname)(other), preserve_nans=True)
         
     def __eq__(self, other): return self._handle_binary_op("__eq__", other)
     def __ge__(self, other): return self._handle_binary_op("__ge__", other)

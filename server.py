@@ -69,7 +69,7 @@ def _background_model_generation(queue):
                                                 sf.filters.ExcludeFeatureValueSet(list(PRESCRIPTIONS.keys()), ["No"]),
                                                 sf.filters.ExcludeFeatureValueSet([c for c in (DISCRETE_EVENT_COLUMNS + [x + " Delta" for x in NUMERICAL_COLUMNS] + ["Pain Level", "BMI"])
                                                                                    if c in valid_df], ["Missing"]),
-                                                sf.filters.ExcludeFeatureValueSet([c for c in NUMERICAL_COLUMNS if c in valid_df], ["missing"])
+                                                sf.filters.ExcludeFeatureValueSet([c for c in NUMERICAL_COLUMNS if c in valid_df], ["Missing"])
                                                 ]))})
 
 def _get_model_training_status(model_name):
@@ -239,7 +239,7 @@ if __name__ == '__main__':
             with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
                 json.dump({k: v for k, v in meta.items() if k not in ("training", "status")}, file)
         
-    @app.route("/slices/<model_name>/start")
+    @app.route("/slices/<model_name>/start", methods=["POST"])
     def start_slice_finding(model_name):
         if os.path.exists(os.path.join(MODEL_DIR, f"slices_{model_name}.json")):
             with open(os.path.join(MODEL_DIR, f"slices_{model_name}.json"), "r") as file:
@@ -264,16 +264,24 @@ if __name__ == '__main__':
         finder = SliceDiscoveryHelper(MODEL_DIR, SLICES_DIR)
         finder.write_status(True, search_status=search_status)
         return jsonify(finder.get_status())
-            
+    
+    @app.route("/slices/stop_finding", methods=["POST"])
+    def stop_slice_finding():
+        os.kill(model_worker.pid, signal.SIGINT)
+        model_worker.join()
+        print("Restarting model worker")
+        queue = mp.Queue()
+        model_worker = mp.Process(target=_background_model_generation, args=(queue,))
+        model_worker.start()
+      
     @app.route("/slices/status")
     def get_slice_status():
         slice_finder = SliceDiscoveryHelper(MODEL_DIR, SLICES_DIR)
         status = slice_finder.get_status()
         return jsonify(status)
-    
-    @app.route("/slices/<model_names>")
+
+    @app.route("/slices/<model_names>", methods=["POST"])
     def get_slices(model_names):
-        # TODO add weights as a query parameter
         model_names = model_names.split(",")
         
         timestep_def = None
@@ -286,16 +294,28 @@ if __name__ == '__main__':
             
         weights = evaluator.get_default_weights(model_names)
 
+        try:        
+            body = request.json
+            if body and "score_weights" in body:
+                new_weights = body["score_weights"]
+                for n in new_weights:
+                    if n not in weights:
+                        return f"Unexpected score weight {n}", 400
+                weights = {k: new_weights.get(k, 0) for k in weights}
+        except:
+            pass
+
         result = evaluator.get_results(timestep_def, model_names)
         if result is None:
             return jsonify({"results": {}})
         
-        rank_list, metrics, df = result
+        rank_list, metrics, ids, df = result
         ranked = rank_list.rank(weights, n_slices=20)
         print(ranked)
         results_json = [
             evaluator.describe_slice(rank_list,
                                      metrics,
+                                     ids,
                                      slice_obj,
                                      model_names)
             for slice_obj in ranked
@@ -308,6 +328,7 @@ if __name__ == '__main__':
                 "value_names": df.value_names,
                 "base_slice": evaluator.describe_slice(rank_list,
                                                        metrics,
+                                                       ids,
                                                        base_slice.rescore(rank_list.score_slice(base_slice)), 
                                                        model_names)
             }
@@ -338,11 +359,12 @@ if __name__ == '__main__':
         if result is None:
             return jsonify({"sliceRequestResults": {}})
         
-        rank_list, metrics, df = result
+        rank_list, metrics, ids, df = result
         slices_to_score = {k: rank_list.encode_slice(v) for k, v in body["sliceRequests"].items()}
         results_json = sf.utils.convert_to_native_types({
             k: evaluator.describe_slice(rank_list,
                                         metrics, 
+                                        ids,
                                         slice_obj.rescore(rank_list.score_slice(slice_obj)),
                                         model_names)
             for k, slice_obj in slices_to_score.items()

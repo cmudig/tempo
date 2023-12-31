@@ -11,6 +11,12 @@ export interface SliceMetric {
   counts?: { [key: string]: number };
 }
 
+export type SliceMetricInfo = {
+  visible: boolean;
+  scale?: (v: number) => number;
+  order?: any[];
+};
+
 export interface SliceFeatureBase {
   type: any;
 }
@@ -35,12 +41,12 @@ export interface SliceFeatureOr extends SliceFeatureBase {
 }
 
 export interface Slice {
-  stringRep?: string;
+  stringRep: string;
   rawFeature: SliceFeatureBase;
   feature: SliceFeatureBase;
   scoreValues: any;
   isEmpty: boolean;
-  metrics?: { [key: string]: SliceMetric };
+  metrics?: { [key: string]: SliceMetric | { [key: string]: SliceMetric } };
 }
 
 export enum SliceSearchControl {

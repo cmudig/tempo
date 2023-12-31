@@ -8,9 +8,15 @@
     faChevronDown,
     faChevronUp,
   } from '@fortawesome/free-solid-svg-icons';
+  import { createEventDispatcher } from 'svelte';
+
+  const dispatch = createEventDispatcher();
 
   export let weights: { [key: string]: number } = {};
   export let scoreNames: string[] = [];
+
+  export let collapsible = true;
+  export let showApplyButton: boolean = false;
 
   let expanded = false;
 
@@ -108,18 +114,20 @@
     segments={scoreNames
       .map((n, i) => ({
         name: n,
-        color_tailwind: scoreColors[i],
+        color_tailwind: scoreColors[i % scoreColors.length],
       }))
       .filter((n) => weights[n.name] > 0.0)}
     widths={scoreNames.filter((n) => weights[n] > 0.0).map(getWeightFraction)}
     on:change={(e) => updateWeightSubset(e.detail)}
   />
-  {#if expanded}
+  {#if expanded || !collapsible}
     <div class="mt-2">
       {#each scoreNames as score, i}
         <div class="mb-2 flex flex-wrap items-center text-sm">
           <Checkbox
-            colorClass={weights[score] > 0.0 ? 'bg-' + scoreColors[i] : null}
+            colorClass={weights[score] > 0.0
+              ? 'bg-' + scoreColors[i % scoreColors.length]
+              : null}
             checked={weights[score] > 0.0}
             on:change={(e) => {
               if (!e.detail) {
@@ -133,10 +141,10 @@
             {score}
           </div>
           <div class="text-xs mr-2">
-            {format('.1f')(weights[score])}
+            {format('.1f')(weights[score] ?? 0)}
           </div>
           <IncrementButtons
-            value={weights[score]}
+            value={weights[score] ?? 0}
             on:change={(e) => updateScoreWeight(score, e.detail)}
             min={0}
             max={5}
@@ -146,12 +154,24 @@
       {/each}
     </div>
   {/if}
-  <div class="flex items-center justify-center mt-1">
-    <button
-      class="bg-transparent hover:opacity-60 text-slate-600 px-1"
-      title="Show/hide granular controls"
-      on:click={() => (expanded = !expanded)}
-      ><Fa icon={expanded ? faChevronUp : faChevronDown} /></button
-    >
-  </div>
+  {#if showApplyButton}
+    <div class="mt-2 flex items-center justify-end gap-3">
+      <button class="btn btn-slate" on:click={() => dispatch('cancel')}>
+        Cancel
+      </button>
+      <button class="btn btn-blue" on:click={() => dispatch('apply', weights)}>
+        Apply
+      </button>
+    </div>
+  {/if}
+  {#if collapsible}
+    <div class="flex items-center justify-center mt-1">
+      <button
+        class="bg-transparent hover:opacity-60 text-slate-600 px-1"
+        title="Show/hide granular controls"
+        on:click={() => (expanded = !expanded)}
+        ><Fa icon={expanded ? faChevronUp : faChevronDown} /></button
+      >
+    </div>
+  {/if}
 </div>

@@ -119,7 +119,7 @@
     window.addEventListener('pointerup', handleEventUp);
   }
 
-  $: console.log('widths:', widths);
+  $: console.log('segments:', segments);
 </script>
 
 <div
@@ -154,9 +154,8 @@
             class="inline-block truncate max-w-full pointer-events-none select-none px-1 transition-opacity duration-200"
             style="opacity: {labelOpacity};"
             draggable="false"
-            >{#if showLabels}{tag.name} {/if}{#if showQuantities}{width.toFixed(
-                0
-              ) + '%'}{/if}</span
+            >{#if showLabels}{tag.name}
+            {/if}{#if showQuantities}{width.toFixed(0) + '%'}{/if}</span
           >
         {/if}
       </div>
