@@ -63,7 +63,7 @@
     />
   {/if}
 </div>
-<div class="text-xs text-slate-800">
+<div class="text-xs text-slate-800 dark:text-slate-100">
   {#if !$$slots.caption}
     {format('.3')(value)}
   {:else}

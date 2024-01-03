@@ -52,39 +52,39 @@ if __name__ == '__main__':
     variable_spec = {
         "age": {"category": "Demographics", "query": "{age}"},
         "gender_female": {"category": "Demographics", "query": "{gender} = 'Female'"},
-        "weight": {"category": "Demographics", "query": "{weight} [impute median]"},
-        "height": {"category": "Demographics", "query": "{height} [impute median]"},
-        "BMI": {"category": "Demographics", "query": "{weight} / (({height} / 100) * ({height} / 100)) [impute median]"}
+        "weight": {"category": "Demographics", "query": "{weight} impute median"},
+        "height": {"category": "Demographics", "query": "{height} impute median"},
+        "BMI": {"category": "Demographics", "query": "{weight} / (({height} / 100) * ({height} / 100)) impute median"}
     }
     for col in COMORBIDITY_FIELDS:
-        variable_spec[col] = {"category": "Demographics", "query": f"{{{col}}} [impute 0]"}
+        variable_spec[col] = {"category": "Demographics", "query": f"{{{col}}} impute 0"}
     for col in NUMERICAL_COLUMNS:
         variable_spec[f"{col} Present"] = {"category": "Vitals", "query": f"exists {{{col}}} from #now - {n_hours} h to #now"}
-        variable_spec[col] = {"category": "Vitals", "query": f"last {{{col}}} from #now - {n_hours} h to #now [carry 8 hours, impute mean]"}
-        variable_spec[f"{col} Delta"] = {"category": "Vitals", "query": f"(mean {{{col}}} from #now - {n_hours} h to #now) - (mean {{{col}}} from #now - {n_hours * 2} h to #now - {n_hours} h) [impute 0]"}
+        variable_spec[col] = {"category": "Vitals", "query": f"last {{{col}}} from #now - {n_hours} h to #now carry 8 hours impute mean"}
+        variable_spec[f"{col} Delta"] = {"category": "Vitals", "query": f"(mean {{{col}}} from #now - {n_hours} h to #now) - (mean {{{col}}} from #now - {n_hours * 2} h to #now - {n_hours} h) impute 0"}
     for col in DISCRETE_EVENT_COLUMNS:
         variable_spec[col] = {"category": "Vitals" if col == "Heart Rhythm" else "Assessments",
-                              "query": f"last {{{col}}} from #now - {n_hours} h to #now [carry 8 hours]"}
+                              "query": f"last {{{col}}} from #now - {n_hours} h to #now carry 8 hours"}
     for col in FLUID_TYPES:
         variable_spec[col] = {"category": "Fluids", 
-                              "query": f"sum amount {{{col}}} from #now - {n_hours} h to #now [impute 0]"}
+                              "query": f"sum amount {{{col}}} from #now - {n_hours} h to #now impute 0"}
     for col in OUTPUT_EVENTS:
         variable_spec[col] = {"category": "Fluids", 
-                              "query": f"sum {{{col}}} from #now - {n_hours} h to #now [impute 0]"}
+                              "query": f"sum {{{col}}} from #now - {n_hours} h to #now impute 0"}
     variable_spec["Input Last 24 h"] = {"category": "Fluids",
-                                    "query": f"(sum amount {{{', '.join(FLUID_TYPES)}}} from #now - 24 h to #now) + (case when #now - {{intime}} < 24 h then {{inputpreadm}} else 0 end) [impute 0]"}
+                                    "query": f"(sum amount {{{', '.join(FLUID_TYPES)}}} from #now - 24 h to #now) + (case when #now - {{intime}} < 24 h then {{inputpreadm}} else 0 end) impute 0"}
     variable_spec["Output Last 24 h"] = {"category": "Fluids",
-                                     "query": f"(sum {{{', '.join(OUTPUT_EVENTS)}}} from #now - 24 h to #now) + (case when #now - {{intime}} < 24 h then {{uopreadm}} else 0 end) [impute 0]"}
+                                     "query": f"(sum {{{', '.join(OUTPUT_EVENTS)}}} from #now - 24 h to #now) + (case when #now - {{intime}} < 24 h then {{uopreadm}} else 0 end) impute 0"}
     for col in VASOPRESSOR_TYPES:
         variable_spec[col] = {"category": "Vasopressors",
-                              "query": f"integral rate {{{col}}} from #now - {n_hours} h to #now [impute 0]"}
+                              "query": f"integral rate {{{col}}} from #now - {n_hours} h to #now impute 0"}
     for col, names in MICROORGANISMS.items():
         names = ",".join('"' + n + '"' for n in names)
         variable_spec[col] = {"category": "Cultures",
-                              "query": f"(max ({{Culture}} in [{names}]) from {{intime}} to #now) > 0 [impute 0]"}
+                              "query": f"(max ({{Culture}} in [{names}]) from {{intime}} to #now) > 0 impute 0"}
     for col in PROCEDURE_TYPES + list(PRESCRIPTIONS.keys()):
         variable_spec[col] = {"category": "Procedures" if col in PROCEDURE_TYPES else "Prescriptions",
-                              "query": f"exists {{{col}}} from #now - {n_hours} h to #now [impute 0]"}
+                              "query": f"exists {{{col}}} from #now - {n_hours} h to #now impute 0"}
 
     for val in variable_spec.values(): val["enabled"] = True
     

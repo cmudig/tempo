@@ -78,7 +78,7 @@
     </Html>
   </LayerCake>
 </div>
-<div class="text-xs text-slate-800">
+<div class="text-xs text-slate-800 dark:text-slate-100">
   {#if $$slots.caption}
     <slot name="caption" />
   {:else if hoveredIndex != null}

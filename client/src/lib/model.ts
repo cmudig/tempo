@@ -1,13 +1,12 @@
 export type ModelMetrics = {
   threshold?: number;
-  acc?: number;
-  roc_auc?: number;
+  performance: {
+    [key: string]: number;
+  };
   confusion_matrix?: number[][];
-  sensitivity?: number;
-  specificity?: number;
-  r2_score?: number;
-  n_train: number;
-  n_val: number;
+  positive_rate?: number;
+  n_train: { instances: number; trajectories: number };
+  n_val: { instances: number; trajectories: number };
 };
 
 export type ModelSummary = {

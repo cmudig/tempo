@@ -34,7 +34,7 @@
   export let savedSlices: Array<SliceFeatureBase> = [];
 
   export let baseSlice: Slice | null = null;
-  export let sliceRequests: { [key: string]: any } = {};
+  export let sliceRequests: { [key: string]: SliceFeatureBase } = {};
   export let sliceRequestResults: { [key: string]: Slice } = {};
 
   export let fixedFeatureOrder: Array<any> = [];
@@ -328,7 +328,7 @@
       slice={baseSlice}
       {scoreNames}
       {positiveOnly}
-      scoreCellWidth={100}
+      scoreCellWidth={72}
       {scoreWidthScalers}
       {showScores}
       showCheckbox={showCheckboxes}
@@ -379,7 +379,7 @@
       {slice}
       {scoreNames}
       {positiveOnly}
-      scoreCellWidth={100}
+      scoreCellWidth={72}
       showCheckbox={showCheckboxes}
       {scoreWidthScalers}
       {showScores}

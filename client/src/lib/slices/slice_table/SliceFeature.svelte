@@ -31,7 +31,8 @@
           title={featureDisabled
             ? 'Reset slice'
             : 'Test effect of removing this feature from the slice'}
-          on:click={() => dispatch('toggle', feature)}>{feature.col}</button
+          on:click|stopPropagation={() => dispatch('toggle', feature)}
+          >{feature.col}</button
         >
       {:else}
         <button
@@ -41,7 +42,8 @@
           title={featureDisabled
             ? 'Reset slice'
             : 'Test effect of removing this feature from the slice'}
-          on:click={() => dispatch('toggle', feature)}>{feature.col}</button
+          on:click|stopPropagation={() => dispatch('toggle', feature)}
+          >{feature.col}</button
         >
       {/if}
       {#if !positiveOnly}

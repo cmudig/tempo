@@ -47,7 +47,7 @@
   export let customSlice: Slice | null = null; // if the slice is custom-created
   export let temporarySlice: Slice | null = null; // if a variable is adjusted dynamically
 
-  export let scoreCellWidth = 100;
+  export let scoreCellWidth = 72;
   export let scoreWidthScalers = {};
   export let metricInfo:
     | { [key: string]: SliceMetricInfo }
@@ -367,7 +367,7 @@
             ? metricInfo(name)
             : metricInfo[name]}
         <div
-          class="p-2 pt-3"
+          class="p-2 pt-3 overflow-visible whitespace-nowrap"
           style="width: {!!mInfo && mInfo.visible
             ? TableWidths.Metric
             : TableWidths.CollapsedMetric}px;"
@@ -387,7 +387,7 @@
                   <span style="font-size: 0.7rem;" class="italic text-gray-700"
                     >{#if metric.hasOwnProperty('share')}({format('.1%')(
                         metric.share
-                      )} of total){:else}&nbsp;{/if}</span
+                      )} of +s){:else}&nbsp;{/if}</span
                   >
                 </span>
               </SliceMetricBar>

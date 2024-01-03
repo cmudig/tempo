@@ -5,6 +5,7 @@
   import ModelResultsView from './lib/ModelResultsView.svelte';
   import SlicesView from './lib/SlicesView.svelte';
   import Sidebar from './lib/Sidebar.svelte';
+  import type { Slice, SliceFeatureBase } from './lib/slices/utils/slice.type';
 
   let models: { [key: string]: ModelSummary } = {};
 
@@ -16,6 +17,9 @@
   let currentView = View.slices;
 
   let currentModel = 'vasopressor_8h';
+
+  let selectedSlice: SliceFeatureBase | null = null;
+  $: if (currentView !== View.slices) selectedSlice = null;
 
   onMount(async () => {
     await refreshModels();
@@ -38,10 +42,10 @@
 
 <main class="w-screen h-screen flex">
   <div
-    class="w-1/4 border-r border-slate-400 h-full shrink-0 grow-0"
-    style="max-width: 500px;"
+    class="border-r border-slate-400 h-full shrink-0 grow-0"
+    style="width: 540px; max-width: 40%;"
   >
-    <Sidebar {models} bind:activeModel={currentModel} />
+    <Sidebar {models} bind:activeModel={currentModel} bind:selectedSlice />
   </div>
   <div class="flex-auto h-full flex flex-col w-0">
     <div
@@ -63,7 +67,7 @@
       {#if currentView == View.results}
         <ModelResultsView modelName={currentModel} />
       {:else if currentView == View.slices}
-        <SlicesView modelName={currentModel} />
+        <SlicesView bind:selectedSlice modelName={currentModel} />
       {:else if currentView == View.editor}
         <ModelEditor
           modelName={currentModel}

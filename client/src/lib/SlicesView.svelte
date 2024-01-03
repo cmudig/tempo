@@ -15,17 +15,35 @@
     type TrainingStatus,
   } from './training';
   import SliceSearchView from './SliceSearchView.svelte';
-  import type { Slice } from './slices/utils/slice.type';
+  import type { Slice, SliceFeatureBase } from './slices/utils/slice.type';
   import { areObjectsEqual } from './slices/utils/utils';
 
   const dispatch = createEventDispatcher();
 
   export let modelName = 'vasopressor_8h';
+  export let metricToShow = 'AUROC';
+  export let selectedSlice: SliceFeatureBase | null = null;
 
   let isTraining: boolean = false;
   let searchStatus: SliceFindingStatus | null = null;
   let wasSearching: boolean = false;
   let sliceSearchError: string | null = null;
+
+  let selectedSlices: SliceFeatureBase[] = [];
+
+  let oldSelectedSlices: SliceFeatureBase[] = [];
+  $: if (oldSelectedSlices !== selectedSlices) {
+    if (selectedSlices.length > 0) selectedSlice = selectedSlices[0];
+    else selectedSlice = null;
+    oldSelectedSlices = selectedSlices;
+  } else if (!selectedSlice && selectedSlices.length > 0) {
+    selectedSlices = [];
+  } else if (
+    !!selectedSlice &&
+    (selectedSlices.length != 1 || selectedSlices[0] !== selectedSlice)
+  ) {
+    selectedSlices = [selectedSlice];
+  }
 
   let loadingSliceStatus = false;
   let retrievingSlices = false;
@@ -169,9 +187,16 @@
   <div class="flex-auto h-0 overflow-auto" style="width: 100% !important;">
     <SliceSearchView
       modelNames={[modelName]}
+      metricsToShow={[
+        'Timesteps',
+        'Trajectories',
+        metricToShow,
+        'Positive Rate',
+      ]}
       slices={slices ?? []}
       {baseSlice}
       bind:scoreWeights
+      bind:selectedSlices
       {valueNames}
       runningSampler={!!searchStatus || loadingSliceStatus}
       {retrievingSlices}

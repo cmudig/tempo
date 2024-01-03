@@ -195,6 +195,32 @@ class EvaluateExpression(lark.visitors.Transformer):
                 
         return result
         
+    def carry_clause(self, args):
+        # Defines how far the values in the time series should be
+        # carried forward within a given ID
+        var_exp = args[0]
+        if isinstance(args[1], lark.Tree) and args[1].data == "step_quantity":
+            steps = int(args[1].children[0].value)
+            return var_exp.carry_forward_steps(steps)
+        else:
+            return var_exp.carry_forward_duration(args[1])
+            
+    @lark.v_args(tree=True)
+    def step_quantity(self, tree):
+        return tree
+    
+    def impute_clause(self, args):
+        # Defines how NaN values should be substituted
+        var_exp = args[0]
+        nan_mask = ~pd.isna(var_exp.get_values())
+        if args[1].value in ("mean", "median"):
+            impute_method = args[1].value.lower()
+            numpy_func = {"mean": np.nanmean, "median": np.nanmedian}[impute_method]
+            return var_exp.where(nan_mask, numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float)))
+        else:
+            impute_method = self._parse_literal(args[1].value)
+            return var_exp.where(nan_mask, impute_method)
+            
     def function_call(self, args):
         function_name = args[0].value.lower()
         operands = args[1:]
@@ -406,29 +432,6 @@ class EvaluateQuery(lark.visitors.Interpreter):
                         # Use the times as the time series values
                         var_exp = TimeSeries(var_exp, var_exp.get_times())
                         
-                if len(tree.children) > 2:
-                    # Options clauses are executed IN ORDER of appearance
-                    for child in tree.children[2:]:
-                        if child.data == "carry_clause":
-                            # Defines how far the values in the time series should be
-                            # carried forward within a given ID
-                            if child.children[0].data == "step_quantity":
-                                steps = int(child.children[0].children[0].value)
-                                var_exp = var_exp.carry_forward_steps(steps)
-                            else:
-                                duration = self.evaluator.transform(child.children[0])
-                                var_exp = var_exp.carry_forward_duration(duration)
-                        elif child.data == "impute_clause":
-                            # Defines how NaN values should be substituted
-                            nan_mask = ~pd.isna(var_exp.get_values())
-                            impute_method = child.children[0].value.lower()
-                            if child.children[0].type == "LITERAL":
-                                constant_val = self.evaluator._parse_literal(child.children[0])
-                                var_exp = var_exp.where(nan_mask, constant_val)
-                            elif impute_method in ("mean", "median"):
-                                numpy_func = {"mean": np.nanmean, "median": np.nanmedian}[impute_method]
-                                var_exp = var_exp.where(nan_mask, numpy_func(var_exp.get_values()))
-            
             if var_name is not None:
                 var_exp = var_exp.rename(var_name)
             
@@ -507,11 +510,8 @@ time_bounds: "FROM"i expr "TO"i expr
 
 variable_list: variable_expr
     | "(" variable_expr ("," variable_expr)* ")"
-variable_expr: [named_variable] expr ("[" option_clause ("," option_clause)* "]")?
+variable_expr: [named_variable] expr
 named_variable: (/[A-Za-z][^:]*/i | VAR_NAME) ":"
-
-option_clause: "CARRY"i (time_quantity | step_quantity)  -> carry_clause
-    | "IMPUTE"i (VAR_NAME | LITERAL)            -> impute_clause
 
 // Expression Parsing
  
@@ -522,6 +522,8 @@ AGG_TYPE: "rate"i|"amount"i|"value"i|"duration"i
 
 ?expr: variable_list time_index             -> time_series
     | expr "WHERE"i expr                    -> where_clause
+    | expr "CARRY"i (time_quantity | step_quantity)  -> carry_clause
+    | expr "IMPUTE"i (VAR_NAME | LITERAL)            -> impute_clause
     | expr "WITH"i VAR_NAME "AS"i logical   -> with_clause
     | logical
     
@@ -630,6 +632,6 @@ if __name__ == '__main__':
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
     # print(dataset.query("min {'e1', e2} from now - 30 seconds to now at every {e1} from {start} to {end}"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))
-    print(dataset.query("(my_age: case when last_val < 25 then '< 25' else '> 65' end with last_val as last {e1} from #now - 10 sec to #now [impute 'Missing']) every 3 sec from {start} to {end}"))
+    print(dataset.query("(my_age: (last {e1} from #now - 10 sec to #now) impute 'Missing') every 3 sec from {start} to {end}"))
     # print(dataset.query("mean {e1} * 3 from now - 30 s to now"))
     # print(dataset.query("max(mean {e2} from now - 30 seconds to now, mean {e1} from now - 30 seconds to now) at every {e2} from {start} to {end}"))

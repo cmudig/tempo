@@ -33,7 +33,9 @@ def compress_series(v):
             except ValueError:
                 pass
             
-        return v
+        # Only return the categorical version if the categories are non-numeric
+        if not (isinstance(v.dtype, pd.CategoricalDtype) and pd.api.types.is_numeric_dtype(v.dtype.categories.dtype)):
+            return v
     isnan = pd.isna(v)
     try:
         if np.array_equal(v[~isnan], v[~isnan].astype(int)):

@@ -59,37 +59,24 @@
     </h2>
     <div class="mb-2">
       <span class="font-bold text-slate-700 mr-2">Instances</span><span
-        class="font-mono">{nFormat(metrics.n_train)}</span
+        class="font-mono"
+        >{nFormat(metrics.n_train.instances)} ({nFormat(
+          metrics.n_train.trajectories
+        )} trajectories)</span
       >
-      training, <span class="font-mono">{nFormat(metrics.n_val)}</span> validation
+      training,
+      <span class="font-mono"
+        >{nFormat(metrics.n_val.instances)} ({nFormat(
+          metrics.n_val.trajectories
+        )} trajectories)</span
+      > validation
     </div>
-    {#if !!metrics.roc_auc}
+    {#each Object.entries(metrics.performance) as [metricName, value]}
       <div class="mb-2">
-        <span class="font-bold text-slate-700 mr-2">AUROC</span><span
-          class="font-mono">{rocFormat(metrics.roc_auc)}</span
+        <span class="font-bold text-slate-700 mr-2">{metricName}</span><span
+          class="font-mono">{percentageFormat(value)}</span
         >
       </div>
-    {/if}
-    {#if !!metrics.acc}
-      <div class="mb-2">
-        <span class="font-bold text-slate-700 mr-2">Accuracy</span><span
-          class="font-mono">{percentageFormat(metrics.acc)}</span
-        >
-      </div>
-    {/if}
-    {#if !!metrics.sensitivity}
-      <div class="mb-2">
-        <span class="font-bold text-slate-700 mr-2">Sensitivity</span><span
-          class="font-mono">{percentageFormat(metrics.sensitivity)}</span
-        >
-      </div>
-    {/if}
-    {#if !!metrics.specificity}
-      <div class="mb-2">
-        <span class="font-bold text-slate-700 mr-2">Specificity</span><span
-          class="font-mono">{percentageFormat(metrics.specificity)}</span
-        >
-      </div>
-    {/if}
+    {/each}
   {/if}
 </div>

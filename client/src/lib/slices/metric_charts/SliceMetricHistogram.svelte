@@ -67,7 +67,7 @@
     </Svg>
   </LayerCake>
 </div>
-<div class="mt-1 text-xs text-slate-800 truncate">
+<div class="mt-1 text-xs text-slate-800 dark:text-slate-100 truncate">
   {#if !$$slots.caption}
     {#if hoveredBin != null}
       {makeTooltipText(data.find((d) => d.bin == hoveredBin))}

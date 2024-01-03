@@ -5,7 +5,7 @@ import json
 import pickle
 from query_language.data_types import *
 from model_training import make_query, MODEL_DIR, load_raw_data
-from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_curve, roc_auc_score, confusion_matrix
 import slice_finding as sf
   
 def make_slicing_variables(dataset, variable_definitions, timestep_definition):
@@ -257,10 +257,17 @@ class SliceEvaluationHelper(SliceHelper):
             pred_outcome = metrics[f"{model_name} Predicted"]
             slice_true = true_outcome[mask]
             slice_pred = pred_outcome[mask]
-            fpr, tpr, thresholds = roc_curve(slice_true[~pd.isna(slice_true)], slice_pred[~pd.isna(slice_true)])
+            slice_ids = ids[mask][~pd.isna(slice_true)]
+            slice_pred = slice_pred[~pd.isna(slice_true)]
+            slice_true = slice_true[~pd.isna(slice_true)]
+            fpr, tpr, thresholds = roc_curve(slice_true, slice_pred)
             opt_threshold = thresholds[np.argmax(tpr - fpr)]
-            acc = ((slice_pred[~pd.isna(slice_true)] >= opt_threshold) == slice_true[~pd.isna(slice_true)]).mean()
-            matching_unique_ids = len(np.unique(ids[mask][~pd.isna(slice_true)]))
+            auroc = roc_auc_score(slice_true, slice_pred)
+            conf = confusion_matrix(slice_true, (slice_pred >= opt_threshold))
+            tn, fp, fn, tp = conf.ravel()
+            
+            acc = ((slice_pred >= opt_threshold) == slice_true).mean()
+            matching_unique_ids = len(np.unique(slice_ids))
             
             print(desc["feature"], model_name, total_nonna, matching_nonna)
             desc["metrics"][model_name] = {
@@ -268,10 +275,19 @@ class SliceEvaluationHelper(SliceHelper):
                 "Trajectories": {"type": "count", 
                                  "count": matching_unique_ids, 
                                  "share": matching_unique_ids / total_unique_ids},
-                "True": old_desc_metrics[f"{model_name} True"],
+                "Positive Rate": old_desc_metrics[f"{model_name} True"],
                 "Accuracy": {"type": "binary", 
                              "count": matching_nonna, 
-                             "mean": acc}
+                             "mean": acc},
+                "AUROC": {"type": "binary", 
+                             "count": matching_nonna, 
+                             "mean": auroc},
+                "Sensitivity": {"type": "binary", 
+                             "count": matching_nonna, 
+                             "mean": float(tp / (tp + fn))},
+                "Specificity": {"type": "binary", 
+                             "count": matching_nonna, 
+                             "mean": float(tn / (tn + fp))},
             }
             
         # Remove scores that aren't related to these model names

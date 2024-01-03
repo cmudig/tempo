@@ -10,15 +10,9 @@
   import SliceRow from './slices/slice_table/SliceRow.svelte';
   import Hoverable from './slices/utils/Hoverable.svelte';
   import {
-    faAngleLeft,
-    faAngleRight,
-    faEye,
-    faEyeSlash,
     faFilter,
-    faGripLinesVertical,
     faMinus,
     faPencil,
-    faPlus,
     faScaleBalanced,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
@@ -51,7 +45,7 @@
   export let slices: Array<Slice> = [];
 
   export let baseSlice: Slice | null = null;
-  export let sliceRequests: { [key: string]: SliceFeature } = {};
+  export let sliceRequests: { [key: string]: SliceFeatureBase } = {};
   export let sliceRequestResults: { [key: string]: Slice } = {};
 
   export let scoreWeights: any = {};
@@ -73,10 +67,11 @@
   export let similarToSlice: any = {};
   export let subsliceOfSlice: any = {};
 
-  export let selectedSlices: Slice[] = [];
-  export let savedSlices: Slice[] = [];
+  export let selectedSlices: SliceFeatureBase[] = [];
+  export let savedSlices: SliceFeatureBase[] = [];
 
   export let groupedMetrics: boolean = false;
+  export let metricsToShow: string[] | null = null;
 
   let controlFeatures: { [key in SliceSearchControl]?: any };
   $: controlFeatures = {
@@ -144,6 +139,7 @@
         metricNames = metricGroups
           .map((g) =>
             Object.keys(testSlice!.metrics![g])
+              .filter((m) => !metricsToShow || metricsToShow.includes(m))
               .sort(sortMetrics)
               .map((m) => [g, m])
           )
@@ -152,7 +148,9 @@
         groupedMetrics = false;
         metricGroups = null;
         if (!areSetsEqual(new Set(metricNames), new Set(newMetricNames))) {
-          metricNames = newMetricNames;
+          metricNames = newMetricNames.filter(
+            (m) => !metricsToShow || metricsToShow.includes(m)
+          );
           metricNames.sort(sortMetrics);
         }
       }
@@ -170,7 +168,9 @@
 
   $: requestSliceScores(sliceRequests);
 
-  async function requestSliceScores(requests: { [key: string]: SliceFeature }) {
+  async function requestSliceScores(requests: {
+    [key: string]: SliceFeatureBase;
+  }) {
     try {
       let results = await (
         await fetch(`/slices/${modelNames.join(',')}/score`, {
@@ -182,6 +182,7 @@
         })
       ).json();
       sliceRequestResults = results.sliceRequestResults;
+      console.log('results:', sliceRequestResults);
     } catch (e) {
       console.log('error calculating slice requests:', e);
     }

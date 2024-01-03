@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import json
 import pickle
+import re
 from query_language.data_types import *
 from query_language.evaluator import TrajectoryDataset
 import xgboost
@@ -98,7 +99,7 @@ def make_modeling_variables(dataset, variable_definitions, timestep_definition):
     del modeling_variables
     return modeling_df
     
-def _train_model(variables, outcomes, train_mask, val_mask, regressor=False, columns_to_drop=None, columns_to_add=None, row_mask=None, **model_params):
+def _train_model(variables, outcomes, ids, train_mask, val_mask, regressor=False, columns_to_drop=None, columns_to_add=None, row_mask=None, check_warnings=True, **model_params):
     """
     variables: a dataframe containing variables for all patients
     """
@@ -107,8 +108,10 @@ def _train_model(variables, outcomes, train_mask, val_mask, regressor=False, col
     if row_mask is None: row_mask = np.ones(len(variables), dtype=bool)
     train_X = variables[train_mask & row_mask].values
     train_y = outcomes[train_mask & row_mask]
+    train_ids = ids[train_mask & row_mask]
     val_X = variables[val_mask & row_mask].values
     val_y = outcomes[val_mask & row_mask]
+    val_ids = ids[val_mask & row_mask]
     if columns_to_add is not None:
         train_X = np.hstack([train_X, columns_to_add[train_mask & row_mask].values])
         val_X = np.hstack([val_X, columns_to_add[val_mask & row_mask].values])
@@ -126,7 +129,7 @@ def _train_model(variables, outcomes, train_mask, val_mask, regressor=False, col
     val_pred = model.predict(val_X) if regressor else model.predict_proba(val_X)[:,1]
     metrics = {}
     if regressor:
-        metrics["r2_score"] = float(r2_score(val_y, val_pred))
+        metrics["performance"] = {"r2_score": float(r2_score(val_y, val_pred))}
         bin_edges = np.histogram_bin_edges(np.concatenate([val_y, val_pred]), bins=10)
         metrics["hist"] = {
             "values": np.histogram2d(val_y, val_pred, bins=bin_edges)[0].tolist(),
@@ -137,21 +140,78 @@ def _train_model(variables, outcomes, train_mask, val_mask, regressor=False, col
             "values": hist.tolist(),
             "bins": bin_edges.tolist()
         }
+        submodel_metric = "r2_score"
     else:
         val_y = val_y.astype(np.uint8)
         if len(val_y.unique()) > 1:
             fpr, tpr, thresholds = roc_curve(val_y, val_pred)
             opt_threshold = thresholds[np.argmax(tpr - fpr)]
             metrics["threshold"] = float(opt_threshold)
-            metrics["acc"] = float((val_y == (val_pred >= opt_threshold)).mean())
-            metrics["roc_auc"] = float(roc_auc_score(val_y, val_pred))
+            metrics["performance"] = {
+                "Accuracy": float((val_y == (val_pred >= opt_threshold)).mean()),
+                "AUROC": float(roc_auc_score(val_y, val_pred)),
+            }
+            metrics["positive_rate"] = float((val_y > 0).mean())
+            metrics["roc"] = {}
+            for t in np.arange(0, 1, 0.05):
+                conf = confusion_matrix(val_y, (val_pred >= t))
+                tn, fp, fn, tp = conf.ravel()
+                metrics["roc"].setdefault("thresholds", []).append(t)
+                metrics["roc"].setdefault("fpr", []).append(fp / (fp + tn))
+                metrics["roc"].setdefault("tpr", []).append(tp / (tp + fn))
+                metrics["roc"].setdefault("acc", []).append((tp + tn) / conf.sum())
+                metrics["roc"].setdefault("sensitivity", []).append(float(tp / (tp + fn)))
+                metrics["roc"].setdefault("specificity", []).append(float(tn / (tn + fp)))
+                
             conf = confusion_matrix(val_y, (val_pred >= opt_threshold))
             metrics["confusion_matrix"] = conf.tolist()
             tn, fp, fn, tp = conf.ravel()
-            metrics["sensitivity"] = float(tp / (tp + fn))
-            metrics["specificity"] = float(tn / (tn + fp))
-    metrics["n_train"] = len(train_X)
-    metrics["n_val"] = len(val_X)
+            metrics["performance"]["Sensitivity"] = float(tp / (tp + fn))
+            metrics["performance"]["Specificity"] = float(tn / (tn + fp))
+            submodel_metric = "AUROC"
+            
+            if check_warnings:
+                # Check whether any classes are never predicted
+                class_true_positive_threshold = 0.1
+                for true_class, probs in enumerate(conf):
+                    tp_fraction = probs[true_class] / probs.sum()
+                    if tp_fraction < class_true_positive_threshold:
+                        metrics.setdefault("class_not_predicted_warnings", []).append({
+                            "class": true_class,
+                            "true_positive_fraction": tp_fraction,
+                            "true_positive_threshold": class_true_positive_threshold
+                        })
+        else:
+            submodel_metric = None
+            
+    metrics["n_train"] = {"instances": len(train_X), "trajectories": len(np.unique(train_ids))}
+    metrics["n_val"] = {"instances": len(val_X), "trajectories": len(np.unique(val_ids))}
+    
+    if submodel_metric is not None and check_warnings:
+        # Check for trivial solutions
+        max_variables = 5
+        auc_fraction = 0.95
+
+        variable_names = []
+        for i in reversed(np.argsort(model.feature_importances_)[-max_variables:]):
+            variable_names.append(variables.columns[i])
+            _, sub_metrics, _, _ = _train_model(
+                variables[variable_names],
+                outcomes,
+                ids,
+                train_mask,
+                val_mask,
+                row_mask=row_mask, 
+                regressor=regressor,
+                check_warnings=False,
+                **model_params)
+            if sub_metrics["performance"][submodel_metric] >= metrics["performance"][submodel_metric] * auc_fraction:
+                metrics["trivial_solution_warning"] = {
+                    "variables": variable_names,
+                    "auc_threshold": metrics[submodel_metric] * auc_fraction,
+                    "auc_fraction": auc_fraction
+                }
+                break
     
     # Return preds and true values in the validation set, putting
     # nans whenever the row shouldn't be considered part of the
@@ -166,8 +226,8 @@ def make_model(dataset, model_meta, train_patients, val_patients, modeling_df=No
         modeling_df = make_modeling_variables(dataset, model_meta["variables"], model_meta["timestep_definition"])
         
     outcome = dataset.query("(" + model_meta['outcome'] + 
-                                (f" where {model_meta['cohort']}" if model_meta.get('cohort', '') else '') + ")" + 
-                                " " + ("[impute 0]" if not model_meta.get("regression", False) else "") + 
+                            " " + ("impute 0" if not model_meta.get("regression", False) else "") + 
+                                (f" where ({model_meta['cohort']})" if model_meta.get('cohort', '') else '') + ")" + 
                                 model_meta["timestep_definition"]) 
     print((~pd.isna(outcome.get_values())).sum())
     
@@ -180,6 +240,7 @@ def make_model(dataset, model_meta, train_patients, val_patients, modeling_df=No
     model, metrics, val_pred, val_true = _train_model(
         modeling_df,
         outcome.get_values(),
+        outcome.get_ids(),
         train_mask,
         val_mask,
         row_mask=~pd.isna(outcome.get_values()),

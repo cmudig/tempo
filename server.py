@@ -336,6 +336,22 @@ if __name__ == '__main__':
         response = sf.utils.convert_to_native_types(response)
         return jsonify(response)
         
+    def _score_slice(model_names, timestep_def, slice_requests):
+        result = evaluator.get_results(timestep_def, model_names)
+        if result is None:
+            return {}
+        
+        rank_list, metrics, ids, df = result
+        slices_to_score = {k: rank_list.encode_slice(v) for k, v in slice_requests.items()}
+        return sf.utils.convert_to_native_types({
+            k: evaluator.describe_slice(rank_list,
+                                        metrics, 
+                                        ids,
+                                        slice_obj.rescore(rank_list.score_slice(slice_obj)),
+                                        model_names)
+            for k, slice_obj in slices_to_score.items()
+        })
+        
     @app.route("/slices/<model_names>/score", methods=["POST"])
     def score_slice(model_names):
         model_names = model_names.split(",")
@@ -347,7 +363,7 @@ if __name__ == '__main__':
             if timestep_def is not None and spec["timestep_definition"] != timestep_def:
                 return "Cannot get slices for models with multiple timestep definitions", 400
             timestep_def = spec["timestep_definition"]
-
+            
         body = request.json
         if "sliceRequests" not in body:
             return "'sliceRequests' key required", 400
@@ -355,22 +371,38 @@ if __name__ == '__main__':
         if len(body["sliceRequests"]) == 0:
             return jsonify({"sliceRequestResults": {}})
         
-        result = evaluator.get_results(timestep_def, model_names)
-        if result is None:
+        results_json = _score_slice(model_names, timestep_def, body["sliceRequests"])
+        return jsonify({ "sliceRequestResults": results_json })
+    
+    @app.route("/slices/score", methods=["POST"])
+    def score_slice_all_models():
+        timestep_defs = {}
+        for path in os.listdir(MODEL_DIR):
+            if path.startswith("spec_"):
+                model_id = re.search(r'^spec_(.*)\.json', path).group(1)
+                with open(os.path.join(MODEL_DIR, path), "r") as file:
+                    model_spec = json.load(file)
+                timestep_defs.setdefault(model_spec["timestep_definition"], []).append(model_id)
+        
+        body = request.json
+        if "sliceRequests" not in body:
+            return "'sliceRequests' key required", 400
+        
+        if len(body["sliceRequests"]) == 0:
             return jsonify({"sliceRequestResults": {}})
         
-        rank_list, metrics, ids, df = result
-        slices_to_score = {k: rank_list.encode_slice(v) for k, v in body["sliceRequests"].items()}
-        results_json = sf.utils.convert_to_native_types({
-            k: evaluator.describe_slice(rank_list,
-                                        metrics, 
-                                        ids,
-                                        slice_obj.rescore(rank_list.score_slice(slice_obj)),
-                                        model_names)
-            for k, slice_obj in slices_to_score.items()
-        })
-        return jsonify({ "sliceRequestResults": results_json })
-        
+        results = {}
+        for timestep_def, model_names in timestep_defs.items():
+            ts_results = _score_slice(model_names, timestep_def, body["sliceRequests"])
+            for slice_key in ts_results:
+                if slice_key not in results:
+                    results[slice_key] = ts_results[slice_key]
+                else:
+                    # Merge the slice definitions
+                    results[slice_key]["score_values"].update(ts_results[slice_key]["score_values"])
+                    results[slice_key]["metrics"].update(ts_results[slice_key]["metrics"])
+        return jsonify({ "sliceRequestResults": results })
+    
     # Path for our main Svelte page
     @app.route("/")
     def client():
