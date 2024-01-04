@@ -299,12 +299,76 @@
 
 <div class="w-full h-full flex flex-col">
   <div class="mb-3">
-    {#if runningSampler}
-      <div class="flex items-center">
+    <div class="flex items-center whitespace-nowrap gap-3">
+      {#if runningSampler}
         <button
-          class="mr-4 btn btn-blue disabled:opacity-50"
+          class="btn btn-blue disabled:opacity-50"
           on:click={() => dispatch('cancel')}>Stop</button
         >
+      {:else}
+        <button
+          class="btn btn-blue"
+          on:click={() => dispatch('load')}
+          disabled={retrievingSlices}
+          >{retrievingSlices ? 'Loading...' : 'Find Slices'}</button
+        >
+      {/if}
+      <ActionMenuButton
+        buttonClass="btn btn-slate"
+        buttonStyle="padding-left: 1rem;"
+        buttonTitle="Add a filter option"
+        disabled={retrievingSlices}
+      >
+        <span slot="button-content"
+          ><Fa icon={faFilter} class="inline mr-1" />
+          Add Filter</span
+        >
+        <div slot="options">
+          {#each Object.values(SliceSearchControl) as control}
+            {#if !enabledSliceControls[control]}
+              <a
+                href="#"
+                tabindex="0"
+                role="menuitem"
+                on:click={() => toggleSliceControl(control)}
+                >{SliceControlStrings[control]} Slice</a
+              >
+            {/if}
+          {/each}
+        </div>
+      </ActionMenuButton>
+      <ActionMenuButton
+        buttonClass="btn btn-slate"
+        buttonStyle="padding-left: 1rem;"
+        buttonTitle="Adjust weights for how slices are ranked"
+        disabled={retrievingSlices}
+        menuWidth={400}
+        singleClick={false}
+      >
+        <span slot="button-content"
+          ><Fa icon={faScaleBalanced} class="inline mr-1" />
+          Sort</span
+        >
+        <div
+          slot="options"
+          let:dismiss
+          class="p-4 overflow-scroll relative"
+          style="max-height: 500px;"
+        >
+          <ScoreWeightMenu
+            collapsible={false}
+            showApplyButton
+            weights={scoreWeights}
+            {scoreNames}
+            on:apply={(e) => {
+              scoreWeights = e.detail;
+              dismiss();
+            }}
+            on:cancel={dismiss}
+          />
+        </div>
+      </ActionMenuButton>
+      {#if runningSampler}
         {#if samplerRunProgress == null}
           <div role="status" class="w-8 h-8 grow-0 shrink-0 mr-2">
             <svg
@@ -346,76 +410,8 @@
             </div>
           {/if}
         </div>
-      </div>
-    {:else}
-      <div class="flex items-stretch">
-        <div class="flex-1 w-0 pr-3">
-          <div class="flex items-center whitespace-nowrap gap-3">
-            <button
-              class="btn btn-blue"
-              on:click={() => dispatch('load')}
-              disabled={retrievingSlices}
-              >{retrievingSlices ? 'Loading...' : 'Find Slices'}</button
-            >
-            <ActionMenuButton
-              buttonClass="btn btn-slate"
-              buttonStyle="padding-left: 1rem;"
-              buttonTitle="Add a filter option"
-              disabled={retrievingSlices}
-            >
-              <span slot="button-content"
-                ><Fa icon={faFilter} class="inline mr-1" />
-                Add Filter</span
-              >
-              <div slot="options">
-                {#each Object.values(SliceSearchControl) as control}
-                  {#if !enabledSliceControls[control]}
-                    <a
-                      href="#"
-                      tabindex="0"
-                      role="menuitem"
-                      on:click={() => toggleSliceControl(control)}
-                      >{SliceControlStrings[control]} Slice</a
-                    >
-                  {/if}
-                {/each}
-              </div>
-            </ActionMenuButton>
-            <ActionMenuButton
-              buttonClass="btn btn-slate"
-              buttonStyle="padding-left: 1rem;"
-              buttonTitle="Adjust weights for how slices are ranked"
-              disabled={retrievingSlices}
-              menuWidth={400}
-              singleClick={false}
-            >
-              <span slot="button-content"
-                ><Fa icon={faScaleBalanced} class="inline mr-1" />
-                Sort</span
-              >
-              <div
-                slot="options"
-                let:dismiss
-                class="p-4 overflow-scroll relative"
-                style="max-height: 500px;"
-              >
-                <ScoreWeightMenu
-                  collapsible={false}
-                  showApplyButton
-                  weights={scoreWeights}
-                  {scoreNames}
-                  on:apply={(e) => {
-                    scoreWeights = e.detail;
-                    dismiss();
-                  }}
-                  on:cancel={dismiss}
-                />
-              </div>
-            </ActionMenuButton>
-          </div>
-        </div>
-      </div>
-    {/if}
+      {/if}
+    </div>
   </div>
   {#if !!slices && slices.length > 0}
     <div class="flex-auto min-h-0 overflow-auto">

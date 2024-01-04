@@ -96,19 +96,23 @@
     try {
       console.log('Fetching slices');
       retrievingSlices = true;
-      let result = await (
-        await fetch(`/slices/${modelName}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: !!scoreWeights
-            ? JSON.stringify({
-                score_weights: scoreWeights,
-              })
-            : '',
-        })
-      ).json();
+      let response = await fetch(`/slices/${modelName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: !!scoreWeights
+          ? JSON.stringify({
+              score_weights: scoreWeights,
+            })
+          : '',
+      });
+      if (response.status == 400) {
+        sliceSearchError = await response.text();
+        retrievingSlices = false;
+        return;
+      }
+      let result = await response.json();
       if (!!result.results.slices) {
         retrievingSlices = false;
         sliceSearchError = null;
@@ -148,6 +152,8 @@
         pollSliceStatus();
       } else {
         console.log('not searching for some reason');
+        if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
+        slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
       }
       console.log(result);
     } catch (e) {

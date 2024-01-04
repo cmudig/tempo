@@ -5,6 +5,8 @@
   import Checkbox from './utils/Checkbox.svelte';
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
   import type { SliceMetric } from './slices/utils/slice.type';
+  import { faWarning } from '@fortawesome/free-solid-svg-icons';
+  import Fa from 'svelte-fa/src/fa.svelte';
 
   export let model: ModelSummary;
   export let modelName: string;
@@ -21,12 +23,12 @@
   let metricValues: { [key: string]: number } | undefined;
   $: if (!!customMetrics)
     metricValues = {
-      Timesteps: customMetrics['Timesteps'].count ?? 0,
-      Trajectories: customMetrics['Trajectories'].count ?? 0,
-      [metricToShow]: customMetrics[metricToShow].mean ?? 0,
-      'Positive Rate': customMetrics['Positive Rate'].mean ?? 0,
+      Timesteps: customMetrics['Timesteps']?.count ?? 0,
+      Trajectories: customMetrics['Trajectories']?.count ?? 0,
+      [metricToShow]: customMetrics[metricToShow]?.mean ?? 0,
+      'Positive Rate': customMetrics['Positive Rate']?.mean ?? 0,
     };
-  else if (!!model)
+  else if (!!model && !!model.metrics)
     metricValues = {
       Timesteps: model.metrics?.n_val.instances ?? 0,
       Trajectories: model.metrics?.n_val.trajectories ?? 0,
@@ -45,7 +47,7 @@
     : 'hover:bg-slate-100'} "
 >
   <div class="grow-0 shrink-0" style="width: {SidebarTableWidths.Checkbox}px;">
-    {#if model.training && !!model.status}
+    {#if model.training && !!model.status && model.status.state != 'error'}
       <div
         role="status"
         title={model.status.message}
@@ -82,6 +84,9 @@
     class="font-mono grow-0 shrink-0"
     style="width: {SidebarTableWidths.ModelName}px;"
   >
+    {#if !!model && !!model.metrics && (!!model.metrics.trivial_solution_warning || (!!model.metrics.class_not_predicted_warnings && model.metrics.class_not_predicted_warnings.length > 0))}
+      <Fa class="text-orange-300 inline" icon={faWarning} />
+    {/if}
     {modelName}
   </div>
   {#if !!metricValues}
@@ -129,5 +134,14 @@
         </span>
       </SliceMetricBar>
     </div>
+  {:else}
+    {#each ['Timesteps', 'Trajectories', metricToShow, 'Positive Rate'] as label}
+      <div
+        class="grow-0 shrink-0 text-slate-500"
+        style="width: {SidebarTableWidths.Metric}px;"
+      >
+        &mdash;
+      </div>
+    {/each}
   {/if}
 </div>

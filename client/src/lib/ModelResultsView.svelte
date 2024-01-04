@@ -10,6 +10,7 @@
   import * as d3 from 'd3';
   import ModelTrainingView from './ModelTrainingView.svelte';
   import { checkTrainingStatus } from './training';
+  import { faWarning } from '@fortawesome/free-solid-svg-icons';
 
   const dispatch = createEventDispatcher();
 
@@ -45,7 +46,6 @@
     if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
   });
 
-  const rocFormat = d3.format('.3~');
   const percentageFormat = d3.format('.1~%');
   const nFormat = d3.format(',');
 </script>
@@ -57,6 +57,39 @@
     <h2 class="text-lg font-bold mb-3">
       Model Metrics: <span class="font-mono">{modelName}</span>
     </h2>
+    {#if !!metrics.trivial_solution_warning}
+      <div class="mb-2 p-4 bg-orange-100 rounded-lg">
+        <h4 class="font-bold text-orange-700/80 mb-2">
+          <Fa class="inline text-orange-300" icon={faWarning} /> Predictive task
+          may be trivially solvable
+        </h4>
+        <div class="text-gray-800 text-sm mb-2">
+          The target variable can be predicted with an AUROC of {percentageFormat(
+            metrics.trivial_solution_warning.auc
+          )} using the following input variables:
+        </div>
+        <ul>
+          {#each metrics.trivial_solution_warning.variables as varName}
+            <li class="font-mono">{varName}</li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+    {#if !!metrics.class_not_predicted_warnings}
+      {#each metrics.class_not_predicted_warnings as warning}
+        <div class="mb-2 p-4 bg-orange-100 rounded-lg">
+          <h4 class="font-bold text-orange-700/80 mb-2">
+            <Fa class="inline text-orange-300" icon={faWarning} /> Class {warning.class}
+            rarely predicted
+          </h4>
+          <div class="text-gray-800 text-sm">
+            The class {warning.class} is only correctly predicted in {percentageFormat(
+              warning.true_positive_fraction
+            )} of timesteps with a true label of {warning.class}.
+          </div>
+        </div>
+      {/each}
+    {/if}
     <div class="mb-2">
       <span class="font-bold text-slate-700 mr-2">Instances</span><span
         class="font-mono"

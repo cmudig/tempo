@@ -7,6 +7,17 @@ export type ModelMetrics = {
   positive_rate?: number;
   n_train: { instances: number; trajectories: number };
   n_val: { instances: number; trajectories: number };
+  trivial_solution_warning?: {
+    variables: string[];
+    auc: number;
+    auc_threshold: number;
+    auc_fraction: number;
+  };
+  class_not_predicted_warnings?: {
+    class: number;
+    true_positive_fraction: number;
+    true_positive_threshold: number;
+  }[];
 };
 
 export type ModelSummary = {

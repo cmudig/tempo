@@ -27,6 +27,15 @@ SAMPLE_MODEL_TRAINING_DATA = False
 
 def _background_model_generation(queue):
     finder = None
+    def make_finder():
+        return SliceDiscoveryHelper(MODEL_DIR, 
+                                        SLICES_DIR, 
+                                        min_items_fraction=0.01,
+                                        samples_per_model=100,
+                                    max_features=3,
+                                    scoring_fraction=0.05,
+                                    num_candidates=20,
+                                    similarity_threshold=0.7)
     while True:
         arg = queue.get()
         if arg == "STOP": return
@@ -42,6 +51,16 @@ def _background_model_generation(queue):
                 with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Building model"}}, file)
                 make_model(dataset, meta, train_patients, val_patients, save_name=model_name, modeling_df=modeling_df)
+                
+                if finder is None:
+                    finder = make_finder()
+                    if finder.model_has_slices(model_name):
+                        with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                            json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Rescoring slices"}}, file)
+                        # Tell the slice finder that the slices need to be rescored for this model
+                        finder.rescore_model(model_name)
+                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                    json.dump(meta, file)
             except KeyboardInterrupt:
                 with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
                     json.dump(meta, file)
@@ -53,14 +72,7 @@ def _background_model_generation(queue):
                     json.dump({**meta, "training": True, "status": {"state": "error", "message": str(e)}}, file)
         elif command == "find_slices":
             if finder is None:
-                finder = SliceDiscoveryHelper(MODEL_DIR, 
-                                                SLICES_DIR, 
-                                                min_items_fraction=0.01,
-                                                samples_per_model=100,
-                                            max_features=3,
-                                            scoring_fraction=0.05,
-                                            num_candidates=20,
-                                            similarity_threshold=0.7)
+                finder = make_finder()
             finder.find_slices(model_name, lambda valid_df: {"group_filter": valid_df.encode_filter(sf.filters.ExcludeIfAny([
                                                 sf.filters.ExcludeFeatureValueSet(COMORBIDITY_FIELDS, ["No"]),
                                                 sf.filters.ExcludeFeatureValueSet([
@@ -128,8 +140,6 @@ if __name__ == '__main__':
 
     @app.route("/models/<model_name>/spec")
     def get_model_definition(model_name):
-        if not re.match("^[A-Za-z0-9_-]+$", model_name):
-            return f"Invalid model name {model_name}", 400
         if not os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
             return f"Model '{model_name}' does not exist", 400
         
@@ -137,8 +147,6 @@ if __name__ == '__main__':
 
     @app.route("/models/<model_name>/metrics")
     def get_model_metrics(model_name):
-        if not re.match("^[A-Za-z0-9_-]+$", model_name):
-            return f"Invalid model name {model_name}", 400
         if not os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
             return f"Model '{model_name}' does not exist", 400
         
@@ -173,6 +181,9 @@ if __name__ == '__main__':
                     "message": "Starting"
                 }}, file)
         queue.put(("train_model", model_name, meta))
+        if evaluator is not None:
+            # Mark that the model's metrics have changed
+            evaluator.rescore_model(model_name, meta["timestep_definition"])
         return f"Started training model '{model_name}'", 200
         
     @app.route("/data/query")
@@ -288,6 +299,8 @@ if __name__ == '__main__':
         for name in model_names:
             with open(os.path.join(MODEL_DIR, f"spec_{name}.json"), "r") as file:
                 spec = json.load(file)
+            if spec.get("training", False):
+                return "Cannot get slices for model that isn't finished training", 400
             if timestep_def is not None and spec["timestep_definition"] != timestep_def:
                 return "Cannot get slices for models with multiple timestep definitions", 400
             timestep_def = spec["timestep_definition"]
@@ -382,7 +395,8 @@ if __name__ == '__main__':
                 model_id = re.search(r'^spec_(.*)\.json', path).group(1)
                 with open(os.path.join(MODEL_DIR, path), "r") as file:
                     model_spec = json.load(file)
-                timestep_defs.setdefault(model_spec["timestep_definition"], []).append(model_id)
+                if not model_spec.get("training", False):
+                    timestep_defs.setdefault(model_spec["timestep_definition"], []).append(model_id)
         
         body = request.json
         if "sliceRequests" not in body:

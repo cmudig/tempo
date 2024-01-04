@@ -24,22 +24,28 @@
   let metricScales: { [key: string]: (v: number) => number } = {};
 
   $: {
-    let maxInstances = Object.values(models).reduce(
-      (prev, curr) => Math.max(prev, curr.metrics?.n_val.instances ?? 0),
-      0
-    );
-    let maxTrajectories = Object.values(models).reduce(
-      (prev, curr) => Math.max(prev, curr.metrics?.n_val.trajectories ?? 0),
-      0
-    );
-    let maxMetricValue = Object.values(models).reduce(
-      (prev, curr) =>
-        Math.max(
-          prev,
-          (curr.metrics!.performance[metricToShow] as number) ?? 0
-        ),
-      0
-    );
+    let maxInstances = Object.values(models)
+      .filter((m) => !!m.metrics)
+      .reduce(
+        (prev, curr) => Math.max(prev, curr.metrics?.n_val.instances ?? 0),
+        0
+      );
+    let maxTrajectories = Object.values(models)
+      .filter((m) => !!m.metrics)
+      .reduce(
+        (prev, curr) => Math.max(prev, curr.metrics?.n_val.trajectories ?? 0),
+        0
+      );
+    let maxMetricValue = Object.values(models)
+      .filter((m) => !!m.metrics)
+      .reduce(
+        (prev, curr) =>
+          Math.max(
+            prev,
+            (curr.metrics!.performance[metricToShow] as number) ?? 0
+          ),
+        0
+      );
     metricScales = {
       [metricToShow]:
         maxMetricValue > 1
@@ -126,13 +132,13 @@
       Positive Rate
     </div>
   </div>
-  {#each Object.entries(models) as [modelName, model]}
+  {#each Object.entries(models) as [modelName, model] (modelName)}
     <SidebarItem
       {model}
       {modelName}
       {metricToShow}
       {metricScales}
-      customMetrics={!!sliceMetrics ? sliceMetrics[modelName] ?? {} : undefined}
+      customMetrics={sliceMetrics?.[modelName] ?? undefined}
       isActive={activeModel === modelName}
       on:click={() => (activeModel = modelName)}
     />

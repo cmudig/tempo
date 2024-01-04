@@ -208,7 +208,8 @@ def _train_model(variables, outcomes, ids, train_mask, val_mask, regressor=False
             if sub_metrics["performance"][submodel_metric] >= metrics["performance"][submodel_metric] * auc_fraction:
                 metrics["trivial_solution_warning"] = {
                     "variables": variable_names,
-                    "auc_threshold": metrics[submodel_metric] * auc_fraction,
+                    "auc": sub_metrics["performance"][submodel_metric],
+                    "auc_threshold": metrics["performance"][submodel_metric] * auc_fraction,
                     "auc_fraction": auc_fraction
                 }
                 break

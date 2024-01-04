@@ -79,11 +79,14 @@ class SliceHelper:
             "size": sf.scores.SliceSizeScore(0.2, 0.05),
             "complexity": sf.scores.NumFeaturesScore()
         }
+        model_names = []
         for path in os.listdir(self.model_dir):
             if not path.startswith("preds"): continue
             model_name = re.search(r"^preds_(.*).npy$", path).group(1)
             if include_model_names is not None and model_name not in include_model_names: continue
             if exclude_model_names is not None and model_name in exclude_model_names: continue
+            
+            model_names.append(model_name)
             
             outcomes, preds = np.load(os.path.join(MODEL_DIR, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
             with open(os.path.join(self.model_dir, f"metrics_{model_name}.json"), "r") as file:
@@ -102,8 +105,13 @@ class SliceHelper:
                 f"{model_name}_pred_share": sf.scores.OutcomeShareScore(valid_preds),
                 f"{model_name}_pred_xf": sf.scores.InteractionEffectScore(valid_preds),
             })
-        return score_fns
-        
+        return score_fns, model_names
+
+    def get_model_timestep_def(self, model_name):
+        with open(os.path.join(self.model_dir, f"spec_{model_name}.json"), "r") as file:
+            spec = json.load(file)
+        return spec['timestep_definition']
+    
     
 class SliceDiscoveryHelper(SliceHelper):
     def __init__(self, model_dir, results_dir, samples_per_model=50, min_items_fraction=0.01, **slice_finding_kwargs):
@@ -137,40 +145,83 @@ class SliceDiscoveryHelper(SliceHelper):
         with open(status_path, "w") as file:
             json.dump(status, file)
             
-    def invalidate_model(self, model_name):
+    def load_timestep_slice_results(self, timestep_def):
+        results_path = os.path.join(self.results_dir, f"slice_results_{timestep_def}.json")
+        if os.path.exists(results_path):
+            with open(results_path, "r") as file:
+                self.slice_scores[timestep_def] = {s: s.score_values for s in (sf.slices.Slice.from_dict(r) for r in json.load(file)["results"])}
+        
+    def get_slicing_variables(self, timestep_def):
+        if timestep_def not in self.discrete_dfs:
+            dataset, _ = load_raw_data(cache_dir="data/slicing_variables", val_only=True)
+            
+            with open(os.path.join("data", "slice_variables.json"), "r") as file:
+                discrete_df, _ = make_slicing_variables(dataset, json.load(file), timestep_def) 
+                discovery_mask = get_slicing_split(self.results_dir, discrete_df, timestep_def)[0]
+                valid_df = discrete_df.filter(discovery_mask)
+                self.discrete_dfs[timestep_def] = valid_df
+        else:
+            valid_df = self.discrete_dfs[timestep_def]
+            discovery_mask = get_slicing_split(self.results_dir, valid_df, timestep_def)[0]
+        return valid_df, discovery_mask 
+        
+    def model_has_slices(self, model_name):
+        """
+        Determines whether there are slices for a given model's timestep 
+        definition.
+        """
+        timestep_def = self.get_model_timestep_def(model_name)
+        results_path = os.path.join(self.results_dir, f"slice_results_{timestep_def}.json")
+        return os.path.exists(results_path)
+        
+    def rescore_model(self, model_name):
         """Recalculates the discovery set scores for the given model."""
-        raise NotImplementedError
+        timestep_def = self.get_model_timestep_def(model_name)
+        self.load_timestep_slice_results(timestep_def)   
+        if not self.slice_scores.get(timestep_def, []):
+            print("No slices to rescore")
+            return
+        
+        valid_df, discovery_mask = self.get_slicing_variables(timestep_def)
+        
+        # Add scores for all the other models
+        other_score_fns, scored_model_names = self.get_score_functions(discovery_mask, include_model_names=[model_name])
+        results = [r for r in self.slice_scores[timestep_def]]
+        min_items = self.min_items_fraction * len(valid_df.df)
+        print(len(results), "results to rescore")
+        rescored_results = sf.slices.score_slices_batch(results, 
+                                                        valid_df.df, 
+                                                        other_score_fns, 
+                                                        self.slice_finding_kwargs.get("max_features", 3), 
+                                                        min_items=min_items, 
+                                                        device='cpu')
+        print(len(rescored_results), "slices scored")
+        
+        for r in results:
+            r = r.rescore({**r.score_values, **(rescored_results[r].score_values if rescored_results.get(r, None) is not None else {})})
+            if r in self.slice_scores[timestep_def]:
+                del self.slice_scores[timestep_def][r]
+            self.slice_scores[timestep_def][r] = r.score_values
+        
+        print("Writing to file")
+        results_path = os.path.join(self.results_dir, f"slice_results_{timestep_def}.json")
+        with open(results_path, "w") as file:
+            json.dump(sf.utils.convert_to_native_types({"results": [r.to_dict() for r in self.slice_scores[timestep_def]]}), file)
+        print("Done")
         
     def find_slices(self, model_name, kwarg_function=None):
         try:
             self.write_status(True, search_status={"state": "loading", "message": "Loading data", "model_name": model_name})
             
-            with open(os.path.join(self.model_dir, f"spec_{model_name}.json"), "r") as file:
-                spec = json.load(file)
-                
-            results_path = os.path.join(self.results_dir, f"slice_results_{spec['timestep_definition']}.json")
-            timestep_def = spec['timestep_definition']
-            if os.path.exists(results_path):
-                with open(results_path, "r") as file:
-                    self.slice_scores[timestep_def] = {s: s.score_values for s in (sf.slices.Slice.from_dict(r) for r in json.load(file)["results"])}
-                    
-            if timestep_def not in self.discrete_dfs:
-                dataset, _ = load_raw_data(cache_dir="data/slicing_variables", val_only=True)
-                self.write_status(True, search_status={"state": "loading", "message": "Loading variables", "model_name": model_name})
-                
-                with open(os.path.join("data", "slice_variables.json"), "r") as file:
-                    discrete_df, _ = make_slicing_variables(dataset, json.load(file), timestep_def) 
-                    discovery_mask = get_slicing_split(self.results_dir, discrete_df, timestep_def)[0]
-                    valid_df = discrete_df.filter(discovery_mask)
-                    self.discrete_dfs[timestep_def] = valid_df
-            else:
-                valid_df = self.discrete_dfs[timestep_def]
-                discovery_mask = get_slicing_split(self.results_dir, valid_df, timestep_def)[0]
-                    
+            timestep_def = self.get_model_timestep_def(model_name)
+            self.load_timestep_slice_results(timestep_def)
+            self.write_status(True, search_status={"state": "loading", "message": "Loading variables", "model_name": model_name})
+            valid_df, discovery_mask = self.get_slicing_variables(timestep_def)
+                 
             self.write_status(True, search_status={"state": "loading", "message": f"Finding slices for {model_name}", "model_name": model_name})
             
             outcomes, _ = np.load(os.path.join(MODEL_DIR, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
-            discovery_score_fns = self.get_score_functions(discovery_mask, include_model_names=[model_name])
+            discovery_score_fns, _ = self.get_score_functions(discovery_mask, include_model_names=[model_name])
             
             last_progress = 0
             
@@ -196,7 +247,7 @@ class SliceDiscoveryHelper(SliceHelper):
                                     **(kwarg_function(valid_df) if kwarg_function is not None else {}))
 
             # Add scores for all the other models
-            other_score_fns = self.get_score_functions(discovery_mask, exclude_model_names=[model_name])
+            other_score_fns, scored_model_names = self.get_score_functions(discovery_mask, exclude_model_names=[model_name])
             new_results = [r for r in results if r not in self.slice_scores[timestep_def]]
             rescored_results = sf.slices.score_slices_batch(new_results, 
                                                             valid_df.df, 
@@ -211,9 +262,10 @@ class SliceDiscoveryHelper(SliceHelper):
                     del self.slice_scores[timestep_def][r]
                 self.slice_scores[timestep_def][r] = r.score_values
             
+            results_path = os.path.join(self.results_dir, f"slice_results_{timestep_def}.json")
             with open(results_path, "w") as file:
                 json.dump(sf.utils.convert_to_native_types({"results": [r.to_dict() for r in self.slice_scores[timestep_def]]}), file)
-            self.write_status(False, new_results=len(results), models_to_add=[model_name])
+            self.write_status(False, new_results=len(results), models_to_add=list(set([model_name, *scored_model_names])))
         except KeyboardInterrupt:
             self.write_status(False, search_status=None)
         except Exception as e:
@@ -269,7 +321,6 @@ class SliceEvaluationHelper(SliceHelper):
             acc = ((slice_pred >= opt_threshold) == slice_true).mean()
             matching_unique_ids = len(np.unique(slice_ids))
             
-            print(desc["feature"], model_name, total_nonna, matching_nonna)
             desc["metrics"][model_name] = {
                 "Timesteps": {"type": "count", "count": matching_nonna, "share": matching_nonna / total_nonna},
                 "Trajectories": {"type": "count", 
@@ -294,6 +345,21 @@ class SliceEvaluationHelper(SliceHelper):
         desc["scoreValues"] = {k: v for k, v in desc["scoreValues"].items() 
                                if k in ("size", "complexity") or any(k.startswith(model_name + "_") for model_name in model_names)}
         return desc
+        
+    def rescore_model(self, model_name, timestep_def=None):
+        """Recalculates the evaluation slice scores for the given model."""
+        if model_name in self.metrics: 
+            del self.metrics[model_name]
+            
+        # Clear slice score cache so that the slices will be rescored
+        if timestep_def is None: timestep_def = self.get_model_timestep_def(model_name)
+        self.eval_score_caches.setdefault(timestep_def, {})
+        
+        # reload slice results
+        results_path = os.path.join(self.results_dir, f"slice_results_{timestep_def}.json")
+        if os.path.exists(results_path):
+            with open(results_path, "r") as file:
+                self.slice_scores[timestep_def] = [sf.slices.Slice.from_dict(r) for r in json.load(file)["results"]]
         
     def get_results(self, timestep_def, model_names):
         current_status = self.get_status()
@@ -326,7 +392,7 @@ class SliceEvaluationHelper(SliceHelper):
             eval_mask = get_slicing_split(self.results_dir, valid_df, timestep_def)[1]
             ids = self.eval_ids[timestep_def]
             
-        score_fns = self.get_score_functions(eval_mask)
+        score_fns, _ = self.get_score_functions(eval_mask)
         
         metrics = {}
         for model_name in model_names:
@@ -336,16 +402,7 @@ class SliceEvaluationHelper(SliceHelper):
             
                 valid_outcomes = outcomes[eval_mask].astype(np.float64)
                 valid_preds = preds[eval_mask]
-                test_slice = valid_df.encode_slice(sf.slices.SliceFeatureNegation(
-                    sf.slices.SliceFeature("Phenylephrine", ["None"]),
-                ).to_dict())
-                test_mask = test_slice.make_mask(valid_df.df)
-                print(model_name)
-                print(pd.isna(np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)).sum(), len(valid_outcomes))
-                print(pd.isna(np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0))[test_mask].sum(), len(valid_outcomes[test_mask]))
-                test_slice = valid_df.encode_slice(sf.slices.SliceFeature("Phenylephrine", ["None"]).to_dict())
-                test_mask = test_slice.make_mask(valid_df.df)
-                print(pd.isna(np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0))[test_mask].sum(), len(valid_outcomes[test_mask]))
+
                 model_metrics[f"{model_name} True"] = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)
                 model_metrics[f"{model_name} Predicted"] = np.where(np.isnan(valid_preds), np.nan, valid_preds)
                 self.metrics[model_name] = model_metrics
