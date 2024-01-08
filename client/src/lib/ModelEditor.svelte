@@ -164,7 +164,7 @@
       Edit Model <span class="font-mono">{modelName}</span>
     </h2>
     {#if !!saveError}
-      <div class="mt-2 p-3 text-red-500 bg-red-50">
+      <div class="rounded mt-2 p-3 text-red-500 bg-red-50">
         Training error: <span class="font-mono">{saveError}</span>
       </div>
     {/if}

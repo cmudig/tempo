@@ -27,13 +27,15 @@
     let maxInstances = Object.values(models)
       .filter((m) => !!m.metrics)
       .reduce(
-        (prev, curr) => Math.max(prev, curr.metrics?.n_val.instances ?? 0),
+        (prev, curr) =>
+          Math.max(prev, curr.metrics?.n_slice_eval.instances ?? 0),
         0
       );
     let maxTrajectories = Object.values(models)
       .filter((m) => !!m.metrics)
       .reduce(
-        (prev, curr) => Math.max(prev, curr.metrics?.n_val.trajectories ?? 0),
+        (prev, curr) =>
+          Math.max(prev, curr.metrics?.n_slice_eval.trajectories ?? 0),
         0
       );
     let maxMetricValue = Object.values(models)

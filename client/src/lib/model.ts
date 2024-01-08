@@ -7,6 +7,7 @@ export type ModelMetrics = {
   positive_rate?: number;
   n_train: { instances: number; trajectories: number };
   n_val: { instances: number; trajectories: number };
+  n_slice_eval: { instances: number; trajectories: number };
   trivial_solution_warning?: {
     variables: string[];
     auc: number;

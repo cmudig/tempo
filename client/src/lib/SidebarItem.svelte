@@ -30,8 +30,8 @@
     };
   else if (!!model && !!model.metrics)
     metricValues = {
-      Timesteps: model.metrics?.n_val.instances ?? 0,
-      Trajectories: model.metrics?.n_val.trajectories ?? 0,
+      Timesteps: model.metrics?.n_slice_eval.instances ?? 0,
+      Trajectories: model.metrics?.n_slice_eval.trajectories ?? 0,
       [metricToShow]: model.metrics?.performance[metricToShow] ?? 0,
       'Positive Rate': model.metrics?.positive_rate ?? 0,
     };

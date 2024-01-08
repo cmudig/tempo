@@ -15,7 +15,11 @@
     type TrainingStatus,
   } from './training';
   import SliceSearchView from './SliceSearchView.svelte';
-  import type { Slice, SliceFeatureBase } from './slices/utils/slice.type';
+  import {
+    SliceSearchControl,
+    type Slice,
+    type SliceFeatureBase,
+  } from './slices/utils/slice.type';
   import { areObjectsEqual } from './slices/utils/utils';
 
   const dispatch = createEventDispatcher();
@@ -50,10 +54,20 @@
 
   let slices: Slice[] | null = null;
   let baseSlice: Slice | null = null;
+  // the slice controls used to generate the results that are displayed
+  type Controls = { [key in SliceSearchControl]?: SliceFeatureBase };
+  let resultControls: Controls = {};
   let retrievedScoreWeights: { [key: string]: number } | null = null;
   let scoreWeights: { [key: string]: number } | null = null;
   let valueNames: { [key: string]: [any, { [key: string]: any }] } | null =
     null;
+
+  let enabledSliceControls: { [key in SliceSearchControl]?: boolean } = {};
+  let containsSlice: any = {};
+  let containedInSlice: any = {};
+  let similarToSlice: any = {};
+  let subsliceOfSlice: any = {};
+  let queryControls: Controls = {};
 
   $: if (modelName) {
     searchStatus = null;
@@ -101,11 +115,10 @@
         headers: {
           'Content-Type': 'application/json',
         },
-        body: !!scoreWeights
-          ? JSON.stringify({
-              score_weights: scoreWeights,
-            })
-          : '',
+        body: JSON.stringify({
+          ...(!!scoreWeights ? { score_weights: scoreWeights } : {}),
+          controls: queryControls,
+        }),
       });
       if (response.status == 400) {
         sliceSearchError = await response.text();
@@ -121,6 +134,7 @@
         scoreWeights = result.results.score_weights;
         retrievedScoreWeights = result.results.score_weights;
         valueNames = result.results.value_names;
+        resultControls = result.controls;
         console.log(slices, baseSlice, scoreWeights, valueNames);
       } else {
         retrievingSlices = false;
@@ -145,6 +159,12 @@
       let result = await (
         await fetch(`/slices/${modelName}/start`, {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            controls: queryControls,
+          }),
         })
       ).json();
       if (result.searching) {
@@ -179,14 +199,34 @@
     if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
   });
 
-  $: if (!areObjectsEqual(retrievedScoreWeights, scoreWeights)) {
+  $: if (
+    !areObjectsEqual(retrievedScoreWeights, scoreWeights) ||
+    !areObjectsEqual(resultControls, queryControls)
+  ) {
     getSlicesIfAvailable();
+  }
+
+  $: {
+    queryControls = {
+      ...(enabledSliceControls[SliceSearchControl.containsSlice]
+        ? { [SliceSearchControl.containsSlice]: containsSlice }
+        : {}),
+      ...(enabledSliceControls[SliceSearchControl.containedInSlice]
+        ? { [SliceSearchControl.containedInSlice]: containedInSlice }
+        : {}),
+      ...(enabledSliceControls[SliceSearchControl.similarToSlice]
+        ? { [SliceSearchControl.similarToSlice]: similarToSlice }
+        : {}),
+      ...(enabledSliceControls[SliceSearchControl.subsliceOfSlice]
+        ? { [SliceSearchControl.subsliceOfSlice]: subsliceOfSlice }
+        : {}),
+    };
   }
 </script>
 
 <div class="p-4 w-full flex flex-col h-full">
   {#if !!sliceSearchError}
-    <div class="p-3 mb-2 text-red-500 bg-red-50">
+    <div class="rounded p-3 mb-2 text-red-500 bg-red-50">
       Slice search error: <span class="font-mono">{sliceSearchError}</span>
     </div>
   {/if}
@@ -199,10 +239,17 @@
         metricToShow,
         'Positive Rate',
       ]}
-      slices={slices ?? []}
+      slices={areObjectsEqual(queryControls, resultControls)
+        ? slices ?? []
+        : []}
       {baseSlice}
       bind:scoreWeights
       bind:selectedSlices
+      bind:enabledSliceControls
+      bind:containsSlice
+      bind:containedInSlice
+      bind:similarToSlice
+      bind:subsliceOfSlice
       {valueNames}
       runningSampler={!!searchStatus || loadingSliceStatus}
       {retrievingSlices}

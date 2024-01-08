@@ -12,7 +12,9 @@ from sklearn.model_selection import train_test_split
 MICROORGANISMS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "microorganism_categories.csv")
 DRUG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "drug_categories.csv")
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
-CACHE_DIR = "data/variable_cache"
+SLICES_DIR = os.path.join(os.path.dirname(__file__), "slices")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+CACHE_DIR = os.path.join(os.path.dirname(__file__), "data", "variable_cache")
 
 microorganisms = pd.read_csv(MICROORGANISMS_PATH, index_col=0).drop(columns=["Categorized"])
 drug_categories = pd.read_csv(DRUG_PATH, index_col=0)
@@ -31,7 +33,7 @@ for col in drug_categories.columns:
     PRESCRIPTIONS[col] = matching_names.values.tolist()
 
 def load_raw_data(sample=False, data_dir=None, cache_dir=None, val_only=False):
-    if data_dir is None: data_dir = "data"
+    if data_dir is None: data_dir = DATA_DIR
     attributes = AttributeSet(pd.read_feather(f"{data_dir}/attributes.arrow"))
     events = EventSet(pd.read_feather(f"{data_dir}/events.arrow"), id_field="icustayid", time_field="charttime")
     intervals = IntervalSet(pd.read_feather(f"{data_dir}/intervals.arrow"), id_field="icustayid")
@@ -99,7 +101,7 @@ def make_modeling_variables(dataset, variable_definitions, timestep_definition):
     del modeling_variables
     return modeling_df
     
-def _train_model(variables, outcomes, ids, train_mask, val_mask, regressor=False, columns_to_drop=None, columns_to_add=None, row_mask=None, check_warnings=True, **model_params):
+def _train_model(model_meta, variables, outcomes, ids, train_mask, val_mask, regressor=False, columns_to_drop=None, columns_to_add=None, row_mask=None, full_metrics=True, **model_params):
     """
     variables: a dataframe containing variables for all patients
     """
@@ -170,7 +172,7 @@ def _train_model(variables, outcomes, ids, train_mask, val_mask, regressor=False
             metrics["performance"]["Specificity"] = float(tn / (tn + fp))
             submodel_metric = "AUROC"
             
-            if check_warnings:
+            if full_metrics:
                 # Check whether any classes are never predicted
                 class_true_positive_threshold = 0.1
                 for true_class, probs in enumerate(conf):
@@ -187,7 +189,15 @@ def _train_model(variables, outcomes, ids, train_mask, val_mask, regressor=False
     metrics["n_train"] = {"instances": len(train_X), "trajectories": len(np.unique(train_ids))}
     metrics["n_val"] = {"instances": len(val_X), "trajectories": len(np.unique(val_ids))}
     
-    if submodel_metric is not None and check_warnings:
+    if full_metrics:
+        from model_slice_finding import get_slicing_split
+        slice_eval_mask = get_slicing_split(SLICES_DIR, variables[val_mask], model_meta['timestep_definition'])[1]
+        eval_mask = np.ones(len(ids), dtype=bool)
+        eval_mask[val_mask] = slice_eval_mask
+        eval_ids = ids.values[val_mask & row_mask & eval_mask]
+        metrics["n_slice_eval"] = {"instances": len(eval_ids), "trajectories": len(np.unique(eval_ids))}
+    
+    if submodel_metric is not None and full_metrics:
         # Check for trivial solutions
         max_variables = 5
         auc_fraction = 0.95
@@ -196,6 +206,7 @@ def _train_model(variables, outcomes, ids, train_mask, val_mask, regressor=False
         for i in reversed(np.argsort(model.feature_importances_)[-max_variables:]):
             variable_names.append(variables.columns[i])
             _, sub_metrics, _, _ = _train_model(
+                model_meta,
                 variables[variable_names],
                 outcomes,
                 ids,
@@ -203,7 +214,7 @@ def _train_model(variables, outcomes, ids, train_mask, val_mask, regressor=False
                 val_mask,
                 row_mask=row_mask, 
                 regressor=regressor,
-                check_warnings=False,
+                full_metrics=False,
                 **model_params)
             if sub_metrics["performance"][submodel_metric] >= metrics["performance"][submodel_metric] * auc_fraction:
                 metrics["trivial_solution_warning"] = {
@@ -239,6 +250,7 @@ def make_model(dataset, model_meta, train_patients, val_patients, modeling_df=No
     val_mask = outcome.get_ids().isin(val_patients)
     
     model, metrics, val_pred, val_true = _train_model(
+        model_meta,
         modeling_df,
         outcome.get_values(),
         outcome.get_ids(),

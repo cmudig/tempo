@@ -14,6 +14,7 @@
     faMinus,
     faPencil,
     faScaleBalanced,
+    faSearch,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import {
@@ -320,8 +321,8 @@
         disabled={retrievingSlices}
       >
         <span slot="button-content"
-          ><Fa icon={faFilter} class="inline mr-1" />
-          Add Filter</span
+          ><Fa icon={faSearch} class="inline mr-1" />
+          Refine Search</span
         >
         <div slot="options">
           {#each Object.values(SliceSearchControl) as control}
@@ -413,7 +414,35 @@
       {/if}
     </div>
   </div>
-  {#if !!slices && slices.length > 0}
+  {#if retrievingSlices}
+    <div class="w-full flex-auto flex flex-col items-center justify-center">
+      <div>Retrieving slices...</div>
+      <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-2">
+        <svg
+          aria-hidden="true"
+          class="text-gray-200 animate-spin stroke-gray-600 w-8 h-8 align-middle"
+          viewBox="-0.5 -0.5 99.5 99.5"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <ellipse
+            cx="50"
+            cy="50"
+            rx="45"
+            ry="45"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="10"
+          />
+          <path
+            d="M 50 5 A 45 45 0 0 1 95 50"
+            stroke-width="10"
+            stroke-linecap="round"
+            fill="none"
+          />
+        </svg>
+      </div>
+    </div>
+  {:else if !!baseSlice}
     <div class="flex-auto min-h-0 overflow-auto">
       <div class="search-view-header bg-white" bind:this={searchViewHeader}>
         <SliceTable
@@ -513,76 +542,50 @@
           </div>
         </div>
       {/if}
-      <div class="flex-1 min-h-0" class:disable-div={runningSampler}>
-        <SliceTable
-          {slices}
-          {savedSlices}
-          bind:selectedSlices
-          bind:sliceRequests
-          bind:sliceRequestResults
-          {positiveOnly}
-          {valueNames}
-          {allowedValues}
-          showHeader={false}
-          {metricGroups}
-          allowFavorite={false}
-          allowMultiselect={false}
-          metricInfo={(n) => getMetric(metricInfo, n)}
-          metricGetter={(s, name) => getMetric(s.metrics, name)}
-          bind:metricNames
-          bind:scoreNames
-          bind:scoreWidthScalers
-          allowShowScores={false}
-          showCheckboxes={false}
-          on:newsearch={(e) => {
-            updateEditingControl(e.detail.type, e.detail.base_slice);
-            toggleSliceControl(e.detail.type, true);
-          }}
-          on:saveslice
-        />
+      {#if !!slices && slices.length > 0}
+        <div class="flex-1 min-h-0" class:disable-div={runningSampler}>
+          <SliceTable
+            {slices}
+            {savedSlices}
+            bind:selectedSlices
+            bind:sliceRequests
+            bind:sliceRequestResults
+            {positiveOnly}
+            {valueNames}
+            {allowedValues}
+            showHeader={false}
+            {metricGroups}
+            allowFavorite={false}
+            allowMultiselect={false}
+            metricInfo={(n) => getMetric(metricInfo, n)}
+            metricGetter={(s, name) => getMetric(s.metrics, name)}
+            bind:metricNames
+            bind:scoreNames
+            bind:scoreWidthScalers
+            allowShowScores={false}
+            showCheckboxes={false}
+            on:newsearch={(e) => {
+              updateEditingControl(e.detail.type, e.detail.base_slice);
+              toggleSliceControl(e.detail.type, true);
+            }}
+            on:saveslice
+          />
 
-        {#if slices.length > 0}
-          <div class="mt-2">
-            <button
-              class="btn btn-blue disabled:opacity-50"
-              on:click={() => dispatch('loadmore')}>Load More</button
-            >
-          </div>
-        {/if}
-      </div>
-    </div>
-  {:else}
-    <div
-      class="w-full flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
-    >
-      {#if retrievingSlices}
-        <div>Retrieving slices...</div>
-        <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-2">
-          <svg
-            aria-hidden="true"
-            class="text-gray-200 animate-spin stroke-gray-600 w-8 h-8 align-middle"
-            viewBox="-0.5 -0.5 99.5 99.5"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <ellipse
-              cx="50"
-              cy="50"
-              rx="45"
-              ry="45"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="10"
-            />
-            <path
-              d="M 50 5 A 45 45 0 0 1 95 50"
-              stroke-width="10"
-              stroke-linecap="round"
-              fill="none"
-            />
-          </svg>
+          {#if slices.length > 0}
+            <div class="mt-2">
+              <button
+                class="btn btn-blue disabled:opacity-50"
+                on:click={() => dispatch('loadmore')}>Load More</button
+              >
+            </div>
+          {/if}
         </div>
       {:else}
-        <div>No slices yet!</div>
+        <div
+          class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
+        >
+          <div>No slices yet!</div>
+        </div>
       {/if}
     </div>
   {/if}

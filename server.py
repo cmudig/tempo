@@ -27,6 +27,7 @@ SAMPLE_MODEL_TRAINING_DATA = False
 
 def _background_model_generation(queue):
     finder = None
+    dataset = None
     def make_finder():
         return SliceDiscoveryHelper(MODEL_DIR, 
                                         SLICES_DIR, 
@@ -39,12 +40,13 @@ def _background_model_generation(queue):
     while True:
         arg = queue.get()
         if arg == "STOP": return
-        command, model_name, meta = arg
-        if command == "train_model":
+        if arg[0] == "train_model":
+            command, model_name, meta = arg
             try:
                 with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Loading data"}}, file)
-                dataset, (train_patients, val_patients, _) = load_raw_data(sample=SAMPLE_MODEL_TRAINING_DATA)
+                if dataset is None:
+                    dataset, (train_patients, val_patients, _) = load_raw_data(sample=SAMPLE_MODEL_TRAINING_DATA)
                 with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Loading variables"}}, file)
                 modeling_df = make_modeling_variables(dataset, meta["variables"], meta["timestep_definition"])
@@ -70,19 +72,32 @@ def _background_model_generation(queue):
                 print(traceback.format_exc())
                 with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "error", "message": str(e)}}, file)
-        elif command == "find_slices":
+        elif arg[0] == "find_slices":
+            command, model_name, controls = arg
             if finder is None:
                 finder = make_finder()
-            finder.find_slices(model_name, lambda valid_df: {"group_filter": valid_df.encode_filter(sf.filters.ExcludeIfAny([
-                                                sf.filters.ExcludeFeatureValueSet(COMORBIDITY_FIELDS, ["No"]),
-                                                sf.filters.ExcludeFeatureValueSet([
-                                                    'Invasive Ventilation', 'Non-invasive Ventilation', 'Dialysis', 'Thoracentesis', 'Cardioversion/Defibrillation'
-                                                ], ["No"]),
-                                                sf.filters.ExcludeFeatureValueSet(list(PRESCRIPTIONS.keys()), ["No"]),
-                                                sf.filters.ExcludeFeatureValueSet([c for c in (DISCRETE_EVENT_COLUMNS + [x + " Delta" for x in NUMERICAL_COLUMNS] + ["Pain Level", "BMI"])
-                                                                                   if c in valid_df], ["Missing"]),
-                                                sf.filters.ExcludeFeatureValueSet([c for c in NUMERICAL_COLUMNS if c in valid_df], ["Missing"])
-                                                ]))})
+            def make_slice_options(valid_df, outcomes):
+                # Exclude any features that have only one value
+                single_value_filters = []
+                for col_idx, (col, value_pairs) in valid_df.value_names.items():
+                    unique_vals = np.unique(valid_df.df[:,col_idx][~pd.isna(outcomes)])
+                    if len(unique_vals) == 1:
+                        single_value_filters.append(sf.filters.ExcludeFeatureValue(col, value_pairs[unique_vals[0]]))
+                        
+                print("Single value filters:", [(f.feature, f.value) for f in single_value_filters])
+                return {"group_filter": valid_df.encode_filter(sf.filters.ExcludeIfAny([
+                    sf.filters.ExcludeFeatureValueSet(COMORBIDITY_FIELDS, ["No"]),
+                    sf.filters.ExcludeFeatureValueSet([
+                        'Invasive Ventilation', 'Non-invasive Ventilation', 'Dialysis', 'Thoracentesis', 'Cardioversion/Defibrillation'
+                    ], ["No"]),
+                    sf.filters.ExcludeFeatureValueSet(list(PRESCRIPTIONS.keys()), ["No"]),
+                    sf.filters.ExcludeFeatureValueSet([c for c in (DISCRETE_EVENT_COLUMNS + [x + " Delta" for x in NUMERICAL_COLUMNS] + ["Pain Level", "BMI"])
+                                                        if c in valid_df], ["Missing"]),
+                    sf.filters.ExcludeFeatureValueSet([c for c in NUMERICAL_COLUMNS if c in valid_df], ["Missing"]),
+                    *single_value_filters
+                    ]))}
+                
+            finder.find_slices(model_name, controls, make_slice_options)
 
 def _get_model_training_status(model_name):
     if os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
@@ -236,6 +251,7 @@ if __name__ == '__main__':
         
     @app.route("/models/stop_training/<model_name>", methods=["POST"])
     def stop_model_training(model_name):
+        global model_worker
         state = _get_model_training_status(model_name)["state"]
         if state == "loading":
             os.kill(model_worker.pid, signal.SIGINT)
@@ -269,8 +285,17 @@ if __name__ == '__main__':
         if spec.get("training", False):
             return "Model is being trained", 400
         
+        controls = {}
+
+        try:        
+            body = request.json
+            if body and "controls" in body:
+                controls = body["controls"]
+        except:
+            pass
+        
         # Start searching
-        queue.put(("find_slices", model_name, slice_progress))
+        queue.put(("find_slices", model_name, controls))
         search_status = {"state": "loading", "message": "Starting", "model_name": model_name}
         finder = SliceDiscoveryHelper(MODEL_DIR, SLICES_DIR)
         finder.write_status(True, search_status=search_status)
@@ -278,6 +303,7 @@ if __name__ == '__main__':
     
     @app.route("/slices/stop_finding", methods=["POST"])
     def stop_slice_finding():
+        global model_worker
         os.kill(model_worker.pid, signal.SIGINT)
         model_worker.join()
         print("Restarting model worker")
@@ -306,19 +332,21 @@ if __name__ == '__main__':
             timestep_def = spec["timestep_definition"]
             
         weights = evaluator.get_default_weights(model_names)
+        controls = {}
 
         try:        
             body = request.json
+            if body and "controls" in body:
+                controls = body["controls"]
+                # get weights for additional score functions used by controls
+                weights = evaluator.get_default_weights(model_names, controls=controls)
             if body and "score_weights" in body:
                 new_weights = body["score_weights"]
-                for n in new_weights:
-                    if n not in weights:
-                        return f"Unexpected score weight {n}", 400
                 weights = {k: new_weights.get(k, 0) for k in weights}
         except:
             pass
 
-        result = evaluator.get_results(timestep_def, model_names)
+        result = evaluator.get_results(timestep_def, controls, model_names)
         if result is None:
             return jsonify({"results": {}})
         
@@ -335,7 +363,9 @@ if __name__ == '__main__':
         ]
         base_slice = sf.slices.Slice(sf.slices.SliceFeatureBase())
         response = {
-            "state": "complete", "results": {
+            "state": "complete", 
+            "controls": controls,
+            "results": {
                 "slices": results_json,
                 "score_weights": weights,
                 "value_names": df.value_names,
@@ -350,7 +380,7 @@ if __name__ == '__main__':
         return jsonify(response)
         
     def _score_slice(model_names, timestep_def, slice_requests):
-        result = evaluator.get_results(timestep_def, model_names)
+        result = evaluator.get_results(timestep_def, {}, model_names)
         if result is None:
             return {}
         
