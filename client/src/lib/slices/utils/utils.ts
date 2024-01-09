@@ -159,3 +159,22 @@ export function sortMetrics(a: string, b: string): number {
   } else if (prefixMetrics.includes(b.toLocaleLowerCase())) return 1;
   return a.localeCompare(b);
 }
+
+/**
+ * Uses canvas.measureText to compute and return the width of the given text of given font in pixels.
+ *
+ * @param {String} text The text to be rendered.
+ * @param {String} font The css font descriptor that text is to be rendered with (e.g. "bold 14px verdana").
+ *
+ * @see https://stackoverflow.com/questions/118241/calculate-text-width-with-javascript/21015393#21015393
+ */
+export function getTextWidth(text: string, font: number): number {
+  // re-use canvas object for better performance
+  var canvas =
+    getTextWidth.canvas ||
+    (getTextWidth.canvas = document.createElement('canvas'));
+  var context = canvas.getContext('2d');
+  context.font = font;
+  var metrics = context.measureText(text);
+  return metrics.width;
+}

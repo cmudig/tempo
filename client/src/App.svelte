@@ -14,7 +14,7 @@
     slices = 'Slices',
     editor = 'Edit',
   }
-  let currentView = View.slices;
+  let currentView = View.results;
 
   let currentModel = 'vasopressor_8h';
 

@@ -19,6 +19,12 @@ export type ModelMetrics = {
     true_positive_fraction: number;
     true_positive_threshold: number;
   }[];
+  roc: {
+    thresholds: number[];
+    tpr: number[];
+    fpr: number[];
+    performance: { [key: string]: number }[];
+  };
 };
 
 export type ModelSummary = {

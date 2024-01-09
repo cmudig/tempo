@@ -155,15 +155,17 @@ def _train_model(model_meta, variables, outcomes, ids, train_mask, val_mask, reg
             }
             metrics["positive_rate"] = float((val_y > 0).mean())
             metrics["roc"] = {}
-            for t in np.arange(0, 1, 0.05):
+            for t in [*np.arange(0, 0.1, 0.01), *np.arange(0.1, 0.9, 0.1), *np.arange(0.9, 1, 0.01)]:
                 conf = confusion_matrix(val_y, (val_pred >= t))
                 tn, fp, fn, tp = conf.ravel()
                 metrics["roc"].setdefault("thresholds", []).append(t)
                 metrics["roc"].setdefault("fpr", []).append(fp / (fp + tn))
                 metrics["roc"].setdefault("tpr", []).append(tp / (tp + fn))
-                metrics["roc"].setdefault("acc", []).append((tp + tn) / conf.sum())
-                metrics["roc"].setdefault("sensitivity", []).append(float(tp / (tp + fn)))
-                metrics["roc"].setdefault("specificity", []).append(float(tn / (tn + fp)))
+                metrics["roc"].setdefault("performance", []).append({
+                    "Accuracy": (tp + tn) / conf.sum(),
+                    "Sensitivity": float(tp / (tp + fn)),
+                    "Specificity": float(tn / (tn + fp))
+                })
                 
             conf = confusion_matrix(val_y, (val_pred >= opt_threshold))
             metrics["confusion_matrix"] = conf.tolist()

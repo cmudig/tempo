@@ -10,12 +10,18 @@
   import * as d3 from 'd3';
   import ModelTrainingView from './ModelTrainingView.svelte';
   import { checkTrainingStatus } from './training';
-  import { faWarning } from '@fortawesome/free-solid-svg-icons';
+  import { faWarning, faXmarkCircle } from '@fortawesome/free-solid-svg-icons';
+  import RocLineChart from './slices/charts/ROCLineChart.svelte';
+  import TableCellBar from './slices/metric_charts/TableCellBar.svelte';
+  import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
 
   const dispatch = createEventDispatcher();
 
   export let modelName = 'vasopressor_8h';
   let metrics: ModelMetrics | null = null;
+
+  let selectedThreshold: number | null = null;
+  let rocChart: RocLineChart;
 
   let isTraining: boolean = false;
 
@@ -47,7 +53,20 @@
   });
 
   const percentageFormat = d3.format('.1~%');
+  const thresholdFormat = d3.format('.3~');
   const nFormat = d3.format(',');
+
+  let performanceMetrics: { [key: string]: number } | undefined;
+  $: if (selectedThreshold !== null && !!metrics && !!metrics.roc) {
+    let idx = metrics.roc.thresholds.findIndex((t) => t === selectedThreshold);
+    if (idx !== undefined)
+      performanceMetrics = {
+        ...(metrics.performance ?? {}),
+        ...metrics?.roc.performance[idx],
+      };
+  } else {
+    performanceMetrics = metrics?.performance;
+  }
 </script>
 
 <div class="w-full py-2 px-4">
@@ -90,26 +109,64 @@
         </div>
       {/each}
     {/if}
-    <div class="mb-2">
-      <span class="font-bold text-slate-700 mr-2">Instances</span><span
-        class="font-mono"
-        >{nFormat(metrics.n_train.instances)} ({nFormat(
-          metrics.n_train.trajectories
-        )} trajectories)</span
-      >
-      training,
-      <span class="font-mono"
-        >{nFormat(metrics.n_val.instances)} ({nFormat(
-          metrics.n_val.trajectories
-        )} trajectories)</span
-      > validation
-    </div>
-    {#each Object.entries(metrics.performance) as [metricName, value]}
-      <div class="mb-2">
-        <span class="font-bold text-slate-700 mr-2">{metricName}</span><span
-          class="font-mono">{percentageFormat(value)}</span
-        >
+    <div class="mb-2 rounded bg-slate-100 p-4 flex w-full gap-8">
+      <div class="flex-auto">
+        {#if metrics.threshold !== undefined || selectedThreshold !== null}
+          <div class="font-bold text-slate-600 text-sm mb-4">
+            {#if selectedThreshold !== null}Selected prediction threshold{:else}Optimal
+              prediction threshold{/if}:
+            <span class="font-mono font-normal text-normal"
+              >{thresholdFormat(
+                selectedThreshold ?? metrics.threshold ?? 0
+              )}</span
+            >
+            {#if selectedThreshold !== null && !!rocChart}
+              <button
+                class="hover:opacity-50 ml-3"
+                on:click={() => rocChart.resetSelection()}
+                ><Fa class="inline" icon={faXmarkCircle} /></button
+              >
+            {/if}
+          </div>
+        {/if}
+        {#if !!performanceMetrics}
+          <div class="flex flex-wrap gap-4 mb-4">
+            {#each Object.entries(performanceMetrics) as [metricName, value]}
+              <div class="w-32">
+                <div class="font-bold text-slate-600 text-sm mb-2">
+                  {metricName}
+                </div>
+                <SliceMetricBar width={96} {value}>
+                  <span slot="caption" class="font-mono text-base">
+                    {percentageFormat(value)}
+                  </span>
+                </SliceMetricBar>
+              </div>
+            {/each}
+          </div>
+        {/if}
+        <div>
+          <span class="font-bold text-slate-700 mr-2">Instances</span><span
+            class="font-mono"
+            >{nFormat(metrics.n_train.instances)} ({nFormat(
+              metrics.n_train.trajectories
+            )} trajectories)</span
+          >
+          training,
+          <span class="font-mono"
+            >{nFormat(metrics.n_val.instances)} ({nFormat(
+              metrics.n_val.trajectories
+            )} trajectories)</span
+          > validation
+        </div>
       </div>
-    {/each}
+      <div class="w-1/3 h-64 shrink-0 grow-0" style="min-width: 200px;">
+        <RocLineChart
+          bind:this={rocChart}
+          roc={metrics.roc}
+          bind:selectedThreshold
+        />
+      </div>
+    </div>
   {/if}
 </div>
