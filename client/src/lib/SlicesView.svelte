@@ -21,12 +21,15 @@
     type SliceFeatureBase,
   } from './slices/utils/slice.type';
   import { areObjectsEqual } from './slices/utils/utils';
+  import SliceDetailsView from './slice_details/SliceDetailsView.svelte';
 
   const dispatch = createEventDispatcher();
 
-  export let modelName = 'vasopressor_8h';
+  export let modelName: string;
+  export let modelsToShow: string[];
   export let metricToShow = 'AUROC';
   export let selectedSlice: SliceFeatureBase | null = null;
+  export let sliceSpec: string = 'default';
 
   let isTraining: boolean = false;
   let searchStatus: SliceFindingStatus | null = null;
@@ -55,7 +58,9 @@
   let slices: Slice[] | null = null;
   let baseSlice: Slice | null = null;
   // the slice controls used to generate the results that are displayed
-  type Controls = { [key in SliceSearchControl]?: SliceFeatureBase };
+  type Controls = { [key in SliceSearchControl]?: SliceFeatureBase } & {
+    slice_spec_name?: string;
+  };
   let resultControls: Controls = {};
   let retrievedScoreWeights: { [key: string]: number } | null = null;
   let scoreWeights: { [key: string]: number } | null = null;
@@ -67,13 +72,17 @@
   let containedInSlice: any = {};
   let similarToSlice: any = {};
   let subsliceOfSlice: any = {};
-  let queryControls: Controls = {};
+  let queryControls: Controls = { slice_spec_name: sliceSpec };
 
-  $: if (modelName) {
+  let oldModels: string[] = [];
+  $: if (oldModels !== modelsToShow) {
     searchStatus = null;
     scoreWeights = null;
-    getSlicesIfAvailable();
-    pollSliceStatus();
+    if (modelsToShow.length > 0) {
+      getSlicesIfAvailable();
+      pollSliceStatus();
+    }
+    oldModels = modelsToShow;
   }
 
   async function pollSliceStatus() {
@@ -108,9 +117,11 @@
 
   async function getSlicesIfAvailable() {
     try {
-      console.log('Fetching slices');
+      console.log('Fetching slices', modelsToShow.join(','), scoreWeights);
       retrievingSlices = true;
-      let response = await fetch(`/slices/${modelName}`, {
+      retrievedScoreWeights = null;
+      resultControls = {};
+      let response = await fetch(`/slices/${modelsToShow.join(',')}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -200,8 +211,10 @@
   });
 
   $: if (
-    !areObjectsEqual(retrievedScoreWeights, scoreWeights) ||
-    !areObjectsEqual(resultControls, queryControls)
+    ((retrievedScoreWeights != null &&
+      !areObjectsEqual(retrievedScoreWeights, scoreWeights)) ||
+      !areObjectsEqual(resultControls, queryControls)) &&
+    !retrievingSlices
   ) {
     getSlicesIfAvailable();
   }
@@ -220,6 +233,7 @@
       ...(enabledSliceControls[SliceSearchControl.subsliceOfSlice]
         ? { [SliceSearchControl.subsliceOfSlice]: subsliceOfSlice }
         : {}),
+      slice_spec_name: sliceSpec,
     };
   }
 </script>
@@ -232,7 +246,7 @@
   {/if}
   <div class="flex-auto h-0 overflow-auto" style="width: 100% !important;">
     <SliceSearchView
-      modelNames={[modelName]}
+      modelNames={modelsToShow}
       metricsToShow={[
         'Timesteps',
         'Trajectories',
@@ -263,5 +277,10 @@
       on:cancel={stopFindingSlices}
     />
   </div>
-  <div class="mt-4 rounded bg-slate-100 h-64">Slice Details</div>
+  <div
+    class={selectedSlice != null ? 'mt-4 rounded bg-slate-100' : ''}
+    style={selectedSlice != null ? 'min-height: 300px; height: 30vh;' : ''}
+  >
+    <SliceDetailsView slice={selectedSlice} modelNames={modelsToShow} />
+  </div>
 </div>

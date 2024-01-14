@@ -5,6 +5,7 @@
 
   export let checked = false;
   export let colorClass: string | null = null;
+  export let disabled = false;
 
   const dispatch = createEventDispatcher();
 </script>
@@ -14,9 +15,11 @@
   null
     ? colorClass
     : checked
-    ? 'bg-blue-400'
-    : 'bg-slate-300 hover:bg-slate-400'}"
-  on:click={(e) => {
+      ? 'bg-blue-400'
+      : 'bg-slate-300 hover:bg-slate-400'}"
+  {disabled}
+  class:opacity-50={disabled}
+  on:click|stopPropagation={(e) => {
     checked = !checked;
     dispatch('change', checked);
   }}

@@ -8,9 +8,9 @@
   import BarTooltip from './BarTooltip.svelte';
   import BarSegment from './BarSegment.svelte';
 
-  export let width = 100;
+  export let width: number | string = 100;
 
-  export let counts: { [key: string]: number } = null;
+  export let counts: { [key: string]: number } | null = null;
 
   export let order: Array<string> = [];
 
@@ -28,13 +28,13 @@
     let runningCount = 0;
     data = order.map((d, i) => {
       let curr = runningCount;
-      runningCount += counts[d] || 0;
+      runningCount += counts![d] || 0;
       return {
         start: curr / totalCount,
         end: runningCount / totalCount,
         index: i,
         name: d,
-        count: counts[d] || 0,
+        count: counts![d] || 0,
       };
     });
     console.log(data);
@@ -47,43 +47,49 @@
   let countFormat = format(',');
 
   function makeTooltipText(d: Datum) {
-    return `${d.index}: ${countFormat(d.count)} instances`;
+    return `${d.name}: ${countFormat(d.count)} instances`;
   }
 </script>
 
-<div
-  style="width: {width}px; height: 6px;"
-  class="inline-block rounded overflow-hidden"
->
-  <LayerCake
-    padding={{ top: 0, right: 0, bottom: 0, left: 0 }}
-    x="start"
-    y="index"
-    z="end"
-    xScale={scaleLinear()}
-    xDomain={[0, 1]}
-    xRange={[0, width]}
-    yScale={scaleOrdinal()}
-    yDomain={range(counts.length)}
-    yRange={schemeTableau10}
-    {data}
-    custom={{
-      hoveredGet: (d) => d.index == hoveredIndex,
-    }}
+{#if !!counts}
+  <div
+    style="width: {`${width}`.includes('%')
+      ? width
+      : `${width}px`}; height: 6px;"
+    class="inline-block rounded overflow-hidden"
   >
-    <Html>
-      <BarSegment
-        on:hover={(e) => (hoveredIndex = e.detail ? e.detail.index : null)}
-      />
-    </Html>
-  </LayerCake>
-</div>
-<div class="text-xs text-slate-800 dark:text-slate-100">
-  {#if $$slots.caption}
-    <slot name="caption" />
-  {:else if hoveredIndex != null}
-    {makeTooltipText(data[hoveredIndex])}
-  {:else}
-    &nbsp;
-  {/if}
-</div>
+    <LayerCake
+      padding={{ top: 0, right: 0, bottom: 0, left: 0 }}
+      x="start"
+      y="index"
+      z="end"
+      xScale={scaleLinear()}
+      xDomain={[0, 1]}
+      yScale={scaleOrdinal()}
+      yDomain={range(counts.length)}
+      yRange={schemeTableau10}
+      {data}
+      custom={{
+        hoveredGet: (d) => d.index == hoveredIndex,
+      }}
+    >
+      <Html>
+        <BarSegment
+          on:hover={(e) => (hoveredIndex = e.detail ? e.detail.index : null)}
+        />
+      </Html>
+    </LayerCake>
+  </div>
+  <div
+    class="text-xs text-slate-800 dark:text-slate-100"
+    style="width: {`${width}`.includes('%') ? width : `${width}px`};"
+  >
+    {#if $$slots.caption}
+      <slot name="caption" />
+    {:else if hoveredIndex != null}
+      {makeTooltipText(data[hoveredIndex])}
+    {:else}
+      &nbsp;
+    {/if}
+  </div>
+{/if}

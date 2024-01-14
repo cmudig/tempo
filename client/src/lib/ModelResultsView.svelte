@@ -21,7 +21,6 @@
   let metrics: ModelMetrics | null = null;
 
   let selectedThreshold: number | null = null;
-  let rocChart: RocLineChart;
 
   let isTraining: boolean = false;
 
@@ -39,6 +38,7 @@
       isTraining = false;
       let result = await fetch(`/models/${modelName}/metrics`);
       metrics = await result.json();
+      selectedThreshold = null;
       console.log(metrics);
     } catch (e) {
       console.error('error loading model metrics:', e);
@@ -57,7 +57,11 @@
   const nFormat = d3.format(',');
 
   let performanceMetrics: { [key: string]: number } | undefined;
-  $: if (selectedThreshold !== null && !!metrics && !!metrics.roc) {
+  $: if (
+    selectedThreshold != metrics?.threshold &&
+    !!metrics &&
+    !!metrics.roc
+  ) {
     let idx = metrics.roc.thresholds.findIndex((t) => t === selectedThreshold);
     if (idx !== undefined)
       performanceMetrics = {
@@ -66,6 +70,10 @@
       };
   } else {
     performanceMetrics = metrics?.performance;
+  }
+
+  $: if (!!metrics && selectedThreshold == null) {
+    selectedThreshold = metrics.threshold ?? null;
   }
 </script>
 
@@ -113,17 +121,18 @@
       <div class="flex-auto">
         {#if metrics.threshold !== undefined || selectedThreshold !== null}
           <div class="font-bold text-slate-600 text-sm mb-4">
-            {#if selectedThreshold !== null}Selected prediction threshold{:else}Optimal
-              prediction threshold{/if}:
+            {#if Math.abs((selectedThreshold ?? 1e9) - (metrics?.threshold ?? 1e9)) > 0.001}Selected
+              prediction threshold{:else}Optimal prediction threshold{/if}:
             <span class="font-mono font-normal text-normal"
               >{thresholdFormat(
                 selectedThreshold ?? metrics.threshold ?? 0
               )}</span
             >
-            {#if selectedThreshold !== null && !!rocChart}
+            {#if selectedThreshold != metrics.threshold}
               <button
                 class="hover:opacity-50 ml-3"
-                on:click={() => rocChart.resetSelection()}
+                on:click={() =>
+                  (selectedThreshold = metrics?.threshold ?? null)}
                 ><Fa class="inline" icon={faXmarkCircle} /></button
               >
             {/if}
@@ -160,12 +169,8 @@
           > validation
         </div>
       </div>
-      <div class="w-1/3 h-64 shrink-0 grow-0" style="min-width: 200px;">
-        <RocLineChart
-          bind:this={rocChart}
-          roc={metrics.roc}
-          bind:selectedThreshold
-        />
+      <div class="aspect-square h-64 shrink-0 grow-0" style="min-width: 200px;">
+        <RocLineChart roc={metrics.roc} bind:selectedThreshold />
       </div>
     </div>
   {/if}

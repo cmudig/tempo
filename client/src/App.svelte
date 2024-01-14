@@ -17,6 +17,7 @@
   let currentView = View.results;
 
   let currentModel = 'vasopressor_8h';
+  let selectedModels: string[] = [];
 
   let selectedSlice: SliceFeatureBase | null = null;
   $: if (currentView !== View.slices) selectedSlice = null;
@@ -45,7 +46,12 @@
     class="border-r border-slate-400 h-full shrink-0 grow-0"
     style="width: 540px; max-width: 40%;"
   >
-    <Sidebar {models} bind:activeModel={currentModel} bind:selectedSlice />
+    <Sidebar
+      {models}
+      bind:activeModel={currentModel}
+      bind:selectedModels
+      bind:selectedSlice
+    />
   </div>
   <div class="flex-auto h-full flex flex-col w-0">
     <div
@@ -67,7 +73,11 @@
       {#if currentView == View.results}
         <ModelResultsView modelName={currentModel} />
       {:else if currentView == View.slices}
-        <SlicesView bind:selectedSlice modelName={currentModel} />
+        <SlicesView
+          bind:selectedSlice
+          modelName={currentModel}
+          modelsToShow={Array.from(new Set([...selectedModels, currentModel]))}
+        />
       {:else if currentView == View.editor}
         <ModelEditor
           modelName={currentModel}

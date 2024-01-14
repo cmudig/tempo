@@ -2,7 +2,7 @@ from flask import Flask, send_from_directory, request, jsonify, send_file
 from query_language.evaluator import TrajectoryDataset
 from initial_models import NUMERICAL_COLUMNS, DISCRETE_EVENT_COLUMNS, COMORBIDITY_FIELDS # todo remove these
 from model_training import make_model, load_raw_data, make_modeling_variables, MICROORGANISMS, PRESCRIPTIONS
-from model_slice_finding import SliceDiscoveryHelper, SliceEvaluationHelper
+from model_slice_finding import SliceDiscoveryHelper, SliceEvaluationHelper, describe_slice_change_differences, describe_slice_differences
 import slice_finding as sf
 import json
 import os
@@ -31,12 +31,12 @@ def _background_model_generation(queue):
     def make_finder():
         return SliceDiscoveryHelper(MODEL_DIR, 
                                         SLICES_DIR, 
-                                        min_items_fraction=0.01,
+                                        min_items_fraction=0.005,
                                         samples_per_model=100,
-                                    max_features=3,
-                                    scoring_fraction=0.05,
-                                    num_candidates=20,
-                                    similarity_threshold=0.7)
+                                    max_features=4,
+                                    scoring_fraction=0.2,
+                                    num_candidates=5,
+                                    similarity_threshold=0.5)
     while True:
         arg = queue.get()
         if arg == "STOP": return
@@ -56,11 +56,11 @@ def _background_model_generation(queue):
                 
                 if finder is None:
                     finder = make_finder()
-                    if finder.model_has_slices(model_name):
-                        with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
-                            json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Rescoring slices"}}, file)
-                        # Tell the slice finder that the slices need to be rescored for this model
-                        finder.rescore_model(model_name)
+                if finder.model_has_slices(model_name):
+                    with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                        json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Rescoring slices"}}, file)
+                    # Tell the slice finder that the slices need to be rescored for this model
+                    finder.rescore_model(model_name)
                 with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
                     json.dump(meta, file)
             except KeyboardInterrupt:
@@ -76,28 +76,18 @@ def _background_model_generation(queue):
             command, model_name, controls = arg
             if finder is None:
                 finder = make_finder()
-            def make_slice_options(valid_df, outcomes):
+            def filter_single_values(valid_df, outcomes):
                 # Exclude any features that have only one value
                 single_value_filters = []
                 for col_idx, (col, value_pairs) in valid_df.value_names.items():
                     unique_vals = np.unique(valid_df.df[:,col_idx][~pd.isna(outcomes)])
                     if len(unique_vals) == 1:
-                        single_value_filters.append(sf.filters.ExcludeFeatureValue(col, value_pairs[unique_vals[0]]))
+                        single_value_filters.append(sf.filters.ExcludeFeatureValue(col_idx, unique_vals[0]))
                         
                 print("Single value filters:", [(f.feature, f.value) for f in single_value_filters])
-                return {"group_filter": valid_df.encode_filter(sf.filters.ExcludeIfAny([
-                    sf.filters.ExcludeFeatureValueSet(COMORBIDITY_FIELDS, ["No"]),
-                    sf.filters.ExcludeFeatureValueSet([
-                        'Invasive Ventilation', 'Non-invasive Ventilation', 'Dialysis', 'Thoracentesis', 'Cardioversion/Defibrillation'
-                    ], ["No"]),
-                    sf.filters.ExcludeFeatureValueSet(list(PRESCRIPTIONS.keys()), ["No"]),
-                    sf.filters.ExcludeFeatureValueSet([c for c in (DISCRETE_EVENT_COLUMNS + [x + " Delta" for x in NUMERICAL_COLUMNS] + ["Pain Level", "BMI"])
-                                                        if c in valid_df], ["Missing"]),
-                    sf.filters.ExcludeFeatureValueSet([c for c in NUMERICAL_COLUMNS if c in valid_df], ["Missing"]),
-                    *single_value_filters
-                    ]))}
+                return sf.filters.ExcludeIfAny(single_value_filters)
                 
-            finder.find_slices(model_name, controls, make_slice_options)
+            finder.find_slices(model_name, controls, additional_filter=filter_single_values)
 
 def _get_model_training_status(model_name):
     if os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
@@ -294,6 +284,9 @@ if __name__ == '__main__':
         except:
             pass
         
+        if "slice_spec_name" not in controls:
+            controls["slice_spec_name"] = "default"
+        
         # Start searching
         queue.put(("find_slices", model_name, controls))
         search_status = {"state": "loading", "message": "Starting", "model_name": model_name}
@@ -331,20 +324,22 @@ if __name__ == '__main__':
                 return "Cannot get slices for models with multiple timestep definitions", 400
             timestep_def = spec["timestep_definition"]
             
-        weights = evaluator.get_default_weights(model_names)
+        weights = evaluator.get_default_evaluation_weights(model_names)
         controls = {}
 
         try:        
             body = request.json
-            if body and "controls" in body:
-                controls = body["controls"]
-                # get weights for additional score functions used by controls
-                weights = evaluator.get_default_weights(model_names, controls=controls)
-            if body and "score_weights" in body:
-                new_weights = body["score_weights"]
-                weights = {k: new_weights.get(k, 0) for k in weights}
         except:
             pass
+        if body and "controls" in body:
+            controls = body["controls"]
+            # get weights for additional score functions used by controls
+            weights = evaluator.get_default_evaluation_weights(model_names, controls=controls)
+        if "slice_spec_name" not in controls:
+            controls["slice_spec_name"] = "default"
+        if body and "score_weights" in body:
+            new_weights = evaluator.weights_for_evaluation(body["score_weights"])
+            weights = {k: new_weights.get(k, 0) for k in weights}
 
         result = evaluator.get_results(timestep_def, controls, model_names)
         if result is None:
@@ -367,7 +362,7 @@ if __name__ == '__main__':
             "controls": controls,
             "results": {
                 "slices": results_json,
-                "score_weights": weights,
+                "score_weights": evaluator.weights_for_display(weights),
                 "value_names": df.value_names,
                 "base_slice": evaluator.describe_slice(rank_list,
                                                        metrics,
@@ -379,7 +374,7 @@ if __name__ == '__main__':
         response = sf.utils.convert_to_native_types(response)
         return jsonify(response)
         
-    def _score_slice(model_names, timestep_def, slice_requests):
+    def _score_slice(model_names, timestep_def, slice_spec_name, slice_requests):
         result = evaluator.get_results(timestep_def, {}, model_names)
         if result is None:
             return {}
@@ -435,9 +430,11 @@ if __name__ == '__main__':
         if len(body["sliceRequests"]) == 0:
             return jsonify({"sliceRequestResults": {}})
         
+        slice_spec_name = body.get("sliceSpec", "default")
+        
         results = {}
         for timestep_def, model_names in timestep_defs.items():
-            ts_results = _score_slice(model_names, timestep_def, body["sliceRequests"])
+            ts_results = _score_slice(model_names, timestep_def, slice_spec_name, body["sliceRequests"])
             for slice_key in ts_results:
                 if slice_key not in results:
                     results[slice_key] = ts_results[slice_key]
@@ -447,6 +444,58 @@ if __name__ == '__main__':
                     results[slice_key]["metrics"].update(ts_results[slice_key]["metrics"])
         return jsonify({ "sliceRequestResults": results })
     
+    @app.route("/slices/<model_names>/compare", methods=["POST"])
+    def get_slice_comparisons(model_names):
+        model_names = model_names.split(",")
+        
+        timestep_def = None
+        for name in model_names:
+            with open(os.path.join(MODEL_DIR, f"spec_{name}.json"), "r") as file:
+                spec = json.load(file)
+            if timestep_def is not None and spec["timestep_definition"] != timestep_def:
+                return "Cannot get slices for models with multiple timestep definitions", 400
+            timestep_def = spec["timestep_definition"]
+            
+        body = request.json
+        if "slice" not in body:
+            return "'slice' body argument required", 400
+        
+        discrete_df, eval_mask, ids, slice_filter = evaluator.get_slicing_data(body.get("sliceSpec", "default"),
+                                                                 timestep_def,
+                                                                 evaluation=True)
+        slice_to_eval = discrete_df.encode_slice(body["slice"])
+        
+        offset = body.get("offset", None)
+        
+        metrics = evaluator.get_eval_metrics(model_names, eval_mask)
+        valid_mask = np.all(np.vstack(list(metrics.values())), axis=0)
+        if offset is not None:
+            try:
+                if int(offset) != offset:
+                    return "Offset must be an integer", 400
+            except ValueError:
+                return "Offset must be an integer", 400
+            
+            # Return a comparison of the slice at the given number of steps
+            # offset from the current time compared to the current time
+            comparison = describe_slice_change_differences(
+                discrete_df,
+                ids,
+                offset,
+                slice_to_eval,
+                slice_filter=slice_filter,
+                valid_mask=valid_mask
+            )
+            return jsonify(sf.utils.convert_to_native_types(comparison))
+        else:
+            differences = describe_slice_differences(
+                discrete_df,
+                slice_to_eval,
+                slice_filter=slice_filter,
+                valid_mask=valid_mask
+            )
+            return jsonify(sf.utils.convert_to_native_types(differences))
+        
     # Path for our main Svelte page
     @app.route("/")
     def client():

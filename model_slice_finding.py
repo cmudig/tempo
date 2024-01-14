@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import re
 import json
+import tqdm
 import torch
 import pickle
 import datetime
@@ -55,7 +56,7 @@ def parse_controls(discrete_df, controls, source_mask=None):
         contains_slice = discrete_df.encode_slice(contains_slice)
         if contains_slice.feature != sf.slices.SliceFeatureBase():
             ref_mask = contains_slice.make_mask(raw_inputs).cpu().numpy()
-            new_score_fns["contains_slice"] = sf.scores.SliceSimilarityScore(ref_mask, metric='superslice')
+            new_score_fns["Contains Slice"] = sf.scores.SliceSimilarityScore(ref_mask, metric='superslice')
             exclusion_criteria = sf.filters.ExcludeIfAny([
                 sf.filters.ExcludeFeatureValueSet([f.feature_name], f.allowed_values)
                 for f in contains_slice.univariate_features()
@@ -66,7 +67,7 @@ def parse_controls(discrete_df, controls, source_mask=None):
         contained_in_slice = discrete_df.encode_slice(contained_in_slice)
         if contained_in_slice.feature != sf.slices.SliceFeatureBase():
             ref_mask = contained_in_slice.make_mask(raw_inputs).cpu().numpy()
-            new_score_fns["contained_in_slice"] = sf.scores.SliceSimilarityScore(ref_mask, metric='subslice')
+            new_score_fns["Contained in Slice"] = sf.scores.SliceSimilarityScore(ref_mask, metric='subslice')
             exclusion_criteria = sf.filters.ExcludeIfAny([
                 sf.filters.ExcludeFeatureValueSet([f.feature_name], f.allowed_values)
                 for f in contained_in_slice.univariate_features()
@@ -77,7 +78,7 @@ def parse_controls(discrete_df, controls, source_mask=None):
         similar_to_slice = discrete_df.encode_slice(similar_to_slice)
         if similar_to_slice.feature != sf.slices.SliceFeatureBase():
             ref_mask = similar_to_slice.make_mask(raw_inputs).cpu().numpy()
-            new_score_fns["similar_to_slice"] = sf.scores.SliceSimilarityScore(ref_mask, metric='jaccard')
+            new_score_fns["Similar to Slice"] = sf.scores.SliceSimilarityScore(ref_mask, metric='jaccard')
             exclusion_criteria = sf.filters.ExcludeIfAny([
                 sf.filters.ExcludeFeatureValueSet([f.feature_name], f.allowed_values)
                 for f in similar_to_slice.univariate_features()
@@ -94,13 +95,13 @@ def parse_controls(discrete_df, controls, source_mask=None):
 def default_control_weights(controls):
     weights = {}
     if controls.get("contains_slice", {}) != {}:
-        weights["contains_slice"] = 1.0
+        weights["Contains Slice"] = 1.0
 
     if controls.get("contained_in_slice", {}) != {}:
-        weights["contained_in_slice"] = 1.0
+        weights["Contained in Slice"] = 1.0
 
     if controls.get("similar_to_slice", {}) != {}:
-        weights["similar_to_slice"] = 1.0
+        weights["Similar to Slice"] = 1.0
 
     return weights        
     
@@ -148,7 +149,9 @@ def find_slices(discrete_df, score_fns, controls=None, progress_fn=None, n_sampl
 class SliceHelper:
     def __init__(self, model_dir, results_dir):
         self.model_dir = model_dir
-        self.results_dir = results_dir        
+        self.results_dir = results_dir     
+        self.discrete_dfs = {}
+        self.slice_filter = None   
         
     def get_status(self):
         status_path = os.path.join(self.results_dir, "discovery_status.json")
@@ -160,6 +163,23 @@ class SliceHelper:
             pass
         return {"searching": False, "status": {"state": "none", "message": "Not currently finding slices"}, "n_results": 0, "n_runs": 0, "models": []}
         
+    def get_slicing_data(self, slice_spec_name, timestep_def, evaluation=False):
+        if (slice_spec_name, timestep_def, evaluation) not in self.discrete_dfs:
+            dataset, _ = load_raw_data(cache_dir=os.path.join(DATA_DIR, "slicing_variables"), val_only=True)
+            
+            with open(os.path.join(self.results_dir, "specifications", slice_spec_name + ".json"), "r") as file:
+                slicing_metadata = json.load(file)
+                discrete_df, ids = make_slicing_variables(dataset, slicing_metadata["variables"], timestep_def) 
+                row_mask = get_slicing_split(self.results_dir, discrete_df, timestep_def)[1 if evaluation else 0]
+                valid_df = discrete_df.filter(row_mask)
+                ids = ids.values[row_mask]
+                self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)] = (valid_df, row_mask, ids)
+                self.slice_filter = valid_df.encode_filter(sf.filters.SliceFilterBase.from_dict(slicing_metadata["slice_filter"]))
+        else:
+            valid_df, row_mask, ids = self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)]
+        return valid_df, row_mask, ids, self.slice_filter
+        
+
     def get_score_functions(self, discrete_df, valid_mask, include_model_names=None, exclude_model_names=None, controls=None):
         score_fns = {
             "size": sf.scores.SliceSizeScore(0.2, 0.05),
@@ -183,13 +203,15 @@ class SliceHelper:
             valid_outcomes = outcomes[valid_mask].astype(np.float64)
             valid_preds = preds[valid_mask]
             valid_true = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)
+            # TODO change to error rate? or mean difference of NLL?
+            valid_acc = np.where(np.isnan(valid_outcomes), np.nan, (valid_outcomes > 0) == valid_preds)
             score_fns.update({
                 f"{model_name}_true": sf.scores.OutcomeRateScore(valid_true),
-                f"{model_name}_true_share": sf.scores.OutcomeShareScore(valid_true),
                 f"{model_name}_true_xf": sf.scores.InteractionEffectScore(valid_true),
                 f"{model_name}_pred": sf.scores.OutcomeRateScore(valid_preds),
-                f"{model_name}_pred_share": sf.scores.OutcomeShareScore(valid_preds),
                 f"{model_name}_pred_xf": sf.scores.InteractionEffectScore(valid_preds),
+                f"{model_name}_acc": sf.scores.OutcomeRateScore(valid_acc),
+                f"{model_name}_acc_xf": sf.scores.InteractionEffectScore(valid_acc),
             })
             
         if controls is not None:
@@ -208,7 +230,8 @@ class SliceHelper:
         def make_slice(obj):
             if obj is None: return None
             return sf.slices.SliceFeatureBase.from_dict(obj)
-        return (make_slice(controls.get("contains_slice", None)),
+        return (controls["slice_spec_name"],
+                make_slice(controls.get("contains_slice", None)),
                 make_slice(controls.get("contained_in_slice", None)),
                 make_slice(controls.get("similar_to_slice", None)),
                 make_slice(controls.get("subslice_of_slice", None)))
@@ -216,10 +239,11 @@ class SliceHelper:
     def result_key_to_controls(self, result_key):
         """Returns a key into the slice results file representing the results for
         this set of controls."""
-        return {"contains_slice": result_key[0].to_dict() if result_key[0] is not None else None,
-                "contained_in_slice": result_key[1].to_dict() if result_key[1] is not None else None,
-                "similar_to_slice": result_key[2].to_dict() if result_key[2] is not None else None,
-                "subslice_of_slice": result_key[3].to_dict() if result_key[3] is not None else None}
+        return {"slice_spec_name": result_key[0],
+                "contains_slice": result_key[1].to_dict() if result_key[1] is not None else None,
+                "contained_in_slice": result_key[2].to_dict() if result_key[2] is not None else None,
+                "similar_to_slice": result_key[3].to_dict() if result_key[3] is not None else None,
+                "subslice_of_slice": result_key[4].to_dict() if result_key[4] is not None else None}
     
     def load_timestep_slice_results(self, timestep_def):
         results_path = os.path.join(self.results_dir, f"slice_results_{timestep_def}.json")
@@ -237,7 +261,6 @@ class SliceDiscoveryHelper(SliceHelper):
         super().__init__(model_dir, results_dir)
         self.samples_per_model = samples_per_model
         self.min_items_fraction = min_items_fraction
-        self.discrete_dfs = {}
         self.slice_finding_kwargs = slice_finding_kwargs
         self.slice_scores = {}
         
@@ -275,20 +298,6 @@ class SliceDiscoveryHelper(SliceHelper):
                 "slices": [r.to_dict() for r in results]
             } for result_key, results in self.slice_scores[timestep_def].items()]}), file)
         
-    def get_slicing_variables(self, timestep_def):
-        if timestep_def not in self.discrete_dfs:
-            dataset, _ = load_raw_data(cache_dir=os.path.join(DATA_DIR, "slicing_variables"), val_only=True)
-            
-            with open(os.path.join(DATA_DIR, "slice_variables.json"), "r") as file:
-                discrete_df, _ = make_slicing_variables(dataset, json.load(file), timestep_def) 
-                discovery_mask = get_slicing_split(self.results_dir, discrete_df, timestep_def)[0]
-                valid_df = discrete_df.filter(discovery_mask)
-                self.discrete_dfs[timestep_def] = valid_df
-        else:
-            valid_df = self.discrete_dfs[timestep_def]
-            discovery_mask = get_slicing_split(self.results_dir, valid_df, timestep_def)[0]
-        return valid_df, discovery_mask 
-        
     def model_has_slices(self, model_name):
         """
         Determines whether there are slices for a given model's timestep 
@@ -298,15 +307,15 @@ class SliceDiscoveryHelper(SliceHelper):
         results_path = os.path.join(self.results_dir, f"slice_results_{timestep_def}.json")
         return os.path.exists(results_path)
         
-    def rescore_model(self, model_name):
+    def rescore_model(self, slice_spec_name, model_name):
         """Recalculates the discovery set scores for the given model."""
         timestep_def = self.get_model_timestep_def(model_name)
-        self.load_timestep_slice_results(timestep_def)   
+        self.load_timestep_slice_results(slice_spec_name, timestep_def)   
         if not self.slice_scores.get(timestep_def, []):
             print("No slices to rescore")
             return
         
-        valid_df, discovery_mask = self.get_slicing_variables(timestep_def)
+        valid_df, discovery_mask, _, _ = self.get_slicing_data(slice_spec_name, timestep_def)
         
         for _, control_results in self.slice_scores[timestep_def].items():
             other_score_fns, scored_model_names = self.get_score_functions(valid_df, discovery_mask, include_model_names=[model_name])
@@ -323,8 +332,8 @@ class SliceDiscoveryHelper(SliceHelper):
             
             for r in results:
                 r = r.rescore({**r.score_values, **(rescored_results[r].score_values if rescored_results.get(r, None) is not None else {})})
-                if r in self.slice_scores[timestep_def]:
-                    del self.slice_scores[timestep_def][r]
+                if r in control_results:
+                    del control_results[r]
                 control_results[r] = r.score_values
         
         print("Writing to file")
@@ -332,14 +341,14 @@ class SliceDiscoveryHelper(SliceHelper):
         self.write_status(False, timestep_defs_updated=[timestep_def])
         print("Done")
         
-    def find_slices(self, model_name, controls, kwarg_function=None):
+    def find_slices(self, model_name, controls, additional_filter=None):
         try:
             self.write_status(True, search_status={"state": "loading", "message": "Loading data", "model_name": model_name})
             
             timestep_def = self.get_model_timestep_def(model_name)
             self.load_timestep_slice_results(timestep_def)
             self.write_status(True, search_status={"state": "loading", "message": "Loading variables", "model_name": model_name})
-            valid_df, discovery_mask = self.get_slicing_variables(timestep_def)
+            valid_df, discovery_mask, _, slice_filter = self.get_slicing_data(controls["slice_spec_name"], timestep_def)
                  
             self.write_status(True, search_status={"state": "loading", "message": f"Finding slices for {model_name}", "model_name": model_name})
             
@@ -368,6 +377,11 @@ class SliceDiscoveryHelper(SliceHelper):
             
             print(len(discovery_outcomes), "outcomes")
             min_items = self.min_items_fraction * len(discovery_df.df)
+            if additional_filter is not None: 
+                if callable(additional_filter):
+                    slice_filter = sf.filters.ExcludeIfAny([slice_filter, additional_filter(valid_df, outcomes[discovery_mask])])
+                else:
+                    slice_filter = sf.filters.ExcludeIfAny([slice_filter, additional_filter])
             self.slice_scores.setdefault(timestep_def, {})
             command_results = self.slice_scores[timestep_def].setdefault(result_key, {})
             print(discovery_df.df.shape, min_items, self.slice_finding_kwargs)
@@ -381,8 +395,8 @@ class SliceDiscoveryHelper(SliceHelper):
                                     min_items=min_items,
                                     n_workers=None,
                                     source_mask=discovery_outcomes > 0,
-                                    **self.slice_finding_kwargs,
-                                    **(kwarg_function(discovery_df, discovery_outcomes) if kwarg_function is not None else {}))
+                                    group_filter=slice_filter,
+                                    **self.slice_finding_kwargs)
 
             # Add scores for all the other models
             other_score_fns, scored_model_names = self.get_score_functions(valid_df, discovery_mask)
@@ -400,7 +414,6 @@ class SliceDiscoveryHelper(SliceHelper):
                     del command_results[r]
                 command_results[r] = r.score_values
             
-            print(self.slice_scores[timestep_def].keys(), [len(self.slice_scores[timestep_def][r]) for r in self.slice_scores[timestep_def]])
             self.save_timestep_slice_results(timestep_def)
             self.write_status(False, timestep_defs_updated=[timestep_def], new_results=len(results), models_to_add=list(set([model_name, *scored_model_names])))
         except KeyboardInterrupt:
@@ -416,21 +429,56 @@ class SliceEvaluationHelper(SliceHelper):
         self.slice_finding_kwargs = slice_finding_kwargs
         self.slice_finding_status = None
         self.slice_scores = {}
-        self.discrete_dfs = {}
         self.eval_score_caches = {}
         self.metrics = {}
         self.eval_ids = {} 
         
-    def get_default_weights(self, model_names, controls=None):
+    def get_default_evaluation_weights(self, model_names, controls=None):
         if controls is not None:
             control_weights = default_control_weights(controls)
         else:
             control_weights = {}
-        return {**{n: 1.0 for model_name in model_names
-                   for n in [f"{model_name}_true", f"{model_name}_true_share", f"{model_name}_true_xf",
-                             f"{model_name}_pred", f"{model_name}_pred_share", f"{model_name}_pred_xf"]},
+        eval_weights = {**{n: 0.5 for model_name in model_names
+                   for n in [f"{model_name}_true", f"{model_name}_true_xf",
+                             f"{model_name}_pred", f"{model_name}_pred_xf",
+                             f"{model_name}_acc", f"{model_name}_acc_xf"]},
                 **control_weights,
                 "size": 0.5, "complexity": 0.5}
+        return eval_weights
+        
+    def weights_for_evaluation(self, display_weights):
+        """Converts the score weights to the names of the actual score functions."""
+        new_weights = {}
+        for wname, w in display_weights.items():
+            if (match := re.match(r'^True Pos (.*)$', wname)) is not None:
+                model_name = match.group(1)
+                new_weights[f"{model_name}_true"] = w * .5
+                new_weights[f"{model_name}_true_xf"] = w * .5
+            elif (match := re.match(r'^Predicted Pos (.*)$', wname)) is not None:
+                model_name = match.group(1)
+                new_weights[f"{model_name}_pred"] = w * .5
+                new_weights[f"{model_name}_pred_xf"] = w * .5
+            elif (match := re.match(r'^Accuracy (.*)$', wname)) is not None:
+                model_name = match.group(1)
+                new_weights[f"{model_name}_acc"] = w * .5
+                new_weights[f"{model_name}_acc_xf"] = w * .5
+            else:
+                new_weights[wname] = w
+        return new_weights
+    
+    def weights_for_display(self, evaluation_weights):
+        """Converts the score weights to user-readable weight values."""
+        new_weights = {}
+        for wname, w in evaluation_weights.items():
+            display_key = wname
+            if (match := re.match(r'^(.*)_true(_xf)?$', wname)) is not None:
+                display_key = f"True Pos {match.group(1)}"
+            elif (match := re.match(r'^(.*)_pred(_xf)?$', wname)) is not None:
+                display_key = f"Predicted Pos {match.group(1)}"
+            elif (match := re.match(r'^(.*)_acc(_xf)?$', wname)) is not None:
+                display_key = f"Accuracy {match.group(1)}"
+            new_weights[display_key] = new_weights.get(display_key, 0) + w
+        return new_weights
         
     def describe_slice(self, rank_list, metrics, ids, slice_obj, model_names):
         """
@@ -456,8 +504,11 @@ class SliceEvaluationHelper(SliceHelper):
             slice_true = slice_true[~pd.isna(slice_true)]
             fpr, tpr, thresholds = roc_curve(slice_true, slice_pred)
             opt_threshold = thresholds[np.argmax(tpr - fpr)]
-            auroc = roc_auc_score(slice_true, slice_pred)
-            conf = confusion_matrix(slice_true, (slice_pred >= opt_threshold))
+            if len(np.unique(slice_true)) <= 1:
+                auroc = 1
+            else:
+                auroc = roc_auc_score(slice_true, slice_pred)
+            conf = confusion_matrix(slice_true, (slice_pred >= opt_threshold), labels=[0, 1])
             tn, fp, fn, tp = conf.ravel()
             
             acc = ((slice_pred >= opt_threshold) == slice_true).mean()
@@ -498,6 +549,24 @@ class SliceEvaluationHelper(SliceHelper):
         if timestep_def is None: timestep_def = self.get_model_timestep_def(model_name)
         self.eval_score_caches[timestep_def] = {}
         
+    def get_eval_metrics(self, model_names, eval_mask):
+        metrics = {}
+        for model_name in model_names:
+            if model_name not in self.metrics:
+                model_metrics = {}
+                outcomes, preds = np.load(os.path.join(MODEL_DIR, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
+            
+                valid_outcomes = outcomes[eval_mask].astype(np.float64)
+                valid_preds = preds[eval_mask]
+
+                model_metrics[f"{model_name} True"] = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)
+                model_metrics[f"{model_name} Predicted"] = np.where(np.isnan(valid_preds), np.nan, valid_preds)
+                self.metrics[model_name] = model_metrics
+                
+            metrics.update(self.metrics[model_name])
+            
+        return metrics
+    
     def get_results(self, timestep_def, controls, model_names):
         current_status = self.get_status()
         if current_status != self.slice_finding_status:
@@ -516,37 +585,11 @@ class SliceEvaluationHelper(SliceHelper):
             return None
         scored_slices = list(self.slice_scores[timestep_def][result_key].keys())
         
-        if timestep_def not in self.discrete_dfs:
-            dataset, _ = load_raw_data(cache_dir=os.path.join(DATA_DIR, "slicing_variables"), val_only=True)
-            
-            with open(os.path.join(DATA_DIR, "slice_variables.json"), "r") as file:
-                discrete_df, ids = make_slicing_variables(dataset, json.load(file), timestep_def) 
-                eval_mask = get_slicing_split(self.results_dir, discrete_df, timestep_def)[1]
-                valid_df = discrete_df.filter(eval_mask)
-                ids = ids.values[eval_mask]
-                self.discrete_dfs[timestep_def] = valid_df
-                self.eval_ids[timestep_def] = ids
-        else:
-            valid_df = self.discrete_dfs[timestep_def]
-            eval_mask = get_slicing_split(self.results_dir, valid_df, timestep_def)[1]
-            ids = self.eval_ids[timestep_def]
+        valid_df, eval_mask, ids, _ = self.get_slicing_data(controls["slice_spec_name"], timestep_def, True)
             
         score_fns, _ = self.get_score_functions(valid_df, eval_mask, controls=controls)
         
-        metrics = {}
-        for model_name in model_names:
-            if model_name not in self.metrics:
-                model_metrics = {}
-                outcomes, preds = np.load(os.path.join(MODEL_DIR, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
-            
-                valid_outcomes = outcomes[eval_mask].astype(np.float64)
-                valid_preds = preds[eval_mask]
-
-                model_metrics[f"{model_name} True"] = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)
-                model_metrics[f"{model_name} Predicted"] = np.where(np.isnan(valid_preds), np.nan, valid_preds)
-                self.metrics[model_name] = model_metrics
-                
-            metrics.update(self.metrics[model_name])
+        metrics = self.get_eval_metrics(model_names, eval_mask)
         
         rank_list = sf.slices.RankedSliceList(scored_slices, 
                                               valid_df, 
@@ -554,3 +597,145 @@ class SliceEvaluationHelper(SliceHelper):
                                               similarity_threshold=0.7)
         rank_list.score_cache = self.eval_score_caches.setdefault(timestep_def, {}).setdefault(result_key, {})
         return rank_list, metrics, ids, valid_df
+
+
+def describe_slice_differences(variables, slice_obj, slice_filter=None, valid_mask=None, topk=50):
+    """
+    Generates a JSON-formatted description of the variables that have
+    the greatest differences within the slice and on average.
+    
+    variables: A DiscretizedData object
+    slice_obj: A slice within which to compare variable values, OR an array mask
+        to apply directly to the variable matrix
+    slice_filter: If provided, a slice filter object that can be called
+        to determine if a feature value is allowed to be shown
+    valid_mask: If provided, filter variables to only these rows
+    """
+    if isinstance(slice_obj, (sf.slices.SliceFeatureBase, sf.slices.Slice)):
+        slice_mask = slice_obj.make_mask(variables.df).cpu().numpy()
+        univariate_features = slice_obj.univariate_features()
+    else:
+        slice_mask = slice_obj
+        univariate_features = None
+
+    if valid_mask is None: valid_mask = np.ones(len(variables.df), dtype=bool)
+    base_df = variables.df[valid_mask]
+    slice_df = variables.df[slice_mask & valid_mask]
+
+    variable_summaries = {}
+    enrichment_scores = {}
+    try:
+        input_columns = base_df.columns
+    except AttributeError:
+        input_columns = np.arange(base_df.shape[1])
+    for col in input_columns:
+        if univariate_features is not None and any(f.feature_name == col for f in univariate_features):
+            continue
+        col_name, value_map = variables.value_names[col]
+        for val, val_name in sorted(value_map.items(), key=lambda x: x[1] if x[1] != "End of Trajectory" else "zzzzz"):
+            base_count = (base_df[:,col] == val).sum()
+            slice_count = (slice_df[:,col] == val).sum()
+            variable_summaries.setdefault(col_name, {"values": [], "base": [], "slice": []})
+            variable_summaries[col_name]["values"].append(val_name)
+            variable_summaries[col_name]["base"].append(base_count)
+            variable_summaries[col_name]["slice"].append(slice_count)
+            
+            if slice_filter is not None and not slice_filter(sf.slices.SliceFeature(col, [val])): continue
+            base_prob = base_count / len(base_df)
+            slice_prob = slice_count / len(slice_df)
+            enrichment_scores[(col_name, val_name)] = (base_prob, slice_prob, (1e-3 + slice_prob) / (1e-3 + base_prob))
+
+    top_enrichments = sorted(enrichment_scores.items(), key=lambda x: x[1][-1], reverse=True)[:topk]
+    top_variables = []
+    for (col, val), scores in top_enrichments:
+        existing = next((x for x in top_variables if x["variable"] == col), None)
+        if existing is None:
+            existing = {"variable": col, "enrichments": []}
+            top_variables.append(existing)
+        existing["enrichments"].append({"value": val, "ratio": (scores[1] - scores[0]) / scores[0]})
+        
+    return {"top_variables": top_variables, "all_variables": variable_summaries}
+
+def describe_slice_change_differences(variables, ids, shift_steps, slice_obj, slice_filter=None, valid_mask=None, topk=50):
+    """
+    Generates a JSON-formatted description of the variables that change
+    in the most different ways between the slice and the rest of the
+    dataset.
+    
+    variables: A DiscretizedData object
+    ids: A vector containing the IDs for each timestep in variables
+    shift_steps: Number of steps to shift data forward (positive
+        numbers compare to timesteps in the past, negative numbers
+        compare to timesteps in the future)
+    slice_obj: A slice within which to compare variable values
+    slice_filter: If provided, a slice filter object that can be called
+        to determine if a feature value is allowed to be shown
+    valid_mask: If provided, filter variables to only these rows
+    """
+    source_description = describe_slice_differences(variables,
+                                                      slice_obj,
+                                                      slice_filter=slice_filter,
+                                                      valid_mask=valid_mask,
+                                                      topk=topk)
+    
+    shifted_values = sf.discretization.DiscretizedData((pd.DataFrame(variables.df)
+                                                        .groupby(ids)
+                                                        .shift(shift_steps) + 1).fillna(0).values,
+                                                       {col: (col_name, {**{k + 1: v for k, v in value_map.items()},
+                                                                         0: "End of Trajectory"})
+                                                        for col, (col_name, value_map) in variables.value_names.items()})
+    # Make sure to use the exact same slice mask as used in the source calculation
+    slice_mask = slice_obj.make_mask(variables.df).cpu().numpy()
+    # Decode and re-encode the slice filter since the value names have changed
+    shifted_filter = shifted_values.encode_filter(variables.decode_filter(slice_filter))
+    dest_description = describe_slice_differences(shifted_values,
+                                                      slice_mask,
+                                                      slice_filter=shifted_filter,
+                                                      valid_mask=valid_mask,
+                                                      topk=topk)
+    
+    # Now compute the changes
+    univariate_features = slice_obj.univariate_features()
+
+    if valid_mask is None: valid_mask = np.ones(len(variables.df), dtype=bool)
+    base_df = variables.df[valid_mask]
+    slice_df = variables.df[slice_mask & valid_mask]
+
+    base_df_change = shifted_values.df[valid_mask]
+    slice_df_change = shifted_values.df[slice_mask & valid_mask]
+
+    change_scores = {}
+    try:
+        input_columns = base_df_change.columns
+    except AttributeError:
+        input_columns = np.arange(base_df_change.shape[1])
+
+    for col in tqdm.tqdm(input_columns):
+        if any(f.feature_name == col for f in univariate_features):
+            continue
+        col_name, value_map = variables.value_names[col]
+        for val, val_name in value_map.items():
+            if slice_filter is not None and not slice_filter(sf.slices.SliceFeature(col, [val])): continue
+            base_prob_ref = (base_df[:,col] == val)
+            slice_prob_ref = (slice_df[:,col] == val)
+            for other_val, other_val_name in shifted_values.value_names[col][1].items():
+                if slice_filter is not None and not slice_filter(sf.slices.SliceFeature(col, [other_val])): continue
+                base_prob = (base_prob_ref & (base_df_change[:,col] == other_val)).mean()
+                slice_prob = (slice_prob_ref & (slice_df_change[:,col] == other_val)).mean()
+                change_scores[(col_name, val_name, other_val_name)] = (base_prob, slice_prob, (1e-3 + slice_prob) / (1e-3 + base_prob))
+
+    top_enrichments = sorted(change_scores.items(), key=lambda x: x[1][-1], reverse=True)[:topk]
+    top_variables = []
+    for (col, val, other_val), scores in top_enrichments:
+        existing = next((x for x in top_variables if x["variable"] == col), None)
+        if existing is None:
+            existing = {"variable": col, "enrichments": []}
+            top_variables.append(existing)
+        existing["enrichments"].append({"source_value": val,
+                                        "destination_value": other_val, 
+                                        "base_prob": scores[0],
+                                        "slice_prob": scores[1],
+                                        "ratio": (scores[1] - scores[0]) / scores[0]})
+        
+    
+    return {"top_changes": top_variables, "source": source_description, "destination": dest_description}

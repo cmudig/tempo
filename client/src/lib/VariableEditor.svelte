@@ -87,7 +87,7 @@
       <div class="flex-auto flex flex-col gap-2 h-full">
         <input
           type="text"
-          class="bg-slate-200 appearance-none border-2 border-slate-200 w-full rounded text-slate-700 font-mono text-sm p-2 leading-tight focus:outline-none focus:border-blue-600 focus:bg-white"
+          class="flat-text-input w-full font-mono text-sm"
           placeholder="Variable Name"
           bind:value={newVariableName}
         />
@@ -151,7 +151,7 @@
             <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
             <input
               type="text"
-              class="bg-slate-200 appearance-none border-2 border-slate-200 w-full rounded text-slate-700 font-mono text-xs p-2 leading-tight focus:outline-none focus:border-blue-600 focus:bg-white"
+              class="flat-text-input w-full font-mono"
               bind:value={newVariableQuery}
               on:input={() => {
                 if (!!evaluationTimer) clearTimeout(evaluationTimer);

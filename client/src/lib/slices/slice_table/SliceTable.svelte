@@ -104,6 +104,7 @@
   function metricDrop(e: any, colName: string) {
     e.target.classList.remove('drop-zone');
     if (!!draggingColumn && draggingColumn != colName) {
+      console.log(draggingColumn, colName);
       let names = metricGroups ?? metricNames;
       let startIdx = names.indexOf(draggingColumn);
       let endIdx = names.indexOf(colName);
@@ -114,8 +115,13 @@
         draggingColumn,
         ...newOrder.slice(endIdx),
       ];
-      if (!!metricGroups) metricGroups = newNames;
-      else metricNames = newNames;
+      if (!!metricGroups) {
+        console.log('new groups:', newNames);
+        metricGroups = newNames;
+        metricNames = metricGroups
+          .map((g) => metricNames.map((n) => n[0] == g))
+          .flat();
+      } else metricNames = newNames;
     }
     return false;
   }

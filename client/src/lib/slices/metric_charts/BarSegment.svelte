@@ -3,20 +3,7 @@
 
   const dispatch = createEventDispatcher();
 
-  const {
-    data,
-    xGet,
-    yGet,
-    x,
-    yRange,
-    xScale,
-    y,
-    height,
-    zGet,
-    zScale,
-    z,
-    custom,
-  } = getContext('LayerCake');
+  const { data, xGet, yGet, xScale, z } = getContext('LayerCake');
 
   let hoveredIndex = null;
 
@@ -30,7 +17,7 @@
 
 {#each $data as d, i}
   <span
-    class="bar absolute"
+    class="bar absolute border-box"
     class:animated={loaded}
     class:border={hoveredIndex == d.index}
     class:border-black={hoveredIndex == d.index}

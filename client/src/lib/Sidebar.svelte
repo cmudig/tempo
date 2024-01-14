@@ -13,6 +13,7 @@
 
   export let models: { [key: string]: ModelSummary } = {};
   export let activeModel: string | undefined;
+  export let selectedModels: string[] = [];
   export let selectedSlice: SliceFeatureBase | null = null;
 
   export let metricToShow: string = 'AUROC';
@@ -142,7 +143,18 @@
       {metricScales}
       customMetrics={sliceMetrics?.[modelName] ?? undefined}
       isActive={activeModel === modelName}
+      isChecked={selectedModels.includes(modelName) ||
+        activeModel === modelName}
       on:click={() => (activeModel = modelName)}
+      on:toggle={(e) => {
+        let idx = selectedModels.indexOf(modelName);
+        if (idx >= 0)
+          selectedModels = [
+            ...selectedModels.slice(0, idx),
+            ...selectedModels.slice(idx + 1),
+          ];
+        else selectedModels = [...selectedModels, modelName];
+      }}
     />
   {/each}
 </div>

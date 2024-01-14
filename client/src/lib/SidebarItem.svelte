@@ -7,10 +7,14 @@
   import type { SliceMetric } from './slices/utils/slice.type';
   import { faWarning } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
+  import { createEventDispatcher } from 'svelte';
+
+  const dispatch = createEventDispatcher();
 
   export let model: ModelSummary;
   export let modelName: string;
   export let isActive: boolean;
+  export let isChecked: boolean;
   export let metricToShow: string;
   export let customMetrics: { [key: string]: SliceMetric } | undefined =
     undefined;
@@ -77,7 +81,11 @@
         </svg>
       </div>
     {:else}
-      <Checkbox />
+      <Checkbox
+        disabled={isActive}
+        checked={isChecked}
+        on:change={(e) => dispatch('toggle')}
+      />
     {/if}
   </div>
   <div

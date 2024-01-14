@@ -170,7 +170,7 @@
     {/if}
     <h3 class="font-bold mt-3 mb-1">Timestep Definition</h3>
     <textarea
-      class="bg-slate-200 appearance-none border-2 border-slate-200 w-full rounded text-slate-700 font-mono text-xs p-2 leading-tight focus:outline-none focus:border-blue-600 focus:bg-white"
+      class="w-full font-mono flat-text-input"
       bind:value={timestepDefinition}
     />
 
@@ -220,12 +220,12 @@
     </div>
     <h3 class="font-bold mt-3 mb-1">Outcome Variable</h3>
     <textarea
-      class="bg-slate-200 appearance-none border-2 border-slate-200 w-full rounded text-slate-700 font-mono text-xs p-2 leading-tight focus:outline-none focus:border-blue-600 focus:bg-white"
+      class="flat-text-input w-full font-mono"
       bind:value={outcomeVariable}
     />
     <h3 class="font-bold mt-3 mb-1">Timestep Filter</h3>
     <textarea
-      class="bg-slate-200 appearance-none border-2 border-slate-200 w-full rounded text-slate-700 font-mono text-xs p-2 leading-tight focus:outline-none focus:border-blue-600 focus:bg-white"
+      class="flat-text-input w-full font-mono"
       bind:value={patientCohort}
     />
     <div class="mt-2 flex gap-2">

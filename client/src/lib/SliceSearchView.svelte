@@ -96,68 +96,7 @@
   $: if (allSlices.length > 0) {
     let testSlice = allSlices.find((s) => !s.isEmpty);
     if (!testSlice) testSlice = allSlices[0];
-
-    // tabulate score names and normalize
-    let newScoreNames = Object.keys(testSlice.scoreValues);
-    if (!areSetsEqual(new Set(scoreNames), new Set(newScoreNames))) {
-      scoreNames = newScoreNames;
-      scoreNames.sort();
-    }
-
-    scoreWidthScalers = {};
-    scoreNames.forEach((n) => {
-      let maxScore =
-        allSlices.reduce(
-          (curr, next) => Math.max(curr, next.scoreValues[n]),
-          -1e9
-        ) + 0.01;
-      let minScore =
-        allSlices.reduce(
-          (curr, next) => Math.min(curr, next.scoreValues[n]),
-          1e9
-        ) - 0.01;
-      scoreWidthScalers[n] = (v: number) =>
-        (v - minScore) / (maxScore - minScore);
-    });
-    console.log('score names:', testSlice, scoreNames);
-
-    // tabulate metric names and normalize
-    if (!!testSlice.metrics) {
-      let newMetricNames = Object.keys(testSlice.metrics);
-      if (
-        newMetricNames.length > 0 &&
-        !testSlice.metrics[newMetricNames[0]].hasOwnProperty('type')
-      ) {
-        // grouped metrics
-        groupedMetrics = true;
-        if (
-          metricGroups !== null &&
-          !areSetsEqual(new Set(metricGroups), new Set(newMetricNames))
-        ) {
-          metricGroups = newMetricNames;
-          metricGroups.sort();
-        } else if (metricGroups === null) metricGroups = newMetricNames;
-        metricNames = metricGroups
-          .map((g) =>
-            Object.keys(testSlice!.metrics![g])
-              .filter((m) => !metricsToShow || metricsToShow.includes(m))
-              .sort(sortMetrics)
-              .map((m) => [g, m])
-          )
-          .flat();
-      } else {
-        groupedMetrics = false;
-        metricGroups = null;
-        if (!areSetsEqual(new Set(metricNames), new Set(newMetricNames))) {
-          metricNames = newMetricNames.filter(
-            (m) => !metricsToShow || metricsToShow.includes(m)
-          );
-          metricNames.sort(sortMetrics);
-        }
-      }
-
-      updateMetricInfo(testSlice.metrics);
-    }
+    updateMetricInfo(testSlice);
   } else {
     scoreNames = [];
     scoreWidthScalers = {};
@@ -209,12 +148,48 @@
     } else return metrics[key]! as T;
   }
 
-  function updateMetricInfo(
-    testMetrics:
-      | { [key: string]: SliceMetric }
-      | { [key: string]: { [key: string]: SliceMetric } }
-  ) {
+  function updateMetricInfo(testSlice: Slice) {
+    if (!!scoreWeights) scoreNames = Object.keys(scoreWeights).sort();
+    else scoreNames = Object.keys(testSlice.scoreValues).sort();
+
+    // tabulate metric names and normalize
+    if (!!testSlice.metrics) {
+      let newMetricNames = Object.keys(testSlice.metrics);
+      if (
+        newMetricNames.length > 0 &&
+        !testSlice.metrics[newMetricNames[0]].hasOwnProperty('type')
+      ) {
+        // grouped metrics
+        groupedMetrics = true;
+        if (
+          metricGroups !== null &&
+          !areSetsEqual(new Set(metricGroups), new Set(newMetricNames))
+        ) {
+          metricGroups = newMetricNames;
+          metricGroups.sort();
+        } else if (metricGroups === null) metricGroups = newMetricNames;
+        metricNames = metricGroups
+          .map((g) =>
+            Object.keys(testSlice!.metrics![g])
+              .filter((m) => !metricsToShow || metricsToShow.includes(m))
+              .sort(sortMetrics)
+              .map((m) => [g, m])
+          )
+          .flat();
+      } else {
+        groupedMetrics = false;
+        metricGroups = null;
+        if (!areSetsEqual(new Set(metricNames), new Set(newMetricNames))) {
+          metricNames = newMetricNames.filter(
+            (m) => !metricsToShow || metricsToShow.includes(m)
+          );
+          metricNames.sort(sortMetrics);
+        }
+      }
+    }
+
     let oldMetricInfo = metricInfo;
+    let testMetrics = testSlice.metrics;
     metricInfo = {};
     metricNames.forEach((n) => {
       let met = getMetric(testMetrics, n);
@@ -354,7 +329,7 @@
           slot="options"
           let:dismiss
           class="p-4 overflow-scroll relative"
-          style="max-height: 500px;"
+          style="max-height: 400px;"
         >
           <ScoreWeightMenu
             collapsible={false}
@@ -455,7 +430,7 @@
           {positiveOnly}
           {valueNames}
           {allowedValues}
-          {metricGroups}
+          bind:metricGroups
           allowFavorite={false}
           allowMultiselect={false}
           metricInfo={(n) => getMetric(metricInfo, n)}
@@ -554,7 +529,7 @@
             {valueNames}
             {allowedValues}
             showHeader={false}
-            {metricGroups}
+            bind:metricGroups
             allowFavorite={false}
             allowMultiselect={false}
             metricInfo={(n) => getMetric(metricInfo, n)}
@@ -587,6 +562,12 @@
           <div>No slices yet!</div>
         </div>
       {/if}
+    </div>
+  {:else}
+    <div
+      class="w-full flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
+    >
+      <div>No slices yet!</div>
     </div>
   {/if}
 </div>

@@ -15,12 +15,8 @@
     fpr: number[];
     thresholds: number[];
   } | null = null;
-  export let selectedThreshold: number | null = null;
-  export let hoveredThreshold: number | null = null;
-  let selectedDatum: Datum | null = null;
-  let hoveredDatum: Datum | null = null;
-  $: selectedThreshold = selectedDatum?.threshold ?? null;
-  $: hoveredThreshold = hoveredDatum?.threshold ?? null;
+  export let selectedThreshold: number | null;
+  export let hoveredThreshold: number | null;
 
   let chartData: Datum[] = [];
 
@@ -32,12 +28,7 @@
     }));
   } else chartData = [];
 
-  let thresholdFormat = d3.format('.2~%');
-
-  export function resetSelection() {
-    selectedDatum = null;
-    hoveredDatum = null;
-  }
+  let thresholdFormat = d3.format('.3~');
 </script>
 
 {#if chartData.length > 0}
@@ -50,7 +41,7 @@
       yDomain={[0, 1]}
       xDomain={[0, 1]}
       data={chartData}
-      custom={{ hoveredGet: (d) => d === hoveredDatum }}
+      custom={{ hoveredGet: (d) => d.threshold == hoveredThreshold }}
     >
       <Svg>
         <AxisX ticks={4} baseline label="FPR" />
@@ -59,22 +50,32 @@
           stroke="steelblue"
           allowHover
           allowSelect
-          on:hover={(e) => (hoveredDatum = e.detail)}
-          on:click={(e) => (selectedDatum = e.detail)}
+          on:hover={(e) => (hoveredThreshold = e.detail?.threshold)}
+          on:click={(e) => (selectedThreshold = e.detail?.threshold)}
         />
-        {#if hoveredDatum !== null}
-          <VLine
-            xValue={hoveredDatum.x}
-            title={thresholdFormat(hoveredDatum.threshold)}
-            color="#94a3b8"
-          />
+        {#if hoveredThreshold !== null}
+          {@const hoveredDatum = chartData.find(
+            (d) => Math.abs(d.threshold - hoveredThreshold) < 0.001
+          )}
+          {#if !!hoveredDatum}
+            <VLine
+              xValue={hoveredDatum.x}
+              title={thresholdFormat(hoveredDatum.threshold)}
+              color="#94a3b8"
+            />
+          {/if}
         {/if}
-        {#if selectedDatum !== null}
-          <VLine
-            xValue={selectedDatum.x}
-            title={thresholdFormat(selectedDatum.threshold)}
-            color="#475569"
-          />
+        {#if selectedThreshold !== null}
+          {@const selectedDatum = chartData.find(
+            (d) => Math.abs(d.threshold - selectedThreshold) < 0.001
+          )}
+          {#if !!selectedDatum}
+            <VLine
+              xValue={selectedDatum.x}
+              title={thresholdFormat(selectedDatum.threshold)}
+              color="#475569"
+            />
+          {/if}
         {/if}
       </Svg>
     </LayerCake>

@@ -148,6 +148,13 @@ def _train_model(model_meta, variables, outcomes, ids, train_mask, val_mask, reg
         if len(val_y.unique()) > 1:
             fpr, tpr, thresholds = roc_curve(val_y, val_pred)
             opt_threshold = thresholds[np.argmax(tpr - fpr)]
+            if np.isinf(opt_threshold):
+                # Set to 1 if positive label is never predicted, otherwise 0
+                if (val_y > 0).mean() < 0.01:
+                    opt_threshold = 1e-6
+                else:
+                    opt_threshold = 1 - 1e-6
+                 
             metrics["threshold"] = float(opt_threshold)
             metrics["performance"] = {
                 "Accuracy": float((val_y == (val_pred >= opt_threshold)).mean()),
@@ -155,10 +162,13 @@ def _train_model(model_meta, variables, outcomes, ids, train_mask, val_mask, reg
             }
             metrics["positive_rate"] = float((val_y > 0).mean())
             metrics["roc"] = {}
-            for t in [*np.arange(0, 0.1, 0.01), *np.arange(0.1, 0.9, 0.1), *np.arange(0.9, 1, 0.01)]:
+            for t in sorted([*np.arange(0, 0.1, 0.01), 
+                             *np.arange(0.1, 0.9, 0.1), 
+                             *np.arange(0.9, 1, 0.01), 
+                             float(opt_threshold)]):
                 conf = confusion_matrix(val_y, (val_pred >= t))
                 tn, fp, fn, tp = conf.ravel()
-                metrics["roc"].setdefault("thresholds", []).append(t)
+                metrics["roc"].setdefault("thresholds", []).append(round(t, 3))
                 metrics["roc"].setdefault("fpr", []).append(fp / (fp + tn))
                 metrics["roc"].setdefault("tpr", []).append(tp / (tp + fn))
                 metrics["roc"].setdefault("performance", []).append({
