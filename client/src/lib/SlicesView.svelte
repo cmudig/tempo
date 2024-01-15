@@ -29,6 +29,7 @@
   export let modelsToShow: string[];
   export let metricToShow = 'AUROC';
   export let selectedSlice: SliceFeatureBase | null = null;
+  export let timestepDefinition: string = '';
   export let sliceSpec: string = 'default';
 
   let isTraining: boolean = false;
@@ -79,6 +80,7 @@
     searchStatus = null;
     scoreWeights = null;
     if (modelsToShow.length > 0) {
+      console.log('changing bc models changed');
       getSlicesIfAvailable();
       pollSliceStatus();
     }
@@ -137,18 +139,21 @@
         return;
       }
       let result = await response.json();
+      resultControls = result.controls;
+      retrievingSlices = false;
       if (!!result.results.slices) {
-        retrievingSlices = false;
         sliceSearchError = null;
         slices = result.results.slices;
         baseSlice = result.results.base_slice;
         scoreWeights = result.results.score_weights;
         retrievedScoreWeights = result.results.score_weights;
         valueNames = result.results.value_names;
-        resultControls = result.controls;
-        console.log(slices, baseSlice, scoreWeights, valueNames);
       } else {
-        retrievingSlices = false;
+        slices = null;
+        selectedSlice = null;
+        scoreWeights = null;
+        retrievedScoreWeights = null;
+        valueNames = null;
         pollSliceStatus();
       }
     } catch (e) {
@@ -216,6 +221,11 @@
       !areObjectsEqual(resultControls, queryControls)) &&
     !retrievingSlices
   ) {
+    console.log(
+      'changing bc parameters changed',
+      resultControls,
+      queryControls
+    );
     getSlicesIfAvailable();
   }
 
@@ -257,9 +267,11 @@
         ? slices ?? []
         : []}
       {baseSlice}
+      {timestepDefinition}
       bind:scoreWeights
       bind:selectedSlices
       bind:enabledSliceControls
+      bind:sliceSpec
       bind:containsSlice
       bind:containedInSlice
       bind:similarToSlice

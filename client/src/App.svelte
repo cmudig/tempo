@@ -19,6 +19,8 @@
   let currentModel = 'vasopressor_8h';
   let selectedModels: string[] = [];
 
+  let sliceSpec = 'default';
+
   let selectedSlice: SliceFeatureBase | null = null;
   $: if (currentView !== View.slices) selectedSlice = null;
 
@@ -51,6 +53,7 @@
       bind:activeModel={currentModel}
       bind:selectedModels
       bind:selectedSlice
+      {sliceSpec}
     />
   </div>
   <div class="flex-auto h-full flex flex-col w-0">
@@ -75,7 +78,9 @@
       {:else if currentView == View.slices}
         <SlicesView
           bind:selectedSlice
+          bind:sliceSpec
           modelName={currentModel}
+          timestepDefinition={models[currentModel]?.timestep_definition ?? ''}
           modelsToShow={Array.from(new Set([...selectedModels, currentModel]))}
         />
       {:else if currentView == View.editor}

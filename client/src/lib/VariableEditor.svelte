@@ -27,6 +27,7 @@
   let evaluationSummary: VariableEvaluationSummary | null = null;
   let evaluationError: string | null = null;
   let summaryIsStale: boolean = false;
+  let loadingSummary: boolean = false;
 
   $: if (editing && !!varInfo) {
     if (newVariableName == null) {
@@ -49,6 +50,7 @@
 
   async function evaluateQuery() {
     evaluationTimer = null;
+    loadingSummary = true;
     let query = encodeURIComponent(
       `(${newVariableQuery}) ${timestepDefinition}`
     );
@@ -63,10 +65,12 @@
         evaluationError = null;
       }
       summaryIsStale = false;
+      loadingSummary = false;
     } catch (e) {
       evaluationError = `${e}`;
       evaluationSummary = null;
       summaryIsStale = false;
+      loadingSummary = false;
     }
   }
 
@@ -96,14 +100,19 @@
             class="text-sm w-48 self-stretch bg-slate-200 rounded mr-2 p-2"
             class:opacity-50={summaryIsStale}
           >
-            {#if !!evaluationError}
+            {#if loadingSummary}
+              <div class="mb-1 text-slate-500 text-xs">Loading summary...</div>
+            {:else if !!evaluationError}
               <div class="text-red-600">
                 {@html '<p>' +
                   evaluationError.replace('\n', '</p><p>') +
                   '</p>'}
               </div>
             {:else if !!evaluationSummary}
-              <div class="mt-2">
+              <div class="mb-1 text-slate-500 text-xs font-bold">
+                Variable Summary
+              </div>
+              <div>
                 {#if evaluationSummary.type == 'binary' && !!evaluationSummary.rate}
                   <SliceMetricBar
                     value={evaluationSummary.rate}
@@ -149,9 +158,8 @@
           </div>
           <div class="flex-auto">
             <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
-            <input
-              type="text"
-              class="flat-text-input w-full font-mono"
+            <textarea
+              class="flat-text-input w-full h-24 font-mono"
               bind:value={newVariableQuery}
               on:input={() => {
                 if (!!evaluationTimer) clearTimeout(evaluationTimer);

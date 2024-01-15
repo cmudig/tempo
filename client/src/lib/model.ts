@@ -33,6 +33,7 @@ export type ModelSummary = {
   likely_trivial?: boolean;
   metrics?: ModelMetrics;
   training?: boolean;
+  timestep_definition: string;
   status?: { state: string; message: string };
 };
 
@@ -78,4 +79,11 @@ export type VariableEvaluationSummary = {
   mean?: number;
   std?: number;
   hist?: { counts: number[]; bins: number[] };
+};
+
+export type SliceFilter = { [key: string]: any } & { type: string };
+
+export type SliceSpec = {
+  variables: { [key: string]: VariableDefinition };
+  slice_filter: SliceFilter;
 };

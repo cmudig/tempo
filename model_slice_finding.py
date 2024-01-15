@@ -151,7 +151,6 @@ class SliceHelper:
         self.model_dir = model_dir
         self.results_dir = results_dir     
         self.discrete_dfs = {}
-        self.slice_filter = None   
         
     def get_status(self):
         status_path = os.path.join(self.results_dir, "discovery_status.json")
@@ -173,12 +172,15 @@ class SliceHelper:
                 row_mask = get_slicing_split(self.results_dir, discrete_df, timestep_def)[1 if evaluation else 0]
                 valid_df = discrete_df.filter(row_mask)
                 ids = ids.values[row_mask]
-                self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)] = (valid_df, row_mask, ids)
-                self.slice_filter = valid_df.encode_filter(sf.filters.SliceFilterBase.from_dict(slicing_metadata["slice_filter"]))
-        else:
-            valid_df, row_mask, ids = self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)]
-        return valid_df, row_mask, ids, self.slice_filter
+                slice_filter = valid_df.encode_filter(sf.filters.SliceFilterBase.from_dict(slicing_metadata["slice_filter"]))
+                self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)] = (valid_df, row_mask, ids, slice_filter)
+        return self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)]
         
+    def invalidate_slice_spec(self, slice_spec_name):
+        """
+        Removes all data artifacts and found slices belonging to the given slice spec.
+        """
+        self.discrete_dfs = {k: v for k, v in self.discrete_dfs.items() if k[0] != slice_spec_name}
 
     def get_score_functions(self, discrete_df, valid_mask, include_model_names=None, exclude_model_names=None, controls=None):
         score_fns = {
@@ -341,6 +343,18 @@ class SliceDiscoveryHelper(SliceHelper):
         self.write_status(False, timestep_defs_updated=[timestep_def])
         print("Done")
         
+    def invalidate_slice_spec(self, slice_spec_name):
+        super().invalidate_slice_spec(slice_spec_name)
+        # Remove all found slices that have this slice spec name
+        for path in os.listdir(self.results_dir):
+            if (match := re.match(r"^slice_results_(.*).json$"), path) is not None:
+                timestep_def = match.group(1)
+                self.load_timestep_slice_results(timestep_def)
+                self.slice_scores[timestep_def] = {
+                    k: v for k, v in self.slice_scores[timestep_def].items()
+                    if self.result_key_to_controls(k)['slice_spec_name'] != slice_spec_name
+                }
+        
     def find_slices(self, model_name, controls, additional_filter=None):
         try:
             self.write_status(True, search_status={"state": "loading", "message": "Loading data", "model_name": model_name})
@@ -480,6 +494,20 @@ class SliceEvaluationHelper(SliceHelper):
             new_weights[display_key] = new_weights.get(display_key, 0) + w
         return new_weights
         
+    def invalidate_slice_spec(self, slice_spec_name):
+        super().invalidate_slice_spec(slice_spec_name)
+        # Remove all scored slices 
+        for timestep_def in list(self.slice_scores.keys()):
+            self.slice_scores[timestep_def] = {
+                k: v for k, v in self.slice_scores[timestep_def].items()
+                if self.result_key_to_controls(k)['slice_spec_name'] != slice_spec_name
+            }
+        for timestep_def in list(self.eval_score_caches.keys()):
+            self.eval_score_caches[timestep_def] = {
+                k: v for k, v in self.eval_score_caches[timestep_def].items()
+                if self.result_key_to_controls(k)['slice_spec_name'] != slice_spec_name
+            }
+    
     def describe_slice(self, rank_list, metrics, ids, slice_obj, model_names):
         """
         Generates a slice description of the given slice, adding count variables

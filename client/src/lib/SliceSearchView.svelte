@@ -15,6 +15,7 @@
     faPencil,
     faScaleBalanced,
     faSearch,
+    faWrench,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import {
@@ -31,6 +32,7 @@
   import { createEventDispatcher } from 'svelte';
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
   import ScoreWeightMenu from './slices/utils/ScoreWeightMenu.svelte';
+  import SliceSpecEditor from './SliceSpecEditor.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -43,6 +45,8 @@
   export let samplerProgressMessage: string | null = null;
   export let retrievingSlices: boolean = false;
 
+  export let timestepDefinition: string = '';
+  export let sliceSpec: string = 'default';
   export let slices: Array<Slice> = [];
 
   export let baseSlice: Slice | null = null;
@@ -118,7 +122,7 @@
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ sliceRequests: requests }),
+          body: JSON.stringify({ sliceRequests: requests, sliceSpec }),
         })
       ).json();
       sliceRequestResults = results.sliceRequestResults;
@@ -231,7 +235,6 @@
           newInfo;
       } else metricInfo[n] = newInfo;
     });
-    console.log('metric info:', metricNames, metricInfo, testMetrics);
   }
 
   let searchViewHeader: HTMLElement;
@@ -271,6 +274,8 @@
       subsliceOfSlice = feature;
     controlFeatures[control] = feature;
   }
+
+  let specEditorVisible: boolean = false;
 </script>
 
 <div class="w-full h-full flex flex-col">
@@ -290,8 +295,7 @@
         >
       {/if}
       <ActionMenuButton
-        buttonClass="btn btn-slate"
-        buttonStyle="padding-left: 1rem;"
+        buttonClass="btn btn-slate ml-1"
         buttonTitle="Add a filter option"
         disabled={retrievingSlices}
       >
@@ -314,8 +318,7 @@
         </div>
       </ActionMenuButton>
       <ActionMenuButton
-        buttonClass="btn btn-slate"
-        buttonStyle="padding-left: 1rem;"
+        buttonClass="btn btn-slate ml-1"
         buttonTitle="Adjust weights for how slices are ranked"
         disabled={retrievingSlices}
         menuWidth={400}
@@ -344,6 +347,12 @@
           />
         </div>
       </ActionMenuButton>
+      <button
+        disabled={retrievingSlices}
+        class="btn btn-slate ml-1"
+        on:click={() => (specEditorVisible = true)}
+        ><Fa icon={faWrench} class="inline mr-1" /> Configure Slicing</button
+      >
       {#if runningSampler}
         {#if samplerRunProgress == null}
           <div role="status" class="w-8 h-8 grow-0 shrink-0 mr-2">
@@ -571,6 +580,31 @@
     </div>
   {/if}
 </div>
+
+{#if specEditorVisible}
+  <div
+    class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 bg-black/70"
+    on:click={() => (specEditorVisible = false)}
+    on:keydown={(e) => {}}
+  />
+  <div
+    class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 flex items-center justify-center pointer-events-none"
+  >
+    <div
+      class="w-2/3 h-2/3 z-20 rounded-md bg-white p-1 pointer-events-auto"
+      style="min-width: 200px; max-width: 100%;"
+    >
+      <SliceSpecEditor
+        {sliceSpec}
+        {timestepDefinition}
+        on:dismiss={(e) => {
+          if (!!e.detail) sliceSpec = e.detail;
+          specEditorVisible = false;
+        }}
+      />
+    </div>
+  </div>
+{/if}
 
 <style>
   .search-view-header {

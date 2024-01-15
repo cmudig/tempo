@@ -15,6 +15,7 @@
   export let activeModel: string | undefined;
   export let selectedModels: string[] = [];
   export let selectedSlice: SliceFeatureBase | null = null;
+  export let sliceSpec: string = 'default';
 
   export let metricToShow: string = 'AUROC';
 
@@ -60,10 +61,10 @@
     };
   }
 
-  $: if (!!selectedSlice) loadSliceScores(selectedSlice);
+  $: if (!!selectedSlice) loadSliceScores(selectedSlice, sliceSpec);
   else sliceMetrics = undefined;
 
-  async function loadSliceScores(sliceDef: SliceFeatureBase) {
+  async function loadSliceScores(sliceDef: SliceFeatureBase, spec: string) {
     let sliceRequests: { [key: string]: SliceFeatureBase } = {
       toScore: sliceDef,
     };
@@ -74,7 +75,7 @@
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ sliceRequests }),
+          body: JSON.stringify({ sliceRequests, sliceSpec: spec }),
         })
       ).json();
       let result = results.sliceRequestResults.toScore as Slice;
@@ -89,6 +90,16 @@
     } catch (e) {
       console.log('error calculating slice for sidebar:', e);
     }
+  }
+
+  function hasSameTimestepDefinition(
+    modelName: string,
+    otherModelName: string
+  ): boolean {
+    return (
+      models[modelName].timestep_definition ==
+      models[otherModelName].timestep_definition
+    );
   }
 </script>
 
@@ -145,6 +156,8 @@
       isActive={activeModel === modelName}
       isChecked={selectedModels.includes(modelName) ||
         activeModel === modelName}
+      allowCheck={!activeModel ||
+        hasSameTimestepDefinition(modelName, activeModel)}
       on:click={() => (activeModel = modelName)}
       on:toggle={(e) => {
         let idx = selectedModels.indexOf(modelName);

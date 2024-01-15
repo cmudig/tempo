@@ -18,6 +18,7 @@
   export let metricToShow: string;
   export let customMetrics: { [key: string]: SliceMetric } | undefined =
     undefined;
+  export let allowCheck: boolean = true;
 
   export let metricScales: { [key: string]: (v: number) => number } = {};
 
@@ -82,7 +83,7 @@
       </div>
     {:else}
       <Checkbox
-        disabled={isActive}
+        disabled={isActive || !allowCheck}
         checked={isChecked}
         on:change={(e) => dispatch('toggle')}
       />

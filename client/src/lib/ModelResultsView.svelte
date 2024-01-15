@@ -154,19 +154,42 @@
             {/each}
           </div>
         {/if}
-        <div>
-          <span class="font-bold text-slate-700 mr-2">Instances</span><span
-            class="font-mono"
-            >{nFormat(metrics.n_train.instances)} ({nFormat(
-              metrics.n_train.trajectories
-            )} trajectories)</span
-          >
-          training,
-          <span class="font-mono"
-            >{nFormat(metrics.n_val.instances)} ({nFormat(
-              metrics.n_val.trajectories
-            )} trajectories)</span
-          > validation
+        <div class="flex flex-wrap gap-8 mb-4">
+          <div class="w-64">
+            <div class="font-bold text-slate-600 text-sm mb-2">Training</div>
+            <div class="font-mono text-base mb-2">
+              {nFormat(metrics.n_train.instances)}
+              <span class="text-xs font-sans">instances</span>
+            </div>
+            <div class="font-mono text-base mb-2">
+              {nFormat(metrics.n_train.trajectories)}
+              <span class="text-xs font-sans">trajectories</span>
+            </div>
+          </div>
+          <div class="w-64">
+            <div class="font-bold text-slate-600 text-sm mb-2">Validation</div>
+            <div class="font-mono text-base mb-2">
+              {nFormat(metrics.n_val.instances)}
+              <span class="text-xs font-sans">instances</span>
+            </div>
+            <div class="font-mono text-base mb-2">
+              {nFormat(metrics.n_val.trajectories)}
+              <span class="text-xs font-sans">trajectories</span>
+            </div>
+          </div>
+          <div class="w-64">
+            <div class="font-bold text-slate-600 text-sm mb-2">
+              Slice Evaluation (from validation set)
+            </div>
+            <div class="font-mono text-base mb-2">
+              {nFormat(metrics.n_slice_eval.instances)}
+              <span class="text-xs font-sans">instances</span>
+            </div>
+            <div class="font-mono text-base mb-2">
+              {nFormat(metrics.n_slice_eval.trajectories)}
+              <span class="text-xs font-sans">trajectories</span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="aspect-square h-64 shrink-0 grow-0" style="min-width: 200px;">

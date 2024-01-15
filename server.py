@@ -88,6 +88,11 @@ def _background_model_generation(queue):
                 return sf.filters.ExcludeIfAny(single_value_filters)
                 
             finder.find_slices(model_name, controls, additional_filter=filter_single_values)
+        elif arg[0] == "invalidate_slice_spec":
+            command, spec_name = arg
+            if finder is None:
+                finder = make_finder()
+            finder.invalidate_slice_spec(spec_name)
 
 def _get_model_training_status(model_name):
     if os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
@@ -136,6 +141,7 @@ if __name__ == '__main__':
                     with open(os.path.join(MODEL_DIR, f"metrics_{model_id}.json"), "r") as file:
                         models[model_id] = {
                             "outcome": model_spec["outcome"],
+                            "timestep_definition": model_spec["timestep_definition"],
                             "regression": model_spec.get("regression", False),
                             "n_variables": len(model_spec["variables"]),
                             "metrics": json.load(file)
@@ -204,7 +210,11 @@ if __name__ == '__main__':
             }
             values = result.get_values()
             num_unique = len(np.unique(values))
-            if num_unique == 2 and set(np.unique(values).astype(int).tolist()) == set([0, 1]):
+            try:
+                is_binary = num_unique == 2 and set(np.unique(values).astype(int).tolist()) == set([0, 1])
+            except:
+                is_binary = False
+            if is_binary:
                 summary["type"] = "binary"
                 summary["rate"] = values.mean().astype(float)
             elif pd.api.types.is_object_dtype(values.dtype) or num_unique <= 10:
@@ -343,7 +353,7 @@ if __name__ == '__main__':
 
         result = evaluator.get_results(timestep_def, controls, model_names)
         if result is None:
-            return jsonify({"results": {}})
+            return jsonify({"results": {}, "controls": controls})
         
         rank_list, metrics, ids, df = result
         ranked = rank_list.rank(weights, n_slices=20)
@@ -375,7 +385,7 @@ if __name__ == '__main__':
         return jsonify(response)
         
     def _score_slice(model_names, timestep_def, slice_spec_name, slice_requests):
-        result = evaluator.get_results(timestep_def, {}, model_names)
+        result = evaluator.get_results(timestep_def, {"slice_spec_name": slice_spec_name}, model_names)
         if result is None:
             return {}
         
@@ -406,10 +416,12 @@ if __name__ == '__main__':
         if "sliceRequests" not in body:
             return "'sliceRequests' key required", 400
         
+        slice_spec_name = body.get("sliceSpec", "default")
+        
         if len(body["sliceRequests"]) == 0:
             return jsonify({"sliceRequestResults": {}})
         
-        results_json = _score_slice(model_names, timestep_def, body["sliceRequests"])
+        results_json = _score_slice(model_names, timestep_def, slice_spec_name, body["sliceRequests"])
         return jsonify({ "sliceRequestResults": results_json })
     
     @app.route("/slices/score", methods=["POST"])
@@ -495,6 +507,37 @@ if __name__ == '__main__':
                 valid_mask=valid_mask
             )
             return jsonify(sf.utils.convert_to_native_types(differences))
+        
+        
+    @app.route("/slices/specs", methods=["GET"])
+    def get_slice_specs():
+        slice_spec_dir = os.path.join(SLICES_DIR, "specifications")
+        results = {}
+        for path in os.listdir(slice_spec_dir):
+            if not path.endswith(".json"): continue
+            spec_name = os.path.splitext(path)[0]
+            with open(os.path.join(slice_spec_dir, path), "r") as file:
+                results[spec_name] = json.load(file)
+        return jsonify(results)
+    
+    @app.route("/slices/specs/<spec_name>", methods=["POST"])
+    def edit_slice_spec(spec_name):
+        slice_spec_dir = os.path.join(SLICES_DIR, "specifications")
+        body = request.json
+        if "variables" not in body or "slice_filter" not in body:
+            return "Slice spec must contain 'variables' and 'slice_filter' keys", 400
+        
+        spec_path = os.path.join(slice_spec_dir, f"{spec_name}.json")
+        if os.path.exists(spec_path):
+            print(f"Invalidating existing slices with spec {spec_name}")
+            queue.put(("invalidate_slice_spec", spec_name))
+            evaluator.invalidate_slice_spec(spec_name)
+            
+        with open(spec_path, "w") as file:
+            json.dump(body, file)
+            
+        return "Success"
+            
         
     # Path for our main Svelte page
     @app.route("/")

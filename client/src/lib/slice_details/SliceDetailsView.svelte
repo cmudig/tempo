@@ -1,11 +1,6 @@
 <script lang="ts">
   import type { SliceFeatureBase } from '../slices/utils/slice.type';
-  import {
-    faCheck,
-    faPlus,
-    faXmark,
-    faXmarkCircle,
-  } from '@fortawesome/free-solid-svg-icons';
+  import { faCheck, faPlus, faXmark } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import * as d3 from 'd3';
   import type {

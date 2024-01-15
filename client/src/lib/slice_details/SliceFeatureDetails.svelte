@@ -1,5 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { faEllipsis } from '@fortawesome/free-solid-svg-icons';
+  import Fa from 'svelte-fa/src/fa.svelte';
   import type {
     SliceChangeDescription,
     SliceVariableDescription,
@@ -23,7 +25,7 @@
 </script>
 
 <div
-  class="mb-2 p-2 rounded hover:bg-slate-200"
+  class="mb-2 p-2 rounded hover:bg-slate-200 relative"
   on:click={() => {
     expanded = !expanded;
     dispatch('toggle', (change ?? variable)?.variable);
@@ -97,5 +99,11 @@
         </div>
       {/if}
     {/each}
+  {/if}
+  {#if !!valueComparison && !expanded}
+    <Fa
+      class="absolute right-0 bottom-0 text-slate-400 mr-2 mb-2"
+      icon={faEllipsis}
+    />
   {/if}
 </div>
