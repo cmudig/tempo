@@ -288,42 +288,60 @@ if __name__ == '__main__':
                 
     n_hours = 4 # number of hours back to get most recent data
     period_hours = 1
-
-    # print("Building modeling variables ========================")
-    # variable_spec = make_modeling_variable_spec(n_hours)
-    # timestep_definition = f"every {period_hours} h from {{intime}} + {period_hours} h to {{outtime}}"
     
-    # modeling_df = make_modeling_variables(dataset, variable_spec, timestep_definition)
-        
-    # modeling_tasks = {
-    #     "vasopressor_8h": {
-    #         "variables": variable_spec,
-    #         "outcome": f"(integral rate {{Norepinephrine, Phenylephrine, Epinephrine, Dopamine, Vasopressin}} from #now to #now + 8 h) > 0.01",
-    #         "cohort": f"({{outtime}} - #now >= 8 hours) and not (exists {{Norepinephrine, Phenylephrine, Epinephrine, Dopamine, Vasopressin}} from {{intime}} to #now)",
-    #         "timestep_definition": timestep_definition,
-    #         "regression": False
-    #     },
-    #     "ventilation_8h": {
-    #         "variables": variable_spec,
-    #         "outcome": f"exists {{Invasive Ventilation, Non-invasive Ventilation}} from #now to #now + 8 h",
-    #         "cohort": f"({{outtime}} - #now >= 8 hours) and not (exists {{Invasive Ventilation, Non-invasive Ventilation}} from {{intime}} to #now)",
-    #         "timestep_definition": timestep_definition,
-    #         "regression": False
-    #     },
-    #     "antimicrobial_8h": {
-    #         "variables": variable_spec,
-    #         "outcome": f"exists {{Antibiotic, Antiviral, Antifungal}} from #now to #now + 8 h",
-    #         "cohort": f"({{outtime}} - #now >= 8 hours) and not (exists {{Antibiotic, Antiviral, Antifungal}} from {{intime}} to #now)",
-    #         "timestep_definition": timestep_definition,
-    #         "regression": False
-    #     }
-    # }
+    with open(os.path.join(DATA_DIR, "config.json"), "w") as file:
+        json.dump({
+            "models": {
+                "data_summary": {
+                    "fields": [
+                        {"name": "Age", "query": "{age}"},
+                        {"name": "Gender", "query": "case when {gender} = 1 then 'Female' else 'Male' end"},
+                        {"name": "Mortality", "query": "{morta_hosp}"},
+                        {"name": "Hours in ICU", "query": "({outtime} - {intime}) / 3600"},
+                        {"name": "Most Common Comorbidities", "type": "group", "children": [
+                            {"name": col, "query": f"case when {{{col}}} > 0 then 1 else 0 end impute 0"}
+                            for col in COMORBIDITY_FIELDS
+                        ], "sort": "rate", "ascending": False, "topk": 10},
+                    ]
+                }
+            }
+        }, file)
 
-    # print("Building models ========================")
-    # for task_name, model_meta in modeling_tasks.items():
-    #     print(task_name)
+    print("Building modeling variables ========================")
+    variable_spec = make_modeling_variable_spec(n_hours)
+    timestep_definition = f"every {period_hours} h from {{intime}} + {period_hours} h to {{outtime}}"
+    
+    modeling_df = make_modeling_variables(dataset, variable_spec, timestep_definition)
         
-    #     make_model(dataset, model_meta, train_patients, val_patients, modeling_df=modeling_df, save_name=task_name)
+    modeling_tasks = {
+        "vasopressor_8h": {
+            "variables": variable_spec,
+            "outcome": f"(integral rate {{Norepinephrine, Phenylephrine, Epinephrine, Dopamine, Vasopressin}} from #now to #now + 8 h) > 0.01",
+            "cohort": f"({{outtime}} - #now >= 8 hours) and not (exists {{Norepinephrine, Phenylephrine, Epinephrine, Dopamine, Vasopressin}} from {{intime}} to #now)",
+            "timestep_definition": timestep_definition,
+            "regression": False
+        },
+        "ventilation_8h": {
+            "variables": variable_spec,
+            "outcome": f"exists {{Invasive Ventilation, Non-invasive Ventilation}} from #now to #now + 8 h",
+            "cohort": f"({{outtime}} - #now >= 8 hours) and not (exists {{Invasive Ventilation, Non-invasive Ventilation}} from {{intime}} to #now)",
+            "timestep_definition": timestep_definition,
+            "regression": False
+        },
+        "antimicrobial_8h": {
+            "variables": variable_spec,
+            "outcome": f"exists {{Antibiotic, Antiviral, Antifungal}} from #now to #now + 8 h",
+            "cohort": f"({{outtime}} - #now >= 8 hours) and not (exists {{Antibiotic, Antiviral, Antifungal}} from {{intime}} to #now)",
+            "timestep_definition": timestep_definition,
+            "regression": False
+        }
+    }
+
+    print("Building models ========================")
+    for task_name, model_meta in modeling_tasks.items():
+        print(task_name)
+        
+        make_model(dataset, model_meta, train_patients, val_patients, modeling_df=modeling_df, save_name=task_name)
         
     # Build the initial slicing specification
     print("Building slicing variables ========================")

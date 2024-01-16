@@ -14,6 +14,7 @@
   import RocLineChart from './slices/charts/ROCLineChart.svelte';
   import TableCellBar from './slices/metric_charts/TableCellBar.svelte';
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
+  import ModelDataSummaryElement from './ModelDataSummaryElement.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -77,7 +78,7 @@
   }
 </script>
 
-<div class="w-full py-2 px-4">
+<div class="w-full py-2 px-4 h-full flex flex-col">
   {#if isTraining}
     <ModelTrainingView {modelName} on:finish={loadModelResults} />
   {:else if !!metrics}
@@ -196,5 +197,18 @@
         <RocLineChart roc={metrics.roc} bind:selectedThreshold />
       </div>
     </div>
+    {#if !!metrics.data_summary}
+      <div
+        class="mb-2 rounded bg-slate-100 p-4 w-full flex-auto min-h-0 overflow-y-auto"
+        style="min-height: 320px;"
+      >
+        <div style="max-width: 500px;">
+          <div class="font-bold mb-4">Training Set Overview</div>
+          {#each metrics.data_summary.fields as field}
+            <ModelDataSummaryElement element={field} />
+          {/each}
+        </div>
+      </div>
+    {/if}
   {/if}
 </div>

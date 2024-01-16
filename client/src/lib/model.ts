@@ -1,3 +1,17 @@
+export type ModelDataSummaryItem = {
+  name: string;
+  type: string;
+  children?: ModelDataSummaryItem[];
+  summary?: {
+    type: 'binary' | 'continuous' | 'categorical';
+    rate?: number;
+    counts?: { [key: string]: number };
+    mean?: number;
+    std?: number;
+    hist?: { counts: number[]; bins: number[] };
+  };
+};
+
 export type ModelMetrics = {
   threshold?: number;
   performance: {
@@ -24,6 +38,9 @@ export type ModelMetrics = {
     tpr: number[];
     fpr: number[];
     performance: { [key: string]: number }[];
+  };
+  data_summary?: {
+    fields: ModelDataSummaryItem[];
   };
 };
 

@@ -113,10 +113,12 @@
         <div class="w-1/3 font-bold text-sm text-slate-600 py-1.5 px-2">
           Correlated features
         </div>
-        <div class="flex-auto font-bold text-sm text-slate-600 px-2">
+        <div
+          class="flex-auto grow-1 shrink-0 font-bold text-sm text-slate-600 px-2"
+        >
           {#if offset != 0}
             Correlated features at <select
-              class="ml-2 flat-select font-normal"
+              class="ml-2 flat-select font-normal text-xs"
               bind:value={offset}
             >
               {#each [24, 18, 16, 12, 8, 6, 5, 4, 3, 2, 1] as t}
@@ -149,7 +151,7 @@
         />
         {#if selectedFeature != null}
           <button
-            class="btn btn-slate ml-2"
+            class="btn btn-slate ml-2 shrink-0 whitespace-nowrap"
             on:click={() => (selectedFeature = null)}>Show All</button
           >
         {/if}

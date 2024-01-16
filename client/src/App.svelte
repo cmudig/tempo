@@ -45,7 +45,7 @@
 
 <main class="w-screen h-screen flex">
   <div
-    class="border-r border-slate-400 h-full shrink-0 grow-0"
+    class="border-r border-slate-400 h-full shrink-0 grow-0 overflow-y-auto"
     style="width: 540px; max-width: 40%;"
   >
     <Sidebar
@@ -71,7 +71,7 @@
     </div>
     <div
       class="w-full flex-auto"
-      class:overflow-scroll={currentView != View.slices}
+      class:overflow-y-auto={currentView != View.slices}
     >
       {#if currentView == View.results}
         <ModelResultsView modelName={currentModel} />

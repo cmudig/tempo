@@ -49,10 +49,10 @@
   $: tickVals = Array.isArray(ticks)
     ? ticks
     : isBandwidth
-    ? $yScale.domain()
-    : typeof ticks === 'function'
-    ? ticks($yScale.ticks())
-    : $yScale.ticks(ticks);
+      ? $yScale.domain()
+      : typeof ticks === 'function'
+        ? ticks($yScale.ticks())
+        : $yScale.ticks(ticks);
 </script>
 
 <g class="axis y-axis" transform="translate({-$padding.left}, 0)">
@@ -64,7 +64,7 @@
       {#if gridlines !== false}
         <line
           class="gridline"
-          x2="100%"
+          x2={$xRange[1] - $xRange[0] + 4}
           y1={yTick + (isBandwidth ? $yScale.bandwidth() / 2 : 0)}
           y2={yTick + (isBandwidth ? $yScale.bandwidth() / 2 : 0)}
           stroke-width={tick == 0 ? 2 : 1}

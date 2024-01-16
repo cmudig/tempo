@@ -5,6 +5,7 @@ import pickle
 import re
 from query_language.data_types import *
 from query_language.evaluator import TrajectoryDataset
+from utils import make_series_summary
 import xgboost
 from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve
 from sklearn.model_selection import train_test_split
@@ -15,6 +16,7 @@ MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 SLICES_DIR = os.path.join(os.path.dirname(__file__), "slices")
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "data", "variable_cache")
+CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 
 microorganisms = pd.read_csv(MICROORGANISMS_PATH, index_col=0).drop(columns=["Categorized"])
 drug_categories = pd.read_csv(DRUG_PATH, index_col=0)
@@ -100,8 +102,44 @@ def make_modeling_variables(dataset, variable_definitions, timestep_definition):
 
     del modeling_variables
     return modeling_df
+
+def make_data_summary_field(field, model_meta, dataset, row_mask):
+    if field.get("type", None) == "group":
+        subresults = [make_data_summary_field(c, model_meta, dataset, row_mask) for c in field["children"]]
+        if "sort" in field:
+            subresults = sorted(subresults, key=lambda x: x["summary"][field["sort"]], reverse=not field.get("ascending", True))
+        if "topk" in field:
+            subresults = subresults[:field["topk"]]
+        return {"name": field.get("name", ""), "type": "group", "children": subresults}
+    if "query" in field:
+        query = ("(" + field['query'] + ") " +
+                #  " " + (f"where ({model_meta['cohort']})" if model_meta.get('cohort', '') else '') + ") " + 
+                 model_meta["timestep_definition"])
+        print(query)
+        query_result = dataset.query(query) 
+        if not field.get("per_timestep", False):
+            query_result = pd.DataFrame({"id": query_result.get_ids()[row_mask], 
+                                         "value": query_result.get_values()[row_mask]}).drop_duplicates("id")["value"]
+        else:
+            query_result = query_result.get_values()[row_mask]
+        return {"name": field.get("name", field["query"]), 
+                "type": "variable_summary", 
+                "summary": make_series_summary(query_result)}
+        
+    raise ValueError(f"Unknown field type {field}")
     
-def _train_model(model_meta, variables, outcomes, ids, train_mask, val_mask, regressor=False, columns_to_drop=None, columns_to_add=None, row_mask=None, full_metrics=True, **model_params):
+def make_model_data_summary(data_summary_config, model_meta, dataset, row_mask):
+    """Creates a data summary for the rows in the dataset that match the model's
+    inclusion criteria."""
+    summary = {
+        "fields": []
+    }
+    if (fields := data_summary_config.get("fields", None)) is not None:
+        for field in fields:
+            summary["fields"].append(make_data_summary_field(field, model_meta, dataset, row_mask))
+    return summary
+    
+def _train_model(config, model_meta, variables, outcomes, ids, train_mask, val_mask, regressor=False, columns_to_drop=None, columns_to_add=None, row_mask=None, full_metrics=True, **model_params):
     """
     variables: a dataframe containing variables for all patients
     """
@@ -218,6 +256,7 @@ def _train_model(model_meta, variables, outcomes, ids, train_mask, val_mask, reg
         for i in reversed(np.argsort(model.feature_importances_)[-max_variables:]):
             variable_names.append(variables.columns[i])
             _, sub_metrics, _, _ = _train_model(
+                config,
                 model_meta,
                 variables[variable_names],
                 outcomes,
@@ -246,12 +285,18 @@ def _train_model(model_meta, variables, outcomes, ids, train_mask, val_mask, reg
     return model, metrics, preds[val_mask], np.where(val_mask & row_mask, outcomes, np.nan)[val_mask]
 
 def make_model(dataset, model_meta, train_patients, val_patients, modeling_df=None, save_name=None):
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, "r") as file:
+            config = json.load(file)
+    else:
+        config = {}
+        
     if modeling_df is None:
         modeling_df = make_modeling_variables(dataset, model_meta["variables"], model_meta["timestep_definition"])
         
     outcome = dataset.query("(" + model_meta['outcome'] + 
                             " " + ("impute 0" if not model_meta.get("regression", False) else "") + 
-                                (f" where ({model_meta['cohort']})" if model_meta.get('cohort', '') else '') + ")" + 
+                                (f" where ({model_meta['cohort']})" if model_meta.get('cohort', '') else '') + ") " + 
                                 model_meta["timestep_definition"]) 
     print((~pd.isna(outcome.get_values())).sum())
     
@@ -262,6 +307,7 @@ def make_model(dataset, model_meta, train_patients, val_patients, modeling_df=No
     val_mask = outcome.get_ids().isin(val_patients)
     
     model, metrics, val_pred, val_true = _train_model(
+        config,
         model_meta,
         modeling_df,
         outcome.get_values(),
@@ -272,6 +318,9 @@ def make_model(dataset, model_meta, train_patients, val_patients, modeling_df=No
         regressor=model_meta.get("regression", False),
         early_stopping_rounds=3)
     
+    if "models" in config and "data_summary" in config["models"]:
+        metrics["data_summary"] = make_model_data_summary(config["models"]["data_summary"], model_meta, dataset, train_mask & ~pd.isna(outcome.get_values()))
+        
     if save_name is not None:
         # Save out the metadata
         with open(os.path.join(MODEL_DIR, f"spec_{save_name}.json"), "w") as file:
