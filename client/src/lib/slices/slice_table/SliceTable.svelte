@@ -131,27 +131,50 @@
     let r;
     if (!!allRequests[slice.stringRep]) r = allRequests[slice.stringRep];
     else r = slice.feature;
+    let selectionIdx = selectedSlices.findIndex((s) => areObjectsEqual(s, r!));
     r = withToggledFeature(r, slice.feature, feature);
     allRequests[slice.stringRep] = r;
     sliceRequests = allRequests;
     console.log('slice requests:', sliceRequests);
+    if (selectionIdx >= 0)
+      selectedSlices = [
+        ...selectedSlices.slice(0, selectionIdx),
+        r,
+        ...selectedSlices.slice(selectionIdx + 1),
+      ];
   }
 
   function resetSlice(slice: Slice) {
     let allRequests = Object.assign({}, sliceRequests);
+    if (!!allRequests[slice.stringRep]) {
+      let selectionIdx = selectedSlices.findIndex((s) =>
+        areObjectsEqual(s, allRequests[slice.stringRep])
+      );
+      if (selectionIdx >= 0)
+        selectedSlices = [
+          ...selectedSlices.slice(0, selectionIdx),
+          slice.feature,
+          ...selectedSlices.slice(selectionIdx + 1),
+        ];
+    }
     delete allRequests[slice.stringRep];
     sliceRequests = allRequests;
   }
 
   function editSliceFeature(slice: Slice, newFeature: SliceFeatureBase) {
     let allRequests = Object.assign({}, sliceRequests);
-    let r;
-    if (!!allRequests[slice.stringRep]) r = allRequests[slice.stringRep];
-    else r = slice.feature;
-    r = newFeature;
-    allRequests[slice.stringRep] = r;
+    let selectionIdx = selectedSlices.findIndex((s) =>
+      areObjectsEqual(s, allRequests[slice.stringRep] ?? slice.feature)
+    );
+    allRequests[slice.stringRep] = newFeature;
     sliceRequests = allRequests;
     console.log('slice requests:', sliceRequests);
+    if (selectionIdx >= 0)
+      selectedSlices = [
+        ...selectedSlices.slice(0, selectionIdx),
+        newFeature,
+        ...selectedSlices.slice(selectionIdx + 1),
+      ];
   }
 
   function selectSlice(slice: Slice, selected: boolean = true) {

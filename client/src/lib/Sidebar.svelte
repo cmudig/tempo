@@ -8,7 +8,12 @@
     SliceMetric,
   } from './slices/utils/slice.type';
   import { SidebarTableWidths } from './utils/sidebarwidths';
-  import { faXmark } from '@fortawesome/free-solid-svg-icons';
+  import {
+    faSort,
+    faSortDown,
+    faSortUp,
+    faXmark,
+  } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
 
   export let models: { [key: string]: ModelSummary } = {};
@@ -19,8 +24,13 @@
 
   export let metricToShow: string = 'AUROC';
 
+  let sortField: string = 'name';
+  let sortDescending: boolean = false;
+
+  let modelOrder: string[] = [];
+
   let sliceMetrics:
-    | { [key: string]: SliceMetric | { [key: string]: SliceMetric } }
+    | { [key: string]: { [key: string]: SliceMetric } }
     | undefined;
 
   let metricScales: { [key: string]: (v: number) => number } = {};
@@ -79,7 +89,10 @@
         })
       ).json();
       let result = results.sliceRequestResults.toScore as Slice;
-      if (!!result) sliceMetrics = result.metrics;
+      if (!!result)
+        sliceMetrics = result.metrics as {
+          [key: string]: { [key: string]: SliceMetric };
+        };
       else sliceMetrics = undefined;
       console.log(
         'slice metrics:',
@@ -101,6 +114,56 @@
       models[otherModelName].timestep_definition
     );
   }
+
+  function setSort(field: string) {
+    if (sortField != field) {
+      sortField = field;
+      sortDescending = false;
+    } else {
+      sortDescending = !sortDescending;
+    }
+  }
+
+  $: {
+    if (sortField == 'name') {
+      modelOrder = Object.keys(models).sort();
+      if (sortDescending) modelOrder = modelOrder.reverse();
+    } else {
+      let metricValues: { [key: string]: { [key: string]: number } };
+      if (!!sliceMetrics)
+        metricValues = Object.fromEntries(
+          Object.keys(models).map((m) => [
+            m,
+            {
+              Timesteps: sliceMetrics![m]['Timesteps']?.count ?? 0,
+              Trajectories:
+                (sliceMetrics![m]['Trajectories']?.count as number) ?? 0,
+              [metricToShow]:
+                (sliceMetrics![m][metricToShow]?.mean as number) ?? 0,
+              'Positive Rate':
+                (sliceMetrics![m]['Positive Rate']?.mean as number) ?? 0,
+            },
+          ])
+        );
+      else
+        metricValues = Object.fromEntries(
+          Object.entries(models).map(([modelName, model]) => [
+            modelName,
+            {
+              Timesteps: model.metrics?.n_slice_eval.instances ?? 0,
+              Trajectories: model.metrics?.n_slice_eval.trajectories ?? 0,
+              [metricToShow]: model.metrics?.performance[metricToShow] ?? 0,
+              'Positive Rate': model.metrics?.positive_rate ?? 0,
+            },
+          ])
+        );
+      modelOrder = Object.keys(models).sort(
+        (a, b) =>
+          (metricValues[a][sortField] - metricValues[b][sortField]) *
+          (sortDescending ? -1 : 1)
+      );
+    }
+  }
 </script>
 
 <div class="my-2 text-lg font-bold px-4">Models</div>
@@ -121,32 +184,42 @@
     </div>
   </div>
 {/if}
-<div class="overflow-x-scroll">
+<div>
   <div class="flex items-start gap-2 px-4 pt-4 pb-2 text-xs text-slate-500">
     <div
       class="grow-0 shrink-0"
       style="width: {SidebarTableWidths.Checkbox}px;"
     ></div>
-    <div
-      class="grow-0 shrink-0"
+    <button
+      class="rounded p-1 text-left grow-0 shrink-0 hover:font-bold whitespace-nowrap"
+      on:click={() => setSort('name')}
       style="width: {SidebarTableWidths.ModelName}px;"
     >
-      Model
-    </div>
-    <div class="grow-0 shrink-0" style="width: {SidebarTableWidths.Metric}px;">
-      Timesteps
-    </div>
-    <div class="grow-0 shrink-0" style="width: {SidebarTableWidths.Metric}px;">
-      Trajectories
-    </div>
-    <div class="grow-0 shrink-0" style="width: {SidebarTableWidths.Metric}px;">
-      {metricToShow}
-    </div>
-    <div class="grow-0 shrink-0" style="width: {SidebarTableWidths.Metric}px;">
-      Positive Rate
-    </div>
+      Model {#if sortField == 'name'}
+        <Fa
+          icon={sortDescending ? faSortDown : faSortUp}
+          class="inline text-xs"
+        />
+      {/if}
+    </button>
+    {#each ['Timesteps', 'Trajectories', metricToShow, 'Positive Rate'] as fieldName}
+      <button
+        class="rounded text-left grow-0 shrink-0 hover:font-bold whitespace-nowrap"
+        on:click={() => setSort(fieldName)}
+        style="width: {SidebarTableWidths.Metric}px;"
+      >
+        {fieldName}
+        {#if sortField == fieldName}
+          <Fa
+            icon={sortDescending ? faSortDown : faSortUp}
+            class="inline text-xs"
+          />
+        {/if}
+      </button>
+    {/each}
   </div>
-  {#each Object.entries(models) as [modelName, model] (modelName)}
+  {#each modelOrder as modelName (modelName)}
+    {@const model = models[modelName]}
     <SidebarItem
       {model}
       {modelName}

@@ -236,7 +236,7 @@
           role="option"
           class="menu-item pointer rounded-md px-2 py-1 {menuItemClass} hover:bg-slate-100 text-sm text-slate-400"
           on:mousedown|preventDefault|stopPropagation={() => {}}
-          on:click|preventDefault={() =>
+          on:click|preventDefault|stopPropagation={() =>
             (visibleStart = Math.max(0, visibleStart - maxItems))}
         >
           <Fa icon={faCaretUp} />
@@ -250,7 +250,9 @@
           on:mouseenter={() => (active = idx + visibleStart)}
           on:mouseleave={() => (active = null)}
           on:mousedown|preventDefault|stopPropagation={() => {}}
-          on:click|preventDefault={selectItem(idx + visibleStart)}
+          on:click|preventDefault|stopPropagation={selectItem(
+            idx + visibleStart
+          )}
         >
           {!!menuItemTextFn ? menuItemTextFn(option) : option}
         </div>
@@ -260,7 +262,7 @@
           role="option"
           class="menu-item pointer rounded-md px-2 py-1 {menuItemClass} hover:bg-slate-100 text-sm text-slate-400"
           on:mousedown|preventDefault|stopPropagation={() => {}}
-          on:click|preventDefault={() =>
+          on:click|preventDefault|stopPropagation={() =>
             (visibleStart = Math.min(
               visibleStart + maxItems,
               options.length - maxItems

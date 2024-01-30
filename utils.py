@@ -11,12 +11,19 @@ def make_series_summary(values):
         is_binary = num_unique == 2 and set(np.unique(values).astype(int).tolist()) == set([0, 1])
     except:
         is_binary = False
+    try:
+        values = values.astype(float)
+        is_quantitative = True
+    except:
+        is_quantitative = False
     if is_binary:
         summary["type"] = "binary"
         summary["rate"] = values.mean().astype(float)
-    elif pd.api.types.is_object_dtype(values.dtype) or num_unique <= 10:
+    elif not is_quantitative or num_unique <= 10:
+        uniques, counts = np.unique(values, return_counts=True)
+        uniques_to_show = np.argsort(uniques)[:10]
         summary["type"] = "categorical"
-        summary["counts"] = {str(k): int(v) for k, v in zip(*np.unique(values, return_counts=True))}
+        summary["counts"] = {str(uniques[i]): int(counts[i]) for i in uniques_to_show}
     else:
         summary["type"] = "continuous"
         summary["mean"] = np.mean(values.astype(float))

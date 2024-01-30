@@ -90,7 +90,7 @@
     {/if}
   </div>
   <div
-    class="font-mono grow-0 shrink-0"
+    class="font-mono grow-0 shrink-0 text-sm"
     style="width: {SidebarTableWidths.ModelName}px;"
   >
     {#if !!model && !!model.metrics && (!!model.metrics.trivial_solution_warning || (!!model.metrics.class_not_predicted_warnings && model.metrics.class_not_predicted_warnings.length > 0))}

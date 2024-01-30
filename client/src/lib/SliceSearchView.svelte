@@ -440,7 +440,7 @@
           {valueNames}
           {allowedValues}
           bind:metricGroups
-          allowFavorite={false}
+          allowFavorite={true}
           allowMultiselect={false}
           metricInfo={(n) => getMetric(metricInfo, n)}
           metricGetter={(s, name) => getMetric(s.metrics, name)}
@@ -539,7 +539,7 @@
             {allowedValues}
             showHeader={false}
             bind:metricGroups
-            allowFavorite={false}
+            allowFavorite={true}
             allowMultiselect={false}
             metricInfo={(n) => getMetric(metricInfo, n)}
             metricGetter={(s, name) => getMetric(s.metrics, name)}

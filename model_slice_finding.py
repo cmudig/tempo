@@ -309,17 +309,18 @@ class SliceDiscoveryHelper(SliceHelper):
         results_path = os.path.join(self.results_dir, f"slice_results_{timestep_def}.json")
         return os.path.exists(results_path)
         
-    def rescore_model(self, slice_spec_name, model_name):
+    def rescore_model(self, model_name):
         """Recalculates the discovery set scores for the given model."""
         timestep_def = self.get_model_timestep_def(model_name)
-        self.load_timestep_slice_results(slice_spec_name, timestep_def)   
+        self.load_timestep_slice_results(timestep_def)   
         if not self.slice_scores.get(timestep_def, []):
             print("No slices to rescore")
             return
         
-        valid_df, discovery_mask, _, _ = self.get_slicing_data(slice_spec_name, timestep_def)
-        
-        for _, control_results in self.slice_scores[timestep_def].items():
+        for control_set, control_results in self.slice_scores[timestep_def].items():
+            valid_df, discovery_mask, _, _ = self.get_slicing_data(self.result_key_to_controls(control_set)["slice_spec_name"], 
+                                                                   timestep_def)
+            
             other_score_fns, scored_model_names = self.get_score_functions(valid_df, discovery_mask, include_model_names=[model_name])
             results = list(control_results.keys())
             min_items = self.min_items_fraction * len(valid_df.df)

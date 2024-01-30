@@ -200,7 +200,7 @@
     {#if !!metrics.data_summary}
       <div
         class="mb-2 rounded bg-slate-100 p-4 w-full flex-auto min-h-0 overflow-y-auto"
-        style="min-height: 320px;"
+        style="min-height: 300px;"
       >
         <div style="max-width: 500px;">
           <div class="font-bold mb-4">Training Set Overview</div>

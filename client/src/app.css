@@ -42,6 +42,13 @@
   @apply opacity-70;
 }
 
+.btn-dark-blue {
+  @apply bg-blue-600 text-white;
+}
+.btn-dark-blue:hover {
+  @apply bg-blue-700;
+}
+
 .indigo .btn-slate {
   @apply bg-indigo-400 text-white;
 }

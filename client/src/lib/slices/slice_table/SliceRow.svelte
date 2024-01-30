@@ -139,8 +139,8 @@
     style="margin-left: {indentAmount * (maxIndent - indent)}px;"
     on:mouseenter={() => (showButtons = true)}
     on:mouseleave={() => (showButtons = false)}
-    on:click={() => {
-      console.log('clicked', allowSelect);
+    on:click={(e) => {
+      if (e.target.tagName.toLocaleLowerCase() !== 'div') return;
       if (allowSelect) dispatch('select', !isSelected);
     }}
     on:keypress={(e) => {

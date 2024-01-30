@@ -38,6 +38,7 @@
   let sliceSearchError: string | null = null;
 
   let selectedSlices: SliceFeatureBase[] = [];
+  export let savedSlices: { [key: string]: SliceFeatureBase[] } = {};
 
   let oldSelectedSlices: SliceFeatureBase[] = [];
   $: if (oldSelectedSlices !== selectedSlices) {
@@ -207,6 +208,14 @@
     }
   }
 
+  function saveSlice(slice: Slice) {
+    let saved = savedSlices[sliceSpec] ?? [];
+    let idx = saved.findIndex((s) => areObjectsEqual(s, slice.feature));
+    if (idx < 0) saved = [...saved, slice.feature];
+    else saved = [...saved.slice(0, idx), ...saved.slice(idx + 1)];
+    savedSlices[sliceSpec] = saved;
+  }
+
   let trainingStatusTimer: any | null = null;
   let slicesStatusTimer: any | null = null;
 
@@ -268,6 +277,7 @@
         : []}
       {baseSlice}
       {timestepDefinition}
+      savedSlices={savedSlices[sliceSpec] ?? []}
       bind:scoreWeights
       bind:selectedSlices
       bind:enabledSliceControls
@@ -287,6 +297,7 @@
         : null}
       on:load={loadSlices}
       on:cancel={stopFindingSlices}
+      on:saveslice={(e) => saveSlice(e.detail)}
     />
   </div>
   <div
