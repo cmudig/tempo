@@ -15,6 +15,7 @@
     faXmark,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
+  import { areSetsEqual } from './slices/utils/utils';
 
   export let models: { [key: string]: ModelSummary } = {};
   export let activeModel: string | undefined;
@@ -34,6 +35,13 @@
     | undefined;
 
   let metricScales: { [key: string]: (v: number) => number } = {};
+
+  let metricOptions: string[] = [];
+  $: if (Object.values(models).length > 0)
+    metricOptions = Object.keys(
+      Object.values(models)[0].metrics!.performance
+    ).sort();
+  else metricOptions = [];
 
   $: {
     let maxInstances = Object.values(models)
@@ -85,7 +93,11 @@
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ sliceRequests, sliceSpec: spec }),
+          body: JSON.stringify({
+            sliceRequests,
+            sliceSpec: spec,
+            selectedModel: activeModel,
+          }),
         })
       ).json();
       let result = results.sliceRequestResults.toScore as Slice;
@@ -109,6 +121,7 @@
     modelName: string,
     otherModelName: string
   ): boolean {
+    if (!models[modelName] || !models[otherModelName]) return false;
     return (
       models[modelName].timestep_definition ==
       models[otherModelName].timestep_definition
@@ -166,7 +179,14 @@
   }
 </script>
 
-<div class="my-2 text-lg font-bold px-4">Models</div>
+<div class="my-2 px-4 flex justify-between">
+  <div class="text-lg font-bold">Models</div>
+  <select class="flat-select" bind:value={metricToShow}>
+    {#each metricOptions as metricName}
+      <option value={metricName}>{metricName}</option>
+    {/each}
+  </select>
+</div>
 {#if !!selectedSlice}
   <div class="rounded bg-slate-100 p-3 mx-4">
     <div class="ml-2 flex text-xs font-bold text-slate-600">

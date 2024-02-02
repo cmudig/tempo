@@ -354,21 +354,27 @@ if __name__ == '__main__':
         response = sf.utils.convert_to_native_types(response)
         return jsonify(response)
         
-    def _score_slice(model_names, timestep_def, slice_spec_name, slice_requests):
+    def _score_slice(model_names, timestep_def, slice_spec_name, slice_requests, return_instance_info=False):
         result = evaluator.get_results(timestep_def, {"slice_spec_name": slice_spec_name}, model_names)
         if result is None:
             return {}
         
         rank_list, metrics, ids, df = result
         slices_to_score = {k: rank_list.encode_slice(v) for k, v in slice_requests.items()}
-        return sf.utils.convert_to_native_types({
+        scored_slices = {
             k: evaluator.describe_slice(rank_list,
                                         metrics, 
                                         ids,
                                         slice_obj.rescore(rank_list.score_slice(slice_obj)),
-                                        model_names)
+                                        model_names,
+                                        return_instance_info=True)
             for k, slice_obj in slices_to_score.items()
-        })
+        }
+        masks = {k: v[1] for k, v in scored_slices.items()}
+        scored_slices = sf.utils.convert_to_native_types({k: v[0] for k, v in scored_slices.items()})
+        if return_instance_info:
+            return scored_slices, masks
+        return scored_slices
         
     @app.route("/slices/<model_names>/score", methods=["POST"])
     def score_slice(model_names):
@@ -424,6 +430,35 @@ if __name__ == '__main__':
                     # Merge the slice definitions
                     results[slice_key]["score_values"].update(ts_results[slice_key]["score_values"])
                     results[slice_key]["metrics"].update(ts_results[slice_key]["metrics"])
+                # if "selectedModel" in body and body["selectedModel"] in model_names:
+                #     slice_mask = instance_infos[slice_key][0].astype(bool)
+                #     selected_true, selected_pred = instance_infos[slice_key][1][body["selectedModel"]]
+                #     selected_mask = (~pd.isna(selected_true))[slice_mask]
+                #     # What does the venn diagram color mean in this context? are the circles different models?
+                #     for model_name in model_names:
+                #         model_true, model_pred = instance_infos[slice_key][1][model_name]
+                #         model_mask = (~pd.isna(model_true))[slice_mask]
+                #         def make_overlap_metric(mask, values):
+                #             return sf.utils.convert_to_native_types({
+                #                 "count": mask.sum(), 
+                #                 "mean": values[mask].mean()
+                #             })
+                        
+                #         results[slice_key]["metrics"][model_name]["Overlap True"] = {
+                #             "type": "overlap",
+                #             "neither": make_overlap_metric((~selected_mask) & (~model_mask), model_true),
+                #             "left": make_overlap_metric(selected_mask & (~model_mask), model_true),
+                #             "right": make_overlap_metric(~selected_mask & model_mask, model_true),
+                #             "both": make_overlap_metric(selected_mask & model_mask, model_true),
+                #         }
+                #         results[slice_key]["metrics"][model_name]["Overlap Pred"] = {
+                #             "type": "overlap",
+                #             "neither": make_overlap_metric((~selected_mask) & (~model_mask), model_pred),
+                #             "left": make_overlap_metric(selected_mask & (~model_mask), model_pred),
+                #             "right": make_overlap_metric(~selected_mask & model_mask, model_pred),
+                #             "both": make_overlap_metric(selected_mask & model_mask, model_pred),
+                #         }
+                    
         return jsonify({ "sliceRequestResults": results })
     
     @app.route("/slices/<model_names>/compare", methods=["POST"])

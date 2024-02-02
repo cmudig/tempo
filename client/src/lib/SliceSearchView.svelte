@@ -100,7 +100,7 @@
   $: if (allSlices.length > 0) {
     let testSlice = allSlices.find((s) => !s.isEmpty);
     if (!testSlice) testSlice = allSlices[0];
-    updateMetricInfo(testSlice);
+    updateMetricInfo(testSlice, metricsToShow);
   } else {
     scoreNames = [];
     scoreWidthScalers = {};
@@ -152,7 +152,7 @@
     } else return metrics[key]! as T;
   }
 
-  function updateMetricInfo(testSlice: Slice) {
+  function updateMetricInfo(testSlice: Slice, showingMetrics: string[] | null) {
     if (!!scoreWeights) scoreNames = Object.keys(scoreWeights).sort();
     else scoreNames = Object.keys(testSlice.scoreValues).sort();
 
@@ -175,7 +175,7 @@
         metricNames = metricGroups
           .map((g) =>
             Object.keys(testSlice!.metrics![g])
-              .filter((m) => !metricsToShow || metricsToShow.includes(m))
+              .filter((m) => !showingMetrics || showingMetrics.includes(m))
               .sort(sortMetrics)
               .map((m) => [g, m])
           )
@@ -185,7 +185,7 @@
         metricGroups = null;
         if (!areSetsEqual(new Set(metricNames), new Set(newMetricNames))) {
           metricNames = newMetricNames.filter(
-            (m) => !metricsToShow || metricsToShow.includes(m)
+            (m) => !showingMetrics || showingMetrics.includes(m)
           );
           metricNames.sort(sortMetrics);
         }

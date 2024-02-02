@@ -82,6 +82,7 @@
     scoreWeights = null;
     if (modelsToShow.length > 0) {
       console.log('changing bc models changed');
+      selectedSlices = [];
       getSlicesIfAvailable();
       pollSliceStatus();
     }

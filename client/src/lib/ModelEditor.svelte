@@ -43,6 +43,7 @@
       saveError = null;
       let result = await fetch(`/models/${modelName}/spec`);
       let spec = await result.json();
+      isTraining = false;
       if (spec.training) {
         let status = await checkTrainingStatus(modelName);
         if (!!status) {
@@ -50,11 +51,9 @@
           else {
             saveError = null;
             isTraining = true;
-            return;
           }
         }
       }
-      isTraining = false;
       inputVariables = spec.variables;
       outcomeVariable = spec.outcome;
       patientCohort = spec.cohort;
@@ -114,48 +113,47 @@
 <div class="w-full py-2 px-4">
   {#if isTraining}
     <ModelTrainingView {modelName} on:finish={reset} />
-  {:else}
-    <h2 class="text-lg font-bold mb-3">
-      Edit Model <span class="font-mono">{modelName}</span>
-    </h2>
-    {#if !!saveError}
-      <div class="rounded mt-2 p-3 text-red-500 bg-red-50">
-        Training error: <span class="font-mono">{saveError}</span>
-      </div>
-    {/if}
-    <h3 class="font-bold mt-3 mb-1">Timestep Definition</h3>
-    <textarea
-      class="w-full font-mono flat-text-input"
-      bind:value={timestepDefinition}
-    />
-
-    <h3 class="font-bold mt-2 mb-1">Input Variables</h3>
-    <div class="w-full" style="height: 368px;">
-      <VariableEditorPanel {timestepDefinition} bind:inputVariables />
-    </div>
-    <h3 class="font-bold mt-3 mb-1">Outcome Variable</h3>
-    <textarea
-      class="flat-text-input w-full font-mono"
-      bind:value={outcomeVariable}
-    />
-    <h3 class="font-bold mt-3 mb-1">Timestep Filter</h3>
-    <textarea
-      class="flat-text-input w-full font-mono"
-      bind:value={patientCohort}
-    />
-    <div class="mt-2 flex gap-2">
-      <button
-        class="my-1 py-1.5 text-sm px-4 rounded text-slate-800 bg-red-200 hover:bg-red-300 font-bold"
-        on:click={reset}
-      >
-        Reset
-      </button>
-      <button class="my-1 btn btn-blue" on:click={trainModel}>
-        Overwrite Model
-      </button>
-      <button class="my-1 btn btn-blue" on:click={saveAsNewModel}>
-        Save as New Model...
-      </button>
+  {/if}
+  <h2 class="text-lg font-bold mb-3">
+    Edit Model <span class="font-mono">{modelName}</span>
+  </h2>
+  {#if !!saveError}
+    <div class="rounded mt-2 p-3 text-red-500 bg-red-50">
+      Training error: <span class="font-mono">{saveError}</span>
     </div>
   {/if}
+  <h3 class="font-bold mt-3 mb-1">Timestep Definition</h3>
+  <textarea
+    class="w-full font-mono flat-text-input"
+    bind:value={timestepDefinition}
+  />
+
+  <h3 class="font-bold mt-2 mb-1">Input Variables</h3>
+  <div class="w-full" style="height: 368px;">
+    <VariableEditorPanel {timestepDefinition} bind:inputVariables />
+  </div>
+  <h3 class="font-bold mt-3 mb-1">Outcome Variable</h3>
+  <textarea
+    class="flat-text-input w-full font-mono"
+    bind:value={outcomeVariable}
+  />
+  <h3 class="font-bold mt-3 mb-1">Timestep Filter</h3>
+  <textarea
+    class="flat-text-input w-full font-mono"
+    bind:value={patientCohort}
+  />
+  <div class="mt-2 flex gap-2">
+    <button
+      class="my-1 py-1.5 text-sm px-4 rounded text-slate-800 bg-red-200 hover:bg-red-300 font-bold"
+      on:click={reset}
+    >
+      Reset
+    </button>
+    <button class="my-1 btn btn-blue" on:click={trainModel}>
+      Overwrite Model
+    </button>
+    <button class="my-1 btn btn-blue" on:click={saveAsNewModel}>
+      Save as New Model...
+    </button>
+  </div>
 </div>

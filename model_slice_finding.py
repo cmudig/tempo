@@ -509,7 +509,7 @@ class SliceEvaluationHelper(SliceHelper):
                 if self.result_key_to_controls(k)['slice_spec_name'] != slice_spec_name
             }
     
-    def describe_slice(self, rank_list, metrics, ids, slice_obj, model_names):
+    def describe_slice(self, rank_list, metrics, ids, slice_obj, model_names, return_instance_info=False):
         """
         Generates a slice description of the given slice, adding count variables
         for each model outcome.
@@ -518,6 +518,7 @@ class SliceEvaluationHelper(SliceHelper):
         old_desc_metrics = desc["metrics"]
         desc["metrics"] = {}
         
+        instance_behaviors = {}
         for model_name in model_names:
             true_outcome = metrics[f"{model_name} True"]
             total_nonna = (~pd.isna(true_outcome)).sum()
@@ -526,21 +527,29 @@ class SliceEvaluationHelper(SliceHelper):
             total_unique_ids = len(np.unique(ids[~pd.isna(true_outcome)]))
             
             pred_outcome = metrics[f"{model_name} Predicted"]
-            slice_true = true_outcome[mask]
-            slice_pred = pred_outcome[mask]
-            slice_ids = ids[mask][~pd.isna(slice_true)]
-            slice_pred = slice_pred[~pd.isna(slice_true)]
-            slice_true = slice_true[~pd.isna(slice_true)]
-            fpr, tpr, thresholds = roc_curve(slice_true, slice_pred)
-            opt_threshold = thresholds[np.argmax(tpr - fpr)]
+            full_slice_true = true_outcome[mask]
+            full_slice_pred = pred_outcome[mask]
+            slice_ids = ids[mask][~pd.isna(full_slice_true)]
+            slice_pred = full_slice_pred[~pd.isna(full_slice_true)]
+            slice_true = full_slice_true[~pd.isna(full_slice_true)]
+            if len(slice_pred) > 0:
+                fpr, tpr, thresholds = roc_curve(slice_true, slice_pred)
+                opt_threshold = thresholds[np.argmax(tpr - fpr)]
+            else:
+                opt_threshold = 0.0
+            instance_behaviors[model_name] = (full_slice_true, np.where(pd.isna(full_slice_true), np.nan, full_slice_pred >= opt_threshold))
             if len(np.unique(slice_true)) <= 1:
                 auroc = 1
             else:
                 auroc = roc_auc_score(slice_true, slice_pred)
-            conf = confusion_matrix(slice_true, (slice_pred >= opt_threshold), labels=[0, 1])
-            tn, fp, fn, tp = conf.ravel()
+            if len(slice_pred) > 0:
+                conf = confusion_matrix(slice_true, (slice_pred >= opt_threshold), labels=[0, 1])
+                tn, fp, fn, tp = conf.ravel()
+                acc = ((slice_pred >= opt_threshold) == slice_true).mean()
+            else:
+                tn, fp, fn, tp = 0, 1, 1, 0
+                acc = float('nan')
             
-            acc = ((slice_pred >= opt_threshold) == slice_true).mean()
             matching_unique_ids = len(np.unique(slice_ids))
             
             desc["metrics"][model_name] = {
@@ -566,6 +575,7 @@ class SliceEvaluationHelper(SliceHelper):
         # Remove scores that aren't related to these model names
         desc["scoreValues"] = {k: v for k, v in desc["scoreValues"].items() 
                                if k in ("size", "complexity") or any(k.startswith(model_name + "_") for model_name in model_names)}
+        if return_instance_info: return desc, (mask, instance_behaviors)
         return desc
         
     def rescore_model(self, model_name, timestep_def=None):
