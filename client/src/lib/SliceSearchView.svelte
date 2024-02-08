@@ -33,6 +33,7 @@
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
   import ScoreWeightMenu from './slices/utils/ScoreWeightMenu.svelte';
   import SliceSpecEditor from './SliceSpecEditor.svelte';
+  import { MetricColors } from './colors';
 
   const dispatch = createEventDispatcher();
 
@@ -228,6 +229,8 @@
       newInfo.visible = (
         getMetric<SliceMetricInfo>(oldMetricInfo, n) || { visible: true }
       ).visible;
+      newInfo.color =
+        MetricColors[groupedMetrics ? n[1] : n] ?? MetricColors.Accuracy;
 
       if (groupedMetrics) {
         if (!metricInfo[n[0]]) metricInfo[n[0]] = {};

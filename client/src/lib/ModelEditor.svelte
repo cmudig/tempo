@@ -5,11 +5,7 @@
     faPlus,
     faXmark,
   } from '@fortawesome/free-solid-svg-icons';
-  import {
-    AllCategories,
-    VariableCategory,
-    type VariableDefinition,
-  } from './model';
+  import { type VariableDefinition } from './model';
   import Checkbox from './utils/Checkbox.svelte';
   import Fa from 'svelte-fa/src/fa.svelte';
   import { createEventDispatcher, onDestroy } from 'svelte';

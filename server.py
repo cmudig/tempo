@@ -1,10 +1,12 @@
 from flask import Flask, send_from_directory, request, jsonify, send_file
-from model_training import make_model, load_raw_data, make_modeling_variables
-from model_slice_finding import SliceDiscoveryHelper, SliceEvaluationHelper, describe_slice_change_differences, describe_slice_differences
+from dataset_manager import DatasetManager
+from model_training import make_modeling_variables
+from model_slice_finding import describe_slice_change_differences, describe_slice_differences
 from utils import make_series_summary
 import slice_finding as sf
 import json
 import os
+import sys
 import pickle
 import signal
 import pandas as pd
@@ -16,60 +18,49 @@ import time
 import multiprocessing as mp
 import atexit
 
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
-if not os.path.exists(MODEL_DIR): os.mkdir(MODEL_DIR)
-SLICES_DIR = os.path.join(os.path.dirname(__file__), "slices")
-if not os.path.exists(SLICES_DIR): os.mkdir(SLICES_DIR)
-TASK_PROGRESS_DIR = os.path.join(os.path.dirname(__file__), "task_progress")
-
 SAMPLE_MODEL_TRAINING_DATA = False
 
-def _background_model_generation(queue):
+def _background_model_generation(base_path, queue):
     finder = None
     dataset = None
+    dataset_manager = DatasetManager(base_path)
+    trainer = dataset_manager.make_trainer()
     def make_finder():
-        return SliceDiscoveryHelper(MODEL_DIR, 
-                                        SLICES_DIR, 
-                                        min_items_fraction=0.005,
-                                        samples_per_model=100,
-                                    max_features=4,
-                                    scoring_fraction=0.2,
-                                    num_candidates=5,
-                                    similarity_threshold=0.5)
+        return dataset_manager.make_slice_discovery_helper()
     while True:
         arg = queue.get()
         if arg == "STOP": return
         if arg[0] == "train_model":
             command, model_name, meta = arg
             try:
-                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Loading data"}}, file)
                 if dataset is None:
-                    dataset, (train_patients, val_patients, _) = load_raw_data(sample=SAMPLE_MODEL_TRAINING_DATA)
-                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                    dataset, (train_patients, val_patients, _) = dataset_manager.load_data(sample=SAMPLE_MODEL_TRAINING_DATA)
+                with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Loading variables"}}, file)
                 modeling_df = make_modeling_variables(dataset, meta["variables"], meta["timestep_definition"])
-                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Building model"}}, file)
-                make_model(dataset, meta, train_patients, val_patients, save_name=model_name, modeling_df=modeling_df)
+                trainer.make_model(dataset, meta, train_patients, val_patients, save_name=model_name, modeling_df=modeling_df)
                 
                 if finder is None:
                     finder = make_finder()
                 if finder.model_has_slices(model_name):
-                    with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                    with open(dataset_manager.model_spec_path(model_name), "w") as file:
                         json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Rescoring slices"}}, file)
                     # Tell the slice finder that the slices need to be rescored for this model
                     finder.rescore_model(model_name)
-                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump(meta, file)
             except KeyboardInterrupt:
-                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump(meta, file)
                 return
             except Exception as e:
                 import traceback
                 print(traceback.format_exc())
-                with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+                with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "error", "message": str(e)}}, file)
         elif arg[0] == "find_slices":
             command, model_name, controls = arg
@@ -93,43 +84,43 @@ def _background_model_generation(queue):
                 finder = make_finder()
             finder.invalidate_slice_spec(spec_name)
 
-def _get_model_training_status(model_name):
-    if os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
-        with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "r") as file:
-            spec = json.load(file)
-            if spec.get("training", False):
-                return spec["status"]
-    return {"state": "none", "message": "No model being trained"}
-            
-def _is_model_training():
-    for path in os.listdir(MODEL_DIR):
-        if path.startswith("spec_"):
-            model_id = re.search(r'^spec_(.*)\.json', path).group(1)
-            with open(os.path.join(MODEL_DIR, path), "r") as file:
-                model_spec = json.load(file)
-            if model_spec.get("training", False):
-                return True
-    return False
-
 if __name__ == '__main__':
     app = Flask(__name__)
     
+    base_path = sys.argv[1]
+    dataset_manager = DatasetManager(base_path)
+    MODEL_DIR = dataset_manager.model_dir
     queue = mp.Queue()
-    model_worker = mp.Process(target=_background_model_generation, args=(queue,))
+    model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue))
     model_worker.start()
     
-    if os.path.exists(TASK_PROGRESS_DIR): rmtree(TASK_PROGRESS_DIR)
-    os.mkdir(TASK_PROGRESS_DIR)
+    sample_dataset, _ = dataset_manager.load_data(sample=SAMPLE_MODEL_TRAINING_DATA, 
+                                                  cache_dir=os.path.join(dataset_manager.base_path, "data/sample" if SAMPLE_MODEL_TRAINING_DATA else "slices/slicing_variables"), 
+                                                  val_only=True)
+    evaluator = dataset_manager.make_slice_evaluation_helper()
 
-    # sample_dataset, _ = load_raw_data(sample=True)
-    
-    sample_dataset, _ = load_raw_data(sample=SAMPLE_MODEL_TRAINING_DATA, cache_dir="data/slicing_variables", val_only=True)
-    evaluator = SliceEvaluationHelper(MODEL_DIR, SLICES_DIR)
+    def _get_model_training_status(model_name):
+        if os.path.exists(dataset_manager.model_spec_path(model_name)):
+            with open(dataset_manager.model_spec_path(model_name), "r") as file:
+                spec = json.load(file)
+                if spec.get("training", False):
+                    return spec["status"]
+        return {"state": "none", "message": "No model being trained"}
+                
+    def _is_model_training():
+        for path in os.listdir(MODEL_DIR):
+            if path.startswith("spec_"):
+                model_id = re.search(r'^spec_(.*)\.json', path).group(1)
+                with open(os.path.join(MODEL_DIR, path), "r") as file:
+                    model_spec = json.load(file)
+                if model_spec.get("training", False):
+                    return True
+        return False
 
     @app.route('/models', methods=["GET"])
     def get_models():
         models = {}
-        for path in os.listdir(MODEL_DIR):
+        for path in os.listdir(dataset_manager.model_dir):
             if path.startswith("spec_"):
                 model_id = re.search(r'^spec_(.*)\.json', path).group(1)
                 with open(os.path.join(MODEL_DIR, path), "r") as file:
@@ -150,19 +141,19 @@ if __name__ == '__main__':
 
     @app.route("/models/<model_name>/spec")
     def get_model_definition(model_name):
-        if not os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
+        if not os.path.exists(dataset_manager.model_spec_path(model_name)):
             return f"Model '{model_name}' does not exist", 400
         
-        return send_file(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), mimetype="application/json")
+        return send_file(dataset_manager.model_spec_path(model_name), mimetype="application/json")
 
     @app.route("/models/<model_name>/metrics")
     def get_model_metrics(model_name):
-        if not os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
+        if not os.path.exists(dataset_manager.model_spec_path(model_name)):
             return f"Model '{model_name}' does not exist", 400
         
         if not os.path.exists(os.path.join(MODEL_DIR, f"metrics_{model_name}.json")):
             return f"No metrics available", 400
-        with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "r") as file:
+        with open(dataset_manager.model_spec_path(model_name), "r") as file:
             model_spec = json.load(file)
             if model_spec.get("training", False):
                 return f"No metrics available", 400
@@ -179,13 +170,13 @@ if __name__ == '__main__':
         meta = body["meta"]
         
         if _is_model_training():
-            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+            with open(dataset_manager.model_spec_path(model_name), "w") as file:
                 json.dump({**meta, "training": True, "status": { 
                     "state": "waiting", 
                     "message": "Waiting for other training jobs to complete"
                 }}, file)
         else:
-            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+            with open(dataset_manager.model_spec_path(model_name), "w") as file:
                 json.dump({**meta, "training": True, "status": { 
                     "state": "loading", 
                     "message": "Starting"
@@ -228,12 +219,12 @@ if __name__ == '__main__':
             model_worker.join()
             print("Restarting model worker")
             queue = mp.Queue()
-            model_worker = mp.Process(target=_background_model_generation, args=(queue,))
+            model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue,))
             model_worker.start()
         elif state in ("waiting", "error"):
-            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "r") as file:
+            with open(dataset_manager.model_spec_path(model_name), "r") as file:
                 meta = json.load(file)
-            with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "w") as file:
+            with open(dataset_manager.model_spec_path(model_name), "w") as file:
                 json.dump({k: v for k, v in meta.items() if k not in ("training", "status")}, file)
         
     @app.route("/slices/<model_name>/start", methods=["POST"])
@@ -246,10 +237,10 @@ if __name__ == '__main__':
         else:
             slice_progress = {}
     
-        if not os.path.exists(os.path.join(MODEL_DIR, f"spec_{model_name}.json")):
+        if not os.path.exists(dataset_manager.model_spec_path(model_name)):
             return "Model does not exist", 404
         
-        with open(os.path.join(MODEL_DIR, f"spec_{model_name}.json"), "r") as file:
+        with open(dataset_manager.model_spec_path(model_name), "r") as file:
             spec = json.load(file)
 
         if spec.get("training", False):
@@ -270,7 +261,7 @@ if __name__ == '__main__':
         # Start searching
         queue.put(("find_slices", model_name, controls))
         search_status = {"state": "loading", "message": "Starting", "model_name": model_name}
-        finder = SliceDiscoveryHelper(MODEL_DIR, SLICES_DIR)
+        finder = dataset_manager.make_slice_discovery_helper()
         finder.write_status(True, search_status=search_status)
         return jsonify(finder.get_status())
     
@@ -281,12 +272,12 @@ if __name__ == '__main__':
         model_worker.join()
         print("Restarting model worker")
         queue = mp.Queue()
-        model_worker = mp.Process(target=_background_model_generation, args=(queue,))
+        model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue))
         model_worker.start()
       
     @app.route("/slices/status")
     def get_slice_status():
-        slice_finder = SliceDiscoveryHelper(MODEL_DIR, SLICES_DIR)
+        slice_finder = dataset_manager.make_slice_discovery_helper()
         status = slice_finder.get_status()
         return jsonify(status)
 
@@ -355,9 +346,7 @@ if __name__ == '__main__':
         return jsonify(response)
         
     def _score_slice(model_names, timestep_def, slice_spec_name, slice_requests, return_instance_info=False):
-        result = evaluator.get_results(timestep_def, {"slice_spec_name": slice_spec_name}, model_names)
-        if result is None:
-            return {}
+        result = evaluator.get_results(timestep_def, {"slice_spec_name": slice_spec_name}, model_names, always_return=True)
         
         rank_list, metrics, ids, df = result
         slices_to_score = {k: rank_list.encode_slice(v) for k, v in slice_requests.items()}
@@ -428,7 +417,7 @@ if __name__ == '__main__':
                     results[slice_key] = ts_results[slice_key]
                 else:
                     # Merge the slice definitions
-                    results[slice_key]["score_values"].update(ts_results[slice_key]["score_values"])
+                    results[slice_key]["scoreValues"].update(ts_results[slice_key]["scoreValues"])
                     results[slice_key]["metrics"].update(ts_results[slice_key]["metrics"])
                 # if "selectedModel" in body and body["selectedModel"] in model_names:
                 #     slice_mask = instance_infos[slice_key][0].astype(bool)
@@ -516,7 +505,7 @@ if __name__ == '__main__':
         
     @app.route("/slices/specs", methods=["GET"])
     def get_slice_specs():
-        slice_spec_dir = os.path.join(SLICES_DIR, "specifications")
+        slice_spec_dir = os.path.join(dataset_manager.slices_dir, "specifications")
         results = {}
         for path in os.listdir(slice_spec_dir):
             if not path.endswith(".json"): continue
@@ -527,7 +516,7 @@ if __name__ == '__main__':
     
     @app.route("/slices/specs/<spec_name>", methods=["POST"])
     def edit_slice_spec(spec_name):
-        slice_spec_dir = os.path.join(SLICES_DIR, "specifications")
+        slice_spec_dir = os.path.join(dataset_manager.slices_dir, "specifications")
         body = request.json
         if "variables" not in body or "slice_filter" not in body:
             return "Slice spec must contain 'variables' and 'slice_filter' keys", 400

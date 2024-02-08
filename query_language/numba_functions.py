@@ -39,6 +39,9 @@ def convert_numba_result_dtype(x, agg_func):
     """Converts the output of a numba join events/intervals call to the right dtype."""
     if agg_func == "exists":
         return (np.array(x) > 0)
+    elif agg_func == "count":
+        x = np.array(x)
+        return np.where(~np.isnan(x), x, 0).astype(np.int64)
     return np.array(x)
 
 @njit

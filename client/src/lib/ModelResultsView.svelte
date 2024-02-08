@@ -15,6 +15,7 @@
   import TableCellBar from './slices/metric_charts/TableCellBar.svelte';
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
   import ModelDataSummaryElement from './ModelDataSummaryElement.svelte';
+  import { MetricColors } from './colors';
 
   const dispatch = createEventDispatcher();
 
@@ -146,7 +147,12 @@
                 <div class="font-bold text-slate-600 text-sm mb-2">
                   {metricName}
                 </div>
-                <SliceMetricBar width={96} {value}>
+                <SliceMetricBar
+                  width={96}
+                  {value}
+                  color={MetricColors.Accuracy}
+                  showFullBar
+                >
                   <span slot="caption" class="font-mono text-base">
                     {percentageFormat(value)}
                   </span>

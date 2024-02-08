@@ -37,11 +37,14 @@
   let metricScales: { [key: string]: (v: number) => number } = {};
 
   let metricOptions: string[] = [];
-  $: if (Object.values(models).length > 0)
-    metricOptions = Object.keys(
-      Object.values(models)[0].metrics!.performance
-    ).sort();
-  else metricOptions = [];
+  $: if (Object.values(models).length > 0) {
+    let modelsWithMetrics = Object.values(models).filter((m) => !!m.metrics);
+    if (modelsWithMetrics.length > 0)
+      metricOptions = Object.keys(
+        modelsWithMetrics[0].metrics!.performance
+      ).sort();
+    else metricOptions = [];
+  } else metricOptions = [];
 
   $: {
     let maxInstances = Object.values(models)

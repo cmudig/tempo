@@ -14,6 +14,8 @@ export interface SliceMetric {
 export type SliceMetricInfo = {
   visible: boolean;
   scale?: (v: number) => number;
+  color?: string;
+  colorScale?: (v: number) => string;
   order?: any[];
 };
 

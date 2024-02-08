@@ -341,7 +341,7 @@ class Events(TimeSeriesQueryable):
                                     uniques[np.where(np.isnan(grouped_values), -1, grouped_values).astype(int)])
         
         assert len(grouped_values) == len(index)
-        return TimeSeries(index, pd.Series(grouped_values, name=self.name).replace(np.nan, pd.NA))
+        return TimeSeries(index, pd.Series(grouped_values, name=self.name).convert_dtypes())
         
     def compress(self):
         """Returns a new TimeSeries with values compressed to the minimum size
@@ -438,7 +438,9 @@ class EventSet(TimeSeriesQueryable):
     def has(self, eventtype): return (self.df[self.type_field] == eventtype).sum() > 0
     
     def get(self, eventtype, name=None):
-        new_df = self.df[(self.df[self.type_field] == eventtype) if isinstance(eventtype, str) else (self.df[self.type_field].isin(eventtype))]
+        new_df = self.df[(self.df[self.type_field] == eventtype) if isinstance(eventtype, str) else (self.df[self.type_field].isin(eventtype))].copy()
+        try: new_df = new_df.assign(**{self.value_field: new_df[self.value_field].astype(np.float64)})
+        except: pass
         return Events(new_df,
                       type_field=self.type_field, 
                       time_field=self.time_field,
@@ -831,6 +833,14 @@ class TimeIndex(TimeSeriesQueryable):
         return TimeIndex(self.timesteps[mask], id_field=self.id_field, time_field=self.time_field)
         
     @staticmethod
+    def from_constant(ids, constant_time):
+        """Constructs a time index with the same time for each ID."""
+        return TimeIndex(pd.DataFrame({
+            "id": ids,
+            "time": [constant_time for _ in ids]
+        }))
+        
+    @staticmethod
     def from_events(events, starts=None, ends=None):
         """Creates a time index from the timesteps and IDs represented in the given
         Events object"""
@@ -840,7 +850,7 @@ class TimeIndex(TimeSeriesQueryable):
             mask &= event_times[events.time_field] >= make_aligned_value_series(events, starts)
         if ends is not None:
             mask &= event_times[events.time_field] < make_aligned_value_series(events, ends)
-        return TimeIndex(event_times[mask].drop_duplicates([events.id_field, events.time_field]), 
+        return TimeIndex(event_times[mask].drop_duplicates([events.id_field, events.time_field]).reset_index(drop=True), 
                          id_field=events.id_field, 
                          time_field=events.time_field)
         

@@ -1,10 +1,5 @@
 <script lang="ts">
-  import {
-    AllCategories,
-    VariableCategory,
-    type ModelMetrics,
-    type VariableDefinition,
-  } from './model';
+  import { type ModelMetrics, type VariableDefinition } from './model';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import * as d3 from 'd3';
   import ModelTrainingView from './ModelTrainingView.svelte';

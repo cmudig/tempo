@@ -28,6 +28,7 @@
   import SliceFeatureEditor from './SliceFeatureEditor.svelte';
   import { featureToString, parseFeature } from '../utils/slice_parsing';
   import Checkbox from '../utils/Checkbox.svelte';
+  import { interpolateViridis } from 'd3';
 
   const dispatch = createEventDispatcher();
 
@@ -379,6 +380,8 @@
               <SliceMetricBar
                 value={metric.mean}
                 scale={mInfo.scale ?? ((v) => v)}
+                color={mInfo.color ?? null}
+                colorScale={mInfo.colorScale ?? interpolateViridis}
                 width={scoreCellWidth}
               >
                 <span slot="caption">
@@ -392,7 +395,12 @@
                 </span>
               </SliceMetricBar>
             {:else if metric.type == 'count'}
-              <SliceMetricBar value={metric.share} width={scoreCellWidth}>
+              <SliceMetricBar
+                value={metric.share}
+                width={scoreCellWidth}
+                color={mInfo.color ?? null}
+                colorScale={mInfo.colorScale ?? interpolateViridis}
+              >
                 <span slot="caption">
                   <strong>{format(',')(metric.count)}</strong><br /><span
                     style="font-size: 0.7rem;"

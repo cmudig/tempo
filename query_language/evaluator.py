@@ -1,6 +1,7 @@
 import lark
 import re
 import csv
+import datetime
 from query_language.data_types import *
 import json
 import os
@@ -17,6 +18,15 @@ class EvaluateExpression(lark.visitors.Transformer):
         self.eventtype_macros = eventtype_macros if eventtype_macros is not None else {}
         self.value_placeholder = None
         self.variables = {}
+        
+    def get_all_ids(self):
+        if len(self.attributes.get_ids()):
+            ids = self.attributes.get_ids()
+        elif len(self.events.get_ids()):
+            ids = self.events.get_ids().unique()
+        elif len(self.intervals.get_ids()):
+            ids = self.intervals.get_ids().unique()
+        return ids        
         
     def _get_data_element(self, query):
         comps = query.split(":")
@@ -114,6 +124,20 @@ class EvaluateExpression(lark.visitors.Transformer):
             raise ValueError(f"'value' keyword can only be used within a where clause to refer to the data being filtered.")
         return self.value_placeholder
     def atom(self, args): return args[0]
+    
+    def min_time(self, args):
+        min_t = min(self.events.get_times().min(), self.intervals.get_start_times().min())
+        ids = self.get_all_ids()
+        return Attributes(pd.Series(np.ones(len(ids)) * min_t, index=ids, name='mintime'))
+    def max_time(self, args): 
+        max_t = max(self.events.get_times().max(), self.intervals.get_end_times().max())
+        # Offset the time by 1 so that it includes all events and intervals
+        if isinstance(max_t, (datetime.datetime, np.datetime64)):
+            max_t += datetime.timedelta(seconds=1)
+        else:
+            max_t += 1
+        ids = self.get_all_ids()
+        return Attributes(pd.Series(np.ones(len(ids)) * max_t, index=ids, name='maxtime'))
 
     def isin(self, args):
         return args[0].isin(args[1])
@@ -244,12 +268,16 @@ class EvaluateExpression(lark.visitors.Transformer):
         elif function_name in ("max", "min"):
             if len(operands) != 2: raise ValueError(f"{function_name} function requires exactly two operands")
             numpy_func = np.maximum if function_name == "max" else np.minimum
+            if isinstance(operands[0], TimeIndex):
+                return operands[0].with_times(numpy_func(operands[0].get_times(), make_aligned_value_series(operands[0], operands[1])))
+            elif isinstance(operands[1], TimeIndex):
+                return operands[1].with_times(numpy_func(operands[1].get_times(), make_aligned_value_series(operands[1], operands[0])))
             if isinstance(operands[0], (Attributes, Events, Intervals, TimeSeries)):
                 return operands[0].with_values(numpy_func(operands[0].get_values(), make_aligned_value_series(operands[0], operands[1])))
             elif isinstance(operands[1], (Attributes, Events, Intervals, TimeSeries)):
                 return operands[1].with_values(numpy_func(operands[1].get_values(), make_aligned_value_series(operands[1], operands[0])))
             else:
-                raise ValueError(f"{function_name} function requires at least one parameter to be Attributes, Events, Intervals, or TimeSeries")
+                raise ValueError(f"{function_name} function requires at least one parameter to be Attributes, Events, Intervals, TimeIndex, or TimeSeries")
         else:
             raise ValueError(f"Unknown function '{function_name}'")
 
@@ -277,6 +305,9 @@ class EvaluateQuery(lark.visitors.Interpreter):
         self.load_cache()
         self.evaluator = EvaluateExpression(self.attributes, self.events, self.intervals, self.eventtype_macros)
         
+    def get_all_ids(self):
+        return self.evaluator.get_all_ids()
+    
     def load_cache(self):
         if not self.cache_dir: return
         if not os.path.exists(self.cache_dir): os.mkdir(self.cache_dir)
@@ -562,6 +593,8 @@ atom: VAR_NAME "(" expr ("," expr)* ")"                 -> function_call
     | LITERAL                               -> literal
     | "#NOW"i                                -> now 
     | "#VALUE"i                              -> where_value
+    | "#MINTIME"i                              -> min_time
+    | "#MAXTIME"i                              -> max_time
     | "CASE"i (case_when)+ "ELSE"i expr "END"i -> case_expr     // if/else
     | "(" expr ")"
     | VAR_NAME                               -> var_name
@@ -584,14 +617,25 @@ QUOTED_STRING: /["'`][^"'`]*["'`]/
 
 class TrajectoryDataset:
     def __init__(self, attributes, events, intervals, eventtype_macros=None, cache_dir=None):
-        self.attributes = attributes
-        self.events = events
-        self.intervals = intervals
+        self.attributes = attributes if attributes is not None else AttributeSet(pd.DataFrame([]))
+        self.events = events if events is not None else EventSet(pd.DataFrame({
+            "id": [],
+            "eventtype": [],
+            "time": [],
+            "value": [],
+        }))
+        self.intervals = intervals if intervals is not None else IntervalSet(pd.DataFrame({
+            "id": [],
+            "starttime": [],
+            "endtime": [],
+            "intervaltype": [],
+            "value": []
+        }))
         self.parser = lark.Lark(GRAMMAR, parser="earley")
-        self.query_evaluator = EvaluateQuery(attributes, events, intervals, eventtype_macros=eventtype_macros, cache_dir=cache_dir)
+        self.query_evaluator = EvaluateQuery(self.attributes, self.events, self.intervals, eventtype_macros=eventtype_macros, cache_dir=cache_dir, verbose=True)
         
     def get_ids(self):
-        return self.attributes.get_ids()
+        return self.query_evaluator.get_all_ids()
     
     def query(self, query_string, use_cache=True):
         tree = self.parser.parse(query_string)
@@ -632,6 +676,6 @@ if __name__ == '__main__':
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
     # print(dataset.query("min {'e1', e2} from now - 30 seconds to now at every {e1} from {start} to {end}"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))
-    print(dataset.query("(my_age: (last {e1} from #now - 10 sec to #now) impute 'Missing') every 3 sec from {start} to {end}"))
+    print(dataset.query("(my_age: (last {e1} from #now - 10 sec to #now) impute 'Missing') every 3 sec from #mintime to #maxtime"))
     # print(dataset.query("mean {e1} * 3 from now - 30 s to now"))
     # print(dataset.query("max(mean {e2} from now - 30 seconds to now, mean {e1} from now - 30 seconds to now) at every {e2} from {start} to {end}"))

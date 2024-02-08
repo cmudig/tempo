@@ -8,6 +8,7 @@
   import { faWarning } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import { createEventDispatcher } from 'svelte';
+  import { MetricColors } from './colors';
 
   const dispatch = createEventDispatcher();
 
@@ -103,6 +104,7 @@
       <SliceMetricBar
         value={metricValues['Timesteps'] ?? 0}
         scale={metricScales['Timesteps'] ?? ((v) => v)}
+        color={MetricColors.Timesteps}
         width={SidebarTableWidths.Metric - 20}
       >
         <span slot="caption">
@@ -114,6 +116,7 @@
       <SliceMetricBar
         value={metricValues['Trajectories'] ?? 0}
         scale={metricScales['Trajectories'] ?? ((v) => v)}
+        color={MetricColors.Trajectories}
         width={SidebarTableWidths.Metric - 20}
       >
         <span slot="caption">
@@ -125,6 +128,7 @@
       <SliceMetricBar
         value={metricValues[metricToShow] ?? 0}
         scale={metricScales[metricToShow] ?? ((v) => v)}
+        color={MetricColors.Accuracy}
         width={SidebarTableWidths.Metric - 20}
       >
         <span slot="caption">
@@ -136,6 +140,7 @@
       <SliceMetricBar
         value={metricValues['Positive Rate'] ?? 0}
         scale={metricScales['Positive Rate'] ?? ((v) => v)}
+        color={MetricColors['Positive Rate']}
         width={SidebarTableWidths.Metric - 20}
       >
         <span slot="caption">

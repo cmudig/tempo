@@ -7,11 +7,9 @@ import torch
 import pickle
 import datetime
 from query_language.data_types import *
-from model_training import make_query, MODEL_DIR, load_raw_data
+from model_training import make_query
 from sklearn.metrics import roc_curve, roc_auc_score, confusion_matrix
 import slice_finding as sf
-
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 def make_slicing_variables(dataset, variable_definitions, timestep_definition):
     """Creates the slicing variables dataframe."""
@@ -44,7 +42,7 @@ def get_slicing_split(slices_dir, dataset, timestep_definition):
             pickle.dump(splits, file)
     
     return splits[timestep_definition]
-    
+
 def parse_controls(discrete_df, controls, source_mask=None):
     new_score_fns = {}
     initial_slice = None
@@ -147,7 +145,8 @@ def find_slices(discrete_df, score_fns, controls=None, progress_fn=None, n_sampl
     return results.results
 
 class SliceHelper:
-    def __init__(self, model_dir, results_dir):
+    def __init__(self, manager, model_dir, results_dir):
+        self.manager = manager
         self.model_dir = model_dir
         self.results_dir = results_dir     
         self.discrete_dfs = {}
@@ -164,15 +163,18 @@ class SliceHelper:
         
     def get_slicing_data(self, slice_spec_name, timestep_def, evaluation=False):
         if (slice_spec_name, timestep_def, evaluation) not in self.discrete_dfs:
-            dataset, _ = load_raw_data(cache_dir=os.path.join(DATA_DIR, "slicing_variables"), val_only=True)
+            dataset, _ = self.manager.load_data(cache_dir=os.path.join(self.results_dir, "slicing_variables"), val_only=True)
             
             with open(os.path.join(self.results_dir, "specifications", slice_spec_name + ".json"), "r") as file:
                 slicing_metadata = json.load(file)
                 discrete_df, ids = make_slicing_variables(dataset, slicing_metadata["variables"], timestep_def) 
-                row_mask = get_slicing_split(self.results_dir, discrete_df, timestep_def)[1 if evaluation else 0]
+                row_mask = get_slicing_split(self.results_dir, dataset, timestep_def)[1 if evaluation else 0]
                 valid_df = discrete_df.filter(row_mask)
                 ids = ids.values[row_mask]
-                slice_filter = valid_df.encode_filter(sf.filters.SliceFilterBase.from_dict(slicing_metadata["slice_filter"]))
+                if "slice_filter" in slicing_metadata:
+                    slice_filter = valid_df.encode_filter(sf.filters.SliceFilterBase.from_dict(slicing_metadata["slice_filter"]))
+                else:
+                    slice_filter = sf.filters.SliceFilterBase()
                 self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)] = (valid_df, row_mask, ids, slice_filter)
         return self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)]
         
@@ -182,7 +184,7 @@ class SliceHelper:
         """
         self.discrete_dfs = {k: v for k, v in self.discrete_dfs.items() if k[0] != slice_spec_name}
 
-    def get_score_functions(self, discrete_df, valid_mask, include_model_names=None, exclude_model_names=None, controls=None):
+    def get_score_functions(self, discrete_df, valid_mask, timestep_def, include_model_names=None, exclude_model_names=None, controls=None):
         score_fns = {
             "size": sf.scores.SliceSizeScore(0.2, 0.05),
             "complexity": sf.scores.NumFeaturesScore()
@@ -191,6 +193,8 @@ class SliceHelper:
         for path in os.listdir(self.model_dir):
             if not path.startswith("preds"): continue
             model_name = re.search(r"^preds_(.*).npy$", path).group(1)
+            if self.get_model_timestep_def(model_name) != timestep_def:
+                continue
             if include_model_names is not None and model_name not in include_model_names: continue
             if exclude_model_names is not None and model_name in exclude_model_names: continue
             
@@ -259,8 +263,8 @@ class SliceHelper:
                 }
                
 class SliceDiscoveryHelper(SliceHelper):
-    def __init__(self, model_dir, results_dir, samples_per_model=50, min_items_fraction=0.01, **slice_finding_kwargs):
-        super().__init__(model_dir, results_dir)
+    def __init__(self, manager, model_dir, results_dir, samples_per_model=50, min_items_fraction=0.01, **slice_finding_kwargs):
+        super().__init__(manager, model_dir, results_dir)
         self.samples_per_model = samples_per_model
         self.min_items_fraction = min_items_fraction
         self.slice_finding_kwargs = slice_finding_kwargs
@@ -321,7 +325,7 @@ class SliceDiscoveryHelper(SliceHelper):
             valid_df, discovery_mask, _, _ = self.get_slicing_data(self.result_key_to_controls(control_set)["slice_spec_name"], 
                                                                    timestep_def)
             
-            other_score_fns, scored_model_names = self.get_score_functions(valid_df, discovery_mask, include_model_names=[model_name])
+            other_score_fns, scored_model_names = self.get_score_functions(valid_df, discovery_mask, timestep_def, include_model_names=[model_name])
             results = list(control_results.keys())
             min_items = self.min_items_fraction * len(valid_df.df)
             print(len(results), "results to rescore")
@@ -367,10 +371,10 @@ class SliceDiscoveryHelper(SliceHelper):
                  
             self.write_status(True, search_status={"state": "loading", "message": f"Finding slices for {model_name}", "model_name": model_name})
             
-            outcomes, _ = np.load(os.path.join(MODEL_DIR, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
+            outcomes, _ = np.load(os.path.join(self.model_dir, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
             # don't add control-related score functions here as they will be added
             # in find_slices
-            discovery_score_fns, _ = self.get_score_functions(valid_df, discovery_mask, include_model_names=[model_name])
+            discovery_score_fns, _ = self.get_score_functions(valid_df, discovery_mask, timestep_def, include_model_names=[model_name])
             
             result_key = self.controls_to_result_key(controls)
             print('result key:', result_key)
@@ -414,7 +418,7 @@ class SliceDiscoveryHelper(SliceHelper):
                                     **self.slice_finding_kwargs)
 
             # Add scores for all the other models
-            other_score_fns, scored_model_names = self.get_score_functions(valid_df, discovery_mask)
+            other_score_fns, scored_model_names = self.get_score_functions(valid_df, discovery_mask, timestep_def)
             new_results = [r for r in results if r not in command_results]
             rescored_results = sf.slices.score_slices_batch(new_results, 
                                                             valid_df.df, 
@@ -439,8 +443,8 @@ class SliceDiscoveryHelper(SliceHelper):
             self.write_status(False, error_model=model_name, error_message=str(e))
             
 class SliceEvaluationHelper(SliceHelper):
-    def __init__(self, model_dir, results_dir, **slice_finding_kwargs):
-        super().__init__(model_dir, results_dir)
+    def __init__(self, manager, model_dir, results_dir, **slice_finding_kwargs):
+        super().__init__(manager, model_dir, results_dir)
         self.slice_finding_kwargs = slice_finding_kwargs
         self.slice_finding_status = None
         self.slice_scores = {}
@@ -593,7 +597,7 @@ class SliceEvaluationHelper(SliceHelper):
         for model_name in model_names:
             if model_name not in self.metrics:
                 model_metrics = {}
-                outcomes, preds = np.load(os.path.join(MODEL_DIR, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
+                outcomes, preds = np.load(os.path.join(self.model_dir, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
             
                 valid_outcomes = outcomes[eval_mask].astype(np.float64)
                 valid_preds = preds[eval_mask]
@@ -606,7 +610,7 @@ class SliceEvaluationHelper(SliceHelper):
             
         return metrics
     
-    def get_results(self, timestep_def, controls, model_names):
+    def get_results(self, timestep_def, controls, model_names, always_return=False):
         current_status = self.get_status()
         if current_status != self.slice_finding_status:
             print("Refreshing stored slice scores")
@@ -615,18 +619,21 @@ class SliceEvaluationHelper(SliceHelper):
             # reload slice results
             self.load_timestep_slice_results(timestep_def)
         
-        if timestep_def not in self.slice_scores or not len(self.slice_scores[timestep_def]):
+        if (timestep_def not in self.slice_scores or not len(self.slice_scores[timestep_def])) and not always_return:
             return None
         
         result_key = self.controls_to_result_key(controls)
         print("result key for rescoring:", result_key)
-        if result_key not in self.slice_scores[timestep_def]:
-            return None
-        scored_slices = list(self.slice_scores[timestep_def][result_key].keys())
+        if result_key not in self.slice_scores.get(timestep_def, {}):
+            if always_return: scored_slices = []
+            else:
+                return None
+        else:
+            scored_slices = list(self.slice_scores[timestep_def][result_key].keys())
         
         valid_df, eval_mask, ids, _ = self.get_slicing_data(controls["slice_spec_name"], timestep_def, True)
             
-        score_fns, _ = self.get_score_functions(valid_df, eval_mask, controls=controls)
+        score_fns, _ = self.get_score_functions(valid_df, eval_mask, timestep_def, controls=controls)
         
         metrics = self.get_eval_metrics(model_names, eval_mask)
         

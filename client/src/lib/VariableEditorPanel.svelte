@@ -2,19 +2,21 @@
   import { faPlus } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import VariableEditor from './VariableEditor.svelte';
-  import {
-    AllCategories,
-    VariableCategory,
-    type VariableDefinition,
-  } from './model';
+  import { type VariableDefinition } from './model';
 
   export let timestepDefinition: string;
   export let inputVariables: { [key: string]: VariableDefinition } = {};
 
   export let fillHeight: boolean = true;
 
-  let visibleInputVariableCategory: VariableCategory =
-    VariableCategory.Demographics;
+  let allCategories: string[] = [];
+  $: allCategories = Array.from(
+    new Set(Object.values(inputVariables).map((v) => v.category))
+  ).sort();
+
+  let visibleInputVariableCategory: string | null = null;
+  $: if (allCategories.length > 0 && visibleInputVariableCategory == null)
+    visibleInputVariableCategory = allCategories[0];
 
   let currentEditingVariableName: string | null = null;
 
@@ -28,7 +30,7 @@
     inputVariables = {
       ...inputVariables,
       [varName]: {
-        category: visibleInputVariableCategory,
+        category: visibleInputVariableCategory!,
         query: '',
         enabled: true,
       },
@@ -65,7 +67,7 @@
     class="w-1/5 pt-2 px-3 max-h-full overflow-y-scroll"
     style="min-width: 200px; max-width: 400px;"
   >
-    {#each AllCategories as cat}
+    {#each allCategories as cat}
       <button
         class="w-full my-1 py-1 text-sm px-4 rounded {visibleInputVariableCategory ==
         cat
