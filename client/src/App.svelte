@@ -9,6 +9,7 @@
   import { faHeart } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import SavedSlicesView from './lib/SavedSlicesView.svelte';
+  import ResizablePanel from './lib/utils/ResizablePanel.svelte';
 
   let models: { [key: string]: ModelSummary } = {};
 
@@ -63,10 +64,7 @@
     {#if showingSaved}
       <SavedSlicesView bind:savedSlices bind:metricToShow />
     {:else}
-      <div
-        class="border-r border-slate-400 h-full shrink-0 grow-0 overflow-auto"
-        style="width: 540px; max-width: 40%;"
-      >
+      <ResizablePanel rightResizable width={540} maxWidth="40%" height="100%">
         <Sidebar
           {models}
           bind:metricToShow
@@ -75,7 +73,7 @@
           bind:selectedSlice
           {sliceSpec}
         />
-      </div>
+      </ResizablePanel>
       <div class="flex-auto h-full flex flex-col w-0">
         <div
           class="w-full px-4 py-2 flex gap-3 bg-slate-300 border-b border-slate-400"

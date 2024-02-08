@@ -167,7 +167,7 @@
           {/if}
         </div>
         {#if offset != 0}
-          <div class="w-1/3 overflow-auto pt-2 p-1">
+          <div class="w-1/3 overflow-auto pt-2 p-1 bg-slate-100 rounded">
             {#if !!sliceChanges}
               <SliceDetailsColumn
                 changeDescription={sliceChanges}

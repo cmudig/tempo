@@ -15,6 +15,9 @@
   let numFeaturesShown: number = 5;
 </script>
 
+{#if !!changeDescription}
+  <div class="px-2 text-xs font-bold text-slate-500 mb-2">Top Changes</div>
+{/if}
 {#if !!sliceDescription}
   {#if selectedFeature != null}
     <SliceFeatureDetails

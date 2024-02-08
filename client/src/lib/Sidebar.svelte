@@ -182,88 +182,106 @@
   }
 </script>
 
-<div class="my-2 px-4 flex justify-between">
-  <div class="text-lg font-bold">Models</div>
-  <select class="flat-select" bind:value={metricToShow}>
-    {#each metricOptions as metricName}
-      <option value={metricName}>{metricName}</option>
-    {/each}
-  </select>
-</div>
-{#if !!selectedSlice}
-  <div class="rounded bg-slate-100 p-3 mx-4">
-    <div class="ml-2 flex text-xs font-bold text-slate-600">
-      <div class="flex-auto">Within slice:</div>
-      <button class="hover:opacity-50" on:click={() => (selectedSlice = null)}
-        ><Fa icon={faXmark} /></button
-      >
-    </div>
-    <div class="overflow-x-scroll whitespace-nowrap">
-      <SliceFeature
-        feature={selectedSlice}
-        currentFeature={selectedSlice}
-        canToggle={false}
-      />
-    </div>
+<div class="flex flex-col w-full h-full">
+  <div class="my-2 px-4 flex justify-between grow-0 shrink-0">
+    <div class="text-lg font-bold">Models</div>
+    <select class="flat-select" bind:value={metricToShow}>
+      {#each metricOptions as metricName}
+        <option value={metricName}>{metricName}</option>
+      {/each}
+    </select>
   </div>
-{/if}
-<div>
-  <div class="flex items-start gap-2 px-4 pt-4 pb-2 text-xs text-slate-500">
-    <div
-      class="grow-0 shrink-0"
-      style="width: {SidebarTableWidths.Checkbox}px;"
-    ></div>
-    <button
-      class="rounded p-1 text-left grow-0 shrink-0 hover:font-bold whitespace-nowrap"
-      on:click={() => setSort('name')}
-      style="width: {SidebarTableWidths.ModelName}px;"
-    >
-      Model {#if sortField == 'name'}
-        <Fa
-          icon={sortDescending ? faSortDown : faSortUp}
-          class="inline text-xs"
+  {#if !!selectedSlice}
+    <div class="rounded bg-slate-100 px-3 pt-3 mx-2 mb-2">
+      <div class="ml-2 flex text-xs font-bold text-slate-600">
+        <div class="flex-auto">Within slice:</div>
+        <button class="hover:opacity-50" on:click={() => (selectedSlice = null)}
+          ><Fa icon={faXmark} /></button
+        >
+      </div>
+      <div class="overflow-x-scroll whitespace-nowrap">
+        <SliceFeature
+          feature={selectedSlice}
+          currentFeature={selectedSlice}
+          canToggle={false}
         />
+      </div>
+    </div>
+  {/if}
+  <div class="px-2 overflow-auto flex-auto min-h-0">
+    <div
+      class="text-sm text-left inline-flex align-top slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600"
+    >
+      {#if !!selectedSlice}
+        <div
+          class="grow-0 shrink-0"
+          style="width: {SidebarTableWidths.Checkbox}px;"
+        ></div>
       {/if}
-    </button>
-    {#each ['Timesteps', 'Trajectories', metricToShow, 'Positive Rate'] as fieldName}
       <button
-        class="rounded text-left grow-0 shrink-0 hover:font-bold whitespace-nowrap"
-        on:click={() => setSort(fieldName)}
-        style="width: {SidebarTableWidths.Metric}px;"
+        class="p-2 text-left grow-0 shrink-0 hover:bg-slate-200 whitespace-nowrap"
+        on:click={() => setSort('name')}
+        class:font-bold={sortField == 'name'}
+        style="width: {SidebarTableWidths.ModelName}px;"
       >
-        {fieldName}
-        {#if sortField == fieldName}
+        Model {#if sortField == 'name'}
           <Fa
             icon={sortDescending ? faSortDown : faSortUp}
             class="inline text-xs"
           />
         {/if}
       </button>
+      {#each ['Timesteps', 'Trajectories', metricToShow, 'Positive Rate'] as fieldName}
+        <button
+          class="p-2 rounded text-left grow-0 shrink-0 hover:bg-slate-200 whitespace-nowrap"
+          class:font-bold={sortField == fieldName}
+          on:click={() => setSort(fieldName)}
+          style="width: {SidebarTableWidths.Metric}px;"
+        >
+          {fieldName}
+          {#if sortField == fieldName}
+            <Fa
+              icon={sortDescending ? faSortDown : faSortUp}
+              class="inline text-xs"
+            />
+          {/if}
+        </button>
+      {/each}
+    </div>
+    {#each modelOrder as modelName (modelName)}
+      {@const model = models[modelName]}
+      <SidebarItem
+        {model}
+        {modelName}
+        {metricToShow}
+        {metricScales}
+        showCheckbox={!!selectedSlice}
+        customMetrics={sliceMetrics?.[modelName] ?? undefined}
+        isActive={activeModel === modelName}
+        isChecked={selectedModels.includes(modelName) ||
+          activeModel === modelName}
+        allowCheck={!activeModel ||
+          hasSameTimestepDefinition(modelName, activeModel)}
+        on:click={() => (activeModel = modelName)}
+        on:toggle={(e) => {
+          let idx = selectedModels.indexOf(modelName);
+          if (idx >= 0)
+            selectedModels = [
+              ...selectedModels.slice(0, idx),
+              ...selectedModels.slice(idx + 1),
+            ];
+          else selectedModels = [...selectedModels, modelName];
+        }}
+      />
     {/each}
   </div>
-  {#each modelOrder as modelName (modelName)}
-    {@const model = models[modelName]}
-    <SidebarItem
-      {model}
-      {modelName}
-      {metricToShow}
-      {metricScales}
-      customMetrics={sliceMetrics?.[modelName] ?? undefined}
-      isActive={activeModel === modelName}
-      isChecked={selectedModels.includes(modelName) ||
-        activeModel === modelName}
-      allowCheck={!activeModel ||
-        hasSameTimestepDefinition(modelName, activeModel)}
-      on:click={() => (activeModel = modelName)}
-      on:toggle={(e) => {
-        let idx = selectedModels.indexOf(modelName);
-        if (idx >= 0)
-          selectedModels = [
-            ...selectedModels.slice(0, idx),
-            ...selectedModels.slice(idx + 1),
-          ];
-        else selectedModels = [...selectedModels, modelName];
-      }}
-    />
-  {/each}
 </div>
+
+<style>
+  .slice-header {
+    min-width: 100%;
+  }
+  .slice-header > * {
+    flex: 0 0 auto;
+  }
+</style>

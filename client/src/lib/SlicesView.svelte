@@ -17,6 +17,7 @@
   } from './slices/utils/slice.type';
   import { areObjectsEqual } from './slices/utils/utils';
   import SliceDetailsView from './slice_details/SliceDetailsView.svelte';
+  import ResizablePanel from './utils/ResizablePanel.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -253,13 +254,15 @@
   }
 </script>
 
-<div class="p-4 w-full flex flex-col h-full">
+<div class="w-full pt-4 flex flex-col h-full">
   {#if !!sliceSearchError}
-    <div class="rounded p-3 mb-2 text-red-500 bg-red-50">
-      Slice search error: <span class="font-mono">{sliceSearchError}</span>
+    <div class="px-4">
+      <div class="rounded p-3 mb-2 text-red-500 bg-red-50">
+        Slice search error: <span class="font-mono">{sliceSearchError}</span>
+      </div>
     </div>
   {/if}
-  <div class="flex-auto h-0 overflow-auto" style="width: 100% !important;">
+  <div class="px-4 flex-auto h-0 overflow-auto" style="width: 100% !important;">
     <SliceSearchView
       modelNames={modelsToShow}
       metricsToShow={[
@@ -296,10 +299,22 @@
       on:saveslice={(e) => saveSlice(e.detail)}
     />
   </div>
-  <div
+  <!-- <div
     class={selectedSlice != null ? 'mt-4 rounded bg-slate-100' : ''}
     style={selectedSlice != null ? 'min-height: 300px; height: 30vh;' : ''}
   >
     <SliceDetailsView slice={selectedSlice} modelNames={modelsToShow} />
-  </div>
+  </div> -->
+  {#if !!selectedSlice}
+    <ResizablePanel
+      class="bg-slate-50"
+      topResizable
+      height={300}
+      minHeight={200}
+      maxHeight="80%"
+      width="100%"
+    >
+      <SliceDetailsView slice={selectedSlice} modelNames={modelsToShow} />
+    </ResizablePanel>
+  {/if}
 </div>

@@ -19,6 +19,7 @@
   export let metricToShow: string;
   export let customMetrics: { [key: string]: SliceMetric } | undefined =
     undefined;
+  export let showCheckbox: boolean = true;
   export let allowCheck: boolean = true;
 
   export let metricScales: { [key: string]: (v: number) => number } = {};
@@ -48,16 +49,31 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
   on:click
-  class="inline-flex items-center gap-2 px-4 py-4 cursor-pointer {isActive
+  class="inline-flex slice-row items-center py-4 cursor-pointer {isActive
     ? 'bg-blue-100'
     : 'hover:bg-slate-100'} "
 >
-  <div class="grow-0 shrink-0" style="width: {SidebarTableWidths.Checkbox}px;">
+  {#if showCheckbox}
+    <div
+      class="grow-0 shrink-0"
+      style="width: {SidebarTableWidths.Checkbox}px;"
+    >
+      <Checkbox
+        disabled={isActive || !allowCheck}
+        checked={isChecked}
+        on:change={(e) => dispatch('toggle')}
+      />
+    </div>
+  {/if}
+  <div
+    class="font-mono p-2 grow-0 shrink-0 text-sm"
+    style="width: {SidebarTableWidths.ModelName}px;"
+  >
     {#if model.training && !!model.status && model.status.state != 'error'}
-      <div
+      <span
         role="status"
         title={model.status.message}
-        class="w-full h-full flex items-center justify-center"
+        class="inline-block flex items-center justify-center"
       >
         <svg
           aria-hidden="true"
@@ -81,26 +97,18 @@
             fill="none"
           />
         </svg>
-      </div>
-    {:else}
-      <Checkbox
-        disabled={isActive || !allowCheck}
-        checked={isChecked}
-        on:change={(e) => dispatch('toggle')}
-      />
+      </span>
     {/if}
-  </div>
-  <div
-    class="font-mono grow-0 shrink-0 text-sm"
-    style="width: {SidebarTableWidths.ModelName}px;"
-  >
     {#if !!model && !!model.metrics && (!!model.metrics.trivial_solution_warning || (!!model.metrics.class_not_predicted_warnings && model.metrics.class_not_predicted_warnings.length > 0))}
       <Fa class="text-orange-300 inline" icon={faWarning} />
     {/if}
     {modelName}
   </div>
   {#if !!metricValues}
-    <div class="grow-0 shrink-0" style="width: {SidebarTableWidths.Metric}px;">
+    <div
+      class="p-2 grow-0 shrink-0"
+      style="width: {SidebarTableWidths.Metric}px;"
+    >
       <SliceMetricBar
         value={metricValues['Timesteps'] ?? 0}
         scale={metricScales['Timesteps'] ?? ((v) => v)}
@@ -112,7 +120,10 @@
         </span>
       </SliceMetricBar>
     </div>
-    <div class="grow-0 shrink-0" style="width: {SidebarTableWidths.Metric}px;">
+    <div
+      class="p-2 grow-0 shrink-0"
+      style="width: {SidebarTableWidths.Metric}px;"
+    >
       <SliceMetricBar
         value={metricValues['Trajectories'] ?? 0}
         scale={metricScales['Trajectories'] ?? ((v) => v)}
@@ -124,7 +135,10 @@
         </span>
       </SliceMetricBar>
     </div>
-    <div class="grow-0 shrink-0" style="width: {SidebarTableWidths.Metric}px;">
+    <div
+      class="p-2 grow-0 shrink-0"
+      style="width: {SidebarTableWidths.Metric}px;"
+    >
       <SliceMetricBar
         value={metricValues[metricToShow] ?? 0}
         scale={metricScales[metricToShow] ?? ((v) => v)}
@@ -136,7 +150,10 @@
         </span>
       </SliceMetricBar>
     </div>
-    <div class="grow-0 shrink-0" style="width: {SidebarTableWidths.Metric}px;">
+    <div
+      class="p-2 grow-0 shrink-0"
+      style="width: {SidebarTableWidths.Metric}px;"
+    >
       <SliceMetricBar
         value={metricValues['Positive Rate'] ?? 0}
         scale={metricScales['Positive Rate'] ?? ((v) => v)}
@@ -151,7 +168,7 @@
   {:else}
     {#each ['Timesteps', 'Trajectories', metricToShow, 'Positive Rate'] as label}
       <div
-        class="grow-0 shrink-0 text-slate-500"
+        class="p-2 grow-0 shrink-0 text-slate-500"
         style="width: {SidebarTableWidths.Metric}px;"
       >
         &mdash;
@@ -159,3 +176,12 @@
     {/each}
   {/if}
 </div>
+
+<style>
+  .slice-row {
+    min-width: 100%;
+  }
+  .slice-row > * {
+    flex: 0 0 auto;
+  }
+</style>

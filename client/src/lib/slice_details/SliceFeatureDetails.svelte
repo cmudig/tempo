@@ -25,7 +25,7 @@
 </script>
 
 <div
-  class="mb-2 p-2 rounded hover:bg-slate-200 relative"
+  class="mb-2 p-2 rounded hover:bg-slate-100 relative"
   on:click={() => {
     expanded = !expanded;
     dispatch('toggle', (change ?? variable)?.variable);

@@ -1,5 +1,5 @@
 export const SidebarTableWidths: { [key: string]: number } = {
   Checkbox: 24,
-  ModelName: 180,
-  Metric: 72,
+  ModelName: 220,
+  Metric: 84,
 };
