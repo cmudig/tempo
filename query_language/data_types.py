@@ -1,7 +1,9 @@
 import pandas as pd
 import numpy as np
-from query_language.numba_functions import numba_join_events, numba_join_intervals, numba_carry_forward, AGG_FUNCTIONS, convert_numba_result_dtype
+import random
+from query_language.numba_functions import *
 from numba.typed import List
+from numba import njit
 
 def make_aligned_value_series(value_set, other):
     """value_set must have get_ids() and get_values()"""
@@ -82,6 +84,216 @@ class TimeSeriesQueryable:
         else:
             raise ValueError(f"Unknown serialization type '{metadata['type']}'")
 
+class Compilable:
+    """
+    A wrapper around a data series (Attributes, Events, or Intervals) that saves
+    a compute graph when operations are called on it.
+    """
+    def __init__(self, data_or_fn, name=None, leaves=None):
+        if isinstance(data_or_fn, str):
+            self.fn = data_or_fn
+            self.data = None
+            self.leaves = leaves if leaves is not None else {}
+        elif isinstance(data_or_fn, (float, int, np.number)):
+            self.data = data_or_fn
+            self.name = None
+            self.leaves = {}
+        else:
+            self.data = data_or_fn
+            if name is None: name = 'var_' + ('%015x' % random.randrange(16**15))
+            self.name = name
+            self.leaves = {name: self}
+            
+    def function_string(self):
+        if self.data is not None: return self.name if self.name is not None else self.data
+        else: return self.fn
+        
+    def mono_parent(self, string):
+        return Compilable(string, leaves=self.leaves)
+    
+    def execute(self):
+        fn = self.get_executable_function()
+        inputs = {v: self.leaves[v].data for v in self.leaves}
+        return fn(**inputs)
+    
+    def get_executable_function(self):
+        """
+        Returns a tuple (fn, args), where fn is a function that can be called
+        with the given list of arguments to return the computed value of the
+        expression.
+        """
+        args = [f"{k}=None" for k in self.leaves.keys()]
+        results = {}
+        exec(f"def compiled_fn({', '.join(args)}): return {self.function_string()}", 
+             globals(), results)
+        return results["compiled_fn"]
+        
+    def bin_aggregate(self, index, start_times, end_times, agg_type, agg_func):
+        """
+        Performs an aggregation within given time bins. Since the element being
+        aggregated is not yet computed (within a Compilable instance), each
+        leaf element of the compiled expression must either be a pre-aggregated
+        series with the SAME time index as the current one, or an Events/Intervals
+        instance. All non-preaggregated series must be of the same type and have
+        the same time values.
+        
+        index: TimeIndex to use as the master time index
+        start_times, end_times: TimeIndex objects
+        agg_func: string name or function to use to aggregate values
+        """
+        agg_func = agg_func.lower()
+        ids = start_times.get_ids()
+        assert (ids == end_times.get_ids()).all(), "Start times and end times must have equal sets of IDs"
+        starts = np.array(start_times.get_times(), dtype=np.int64)
+        ends = np.array(end_times.get_times(), dtype=np.int64)
+        assert (starts <= ends).all(), "Start times must be <= end times"
+        
+        preaggregated_input_names = []
+        preaggregated_inputs = []
+        series_input_names = []
+        series_inputs = None
+        result_name = None
+        series_type = None # None, "events" or "intervals"
+        for name, value in self.leaves.items():
+            value = value.data
+            if isinstance(value, TimeSeries):
+                assert value.index == index, "TimeSeries inside aggregation expression does not match current aggregation index"
+                preaggregated_input_names.append(name)
+                preaggregated_inputs.append(value.get_values().values.astype(np.float64).reshape(-1, 1))
+            else:
+                series_input_names.append(name)
+                if isinstance(value, Events):
+                    if series_type != None and series_type != "events":
+                        raise ValueError("Cannot have both un-aggregated Events and Intervals inside an aggregation expression")
+                    series_type = "events"
+                elif isinstance(value, Intervals):
+                    if series_type != None and series_type != "intervals":
+                        raise ValueError("Cannot have both un-aggregated Events and Intervals inside an aggregation expression")
+                    series_type = "intervals"
+                else:
+                    raise ValueError(f"Unsupported aggregation expression type {str(type(value))}")
+                
+                if series_inputs is None:
+                    series_inputs = value.prepare_aggregation_inputs(agg_func)
+                    series_inputs = (*series_inputs[:-2], series_inputs[-2].reshape(-1, 1))
+                else:
+                    new_series_inputs = value.prepare_aggregation_inputs(agg_func)
+                    assert new_series_inputs[0].equals(series_inputs[0]), "IDs do not match among unaggregated expressions"
+                    assert new_series_inputs[1].equals(series_inputs[1]), "Times do not match among unaggregated expressions"
+                    if isinstance(value, Intervals):
+                        assert new_series_inputs[2].equals(series_inputs[2]), "Times do not match among unaggregated expressions"
+                    series_inputs = (*series_inputs[:-1],
+                                    np.hstack([series_inputs[-1], new_series_inputs[-2].reshape(-1, 1)]))
+                    
+                if result_name is None: result_name = value.name
+                
+        preaggregated_inputs = np.hstack(preaggregated_inputs)
+        compiled_fn = njit()(self.get_executable_function())
+        lcls = {}
+        arg_assignments = ([f"{n}=preagg[{i}]" for i, n in enumerate(preaggregated_input_names)] + 
+                           [f"{n}=series_vals[:,{i}]" for i, n in enumerate(series_input_names)])
+        exec(f"def wrapped_fn(fn): return lambda series_vals, preagg: fn({', '.join(arg_assignments)})", globals(), lcls)
+        wrapped_fn = lcls['wrapped_fn']
+        compiled_fn = njit()(wrapped_fn(compiled_fn))
+        
+        if series_type == "events":
+            grouped_values = numba_join_events_dynamic(List(ids.values.tolist()),
+                                                starts, 
+                                                ends, 
+                                                compiled_fn,
+                                                series_inputs[0].values, 
+                                                series_inputs[1].values,
+                                                series_inputs[2],
+                                                preaggregated_inputs,
+                                                AGG_FUNCTIONS[agg_func])
+            grouped_values = convert_numba_result_dtype(grouped_values, agg_func)
+        elif series_type  == "intervals":
+            grouped_values = numba_join_intervals_dynamic(List(ids.values.tolist()),
+                                                starts, 
+                                                ends, 
+                                                compiled_fn,
+                                                series_inputs[0].values, 
+                                                series_inputs[1].values,
+                                                series_inputs[2].values,
+                                                series_inputs[3],
+                                                preaggregated_inputs,
+                                                agg_type,
+                                                AGG_FUNCTIONS[agg_func])
+            grouped_values = convert_numba_result_dtype(grouped_values, agg_func)
+            
+        # TODO do we need to convert back categorical types?
+        
+        assert len(grouped_values) == len(index)
+        
+        return TimeSeries(index, pd.Series(grouped_values, name=result_name or "aggregated_series").convert_dtypes())
+        
+    def where(self, condition, other):
+        if not isinstance(other, Compilable):
+            other = Compilable(other)
+        if not isinstance(condition, Compilable):
+            condition = Compilable(condition)
+            
+        return Compilable(f"np.where({condition.function_string()}, {self.function_string()}, {other.function_string()})",
+                          leaves={**self.leaves, **condition.leaves, **other.leaves})
+    
+    def filter(self, condition):
+        if not isinstance(condition, Compilable):
+            condition = Compilable(condition)
+            
+        return Compilable(f"({self.function_string()})[{condition.function_string()}]",
+                          leaves={**self.leaves, **condition.leaves})
+    
+    def impute(self, method='mean', constant_value=None):
+        if method == 'constant':
+            return self.mono_parent(f"np.where(np.isnan({self.function_string()}), {constant_value}, {self.function_string()})")
+        return self.mono_parent(f"np.where(np.isnan({self.function_string()}), np.nan{method}({self.function_string()}), {self.function_string()})")
+    
+    def __abs__(self): return self.mono_parent(f"abs({self.function_string()})")
+    def __neg__(self): return self.mono_parent(f"-({self.function_string()})")
+    def __pos__(self): return self.mono_parent(f"+({self.function_string()})")
+    def __invert__(self): return self.mono_parent(f"~({self.function_string()})")
+    
+    def _handle_binary_op(self, opname, other, reverse=False):
+        if not isinstance(other, Compilable):
+            other = Compilable(other)
+            
+        fn_strings = (self.function_string(), other.function_string())
+        if reverse: fn_strings = fn_strings[1], fn_strings[0]
+        return Compilable(f"({fn_strings[0]}) {opname} ({fn_strings[1]})",
+                          leaves={**self.leaves, **other.leaves})
+        
+    def __eq__(self, other): return self._handle_binary_op("==", other)
+    def __ge__(self, other): return self._handle_binary_op(">=", other)
+    def __gt__(self, other): return self._handle_binary_op(">", other)
+    def __le__(self, other): return self._handle_binary_op("<=", other)
+    def __ne__(self, other): return self._handle_binary_op("!=", other)
+    def __lt__(self, other): return self._handle_binary_op("<", other)
+    
+    def __add__(self, other): return self._handle_binary_op("+", other)
+    def __and__(self, other): return self._handle_binary_op("and", other)
+    def __floordiv__(self, other): return self._handle_binary_op("//", other)
+    def __mod__(self, other): return self._handle_binary_op("%", other)
+    def __mul__(self, other): return self._handle_binary_op("*", other)
+    def __or__(self, other): return self._handle_binary_op("or", other)
+    def __pow__(self, other): return self._handle_binary_op("**", other)
+    def __sub__(self, other): return self._handle_binary_op("-", other)
+    def __truediv__(self, other): return self._handle_binary_op("/", other)
+    def __xor__(self, other): return self._handle_binary_op("^", other)
+
+    def __radd__(self, other): return self._handle_binary_op("+", other, reverse=True)
+    def __rand__(self, other): return self._handle_binary_op("and", other, reverse=True)
+    def __rdiv__(self, other): return self._handle_binary_op("/", other, reverse=True)
+    def __rfloordiv__(self, other): return self._handle_binary_op("//", other, reverse=True)
+    def __rmatmul__(self, other): return self._handle_binary_op("@", other, reverse=True)
+    def __rmod__(self, other): return self._handle_binary_op("%", other, reverse=True)
+    def __rmul__(self, other): return self._handle_binary_op("*", other, reverse=True)
+    def __ror__(self, other): return self._handle_binary_op("or", other, reverse=True)
+    def __rpow__(self, other): return self._handle_binary_op("**", other, reverse=True)
+    def __rsub__(self, other): return self._handle_binary_op("-", other, reverse=True)
+    def __rtruediv__(self, other): return self._handle_binary_op("/", other, reverse=True)
+    def __rxor__(self, other): return self._handle_binary_op("^", other, reverse=True)
+        
+
 class Attributes(TimeSeriesQueryable):
     def __init__(self, series):
         """The series' index should be the set of instance IDs"""
@@ -144,7 +356,7 @@ class Attributes(TimeSeriesQueryable):
     def __invert__(self): return Attributes(self.preserve_nans(self.series.__invert__()))
     
     def _handle_binary_op(self, opname, other):
-        if isinstance(other, (Events, Intervals, TimeIndex, TimeSeries)):
+        if isinstance(other, (Events, Intervals, TimeIndex, TimeSeries, Compilable)):
             return NotImplemented
         if isinstance(other, Attributes):
             return Attributes(self.preserve_nans(getattr(self.series, opname)(other.series).rename(self.name)))
@@ -298,6 +510,22 @@ class Events(TimeSeriesQueryable):
         result = self.bin_aggregate(start_times, start_times, end_times, agg_func)
         return Attributes(result.series.set_axis(result.index.get_ids()))
         
+    def prepare_aggregation_inputs(self, agg_func):
+        event_ids = self.df[self.id_field]
+        event_times = self.df[self.time_field].astype(np.float64)
+        event_values = self.df[self.value_field]
+        if isinstance(event_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(event_values.dtype):
+            # Convert to numbers before using numba
+            if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
+                raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
+            event_values, uniques = pd.factorize(event_values)
+            event_values = np.where(pd.isna(event_values), np.nan, event_values).astype(np.float64)
+        else:
+            event_values = event_values.values.astype(np.float64)
+            uniques = None
+        
+        return event_ids, event_times, event_values, uniques
+        
     def bin_aggregate(self, index, start_times, end_times, agg_func):
         """
         Performs an aggregation within given time bins.
@@ -313,18 +541,7 @@ class Events(TimeSeriesQueryable):
         ends = np.array(end_times.get_times(), dtype=np.int64)
         assert (starts <= ends).all(), "Start times must be <= end times"
         
-        event_ids = self.df[self.id_field]
-        event_times = self.df[self.time_field].astype(np.float64)
-        event_values = self.df[self.value_field]
-        if isinstance(event_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(event_values.dtype):
-            # Convert to numbers before using numba
-            if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
-                raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
-            event_values, uniques = pd.factorize(event_values)
-            event_values = np.where(pd.isna(event_values), np.nan, event_values).astype(np.float64)
-        else:
-            event_values = event_values.values.astype(np.float64)
-            uniques = None
+        event_ids, event_times, event_values, uniques = self.prepare_aggregation_inputs(agg_func)
         
         grouped_values = numba_join_events(List(ids.values.tolist()),
                                              starts, 
@@ -362,6 +579,7 @@ class Events(TimeSeriesQueryable):
     def __invert__(self): return self.with_values(self.df[self.value_field].__invert__(), preserve_nans=True)
 
     def _handle_binary_op(self, opname, other):
+        if isinstance(other, Compilable): return NotImplemented
         return self.with_values(getattr(self.df[self.value_field], opname)(make_aligned_value_series(self, other)), preserve_nans=True)
     
     def __eq__(self, other): return self._handle_binary_op("__eq__", other)
@@ -570,6 +788,24 @@ class Intervals(TimeSeriesQueryable):
         result = self.bin_aggregate(start_times, start_times, end_times, agg_type, agg_func)
         return Attributes(result.series.set_axis(result.index.get_ids()))
         
+    def prepare_aggregation_inputs(self, agg_func):
+        event_ids = self.df[self.id_field]
+        interval_starts = self.df[self.start_time_field].astype(np.float64)
+        interval_ends = self.df[self.end_time_field].astype(np.float64)
+        interval_values = self.df[self.value_field]
+        
+        if isinstance(interval_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(interval_values.dtype):
+            # Convert to numbers before using numba
+            if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
+                raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
+            interval_values, uniques = pd.factorize(interval_values)
+            interval_values = np.where(pd.isna(interval_values), np.nan, interval_values).astype(np.float64)
+        else:
+            interval_values = interval_values.values
+            uniques = None
+        
+        return event_ids, interval_starts, interval_ends, interval_values, uniques
+        
     def bin_aggregate(self, index, start_times, end_times, agg_type, agg_func):
         """
         index: TimeIndex to use as the master time index
@@ -587,20 +823,7 @@ class Intervals(TimeSeriesQueryable):
         ends = np.array(end_times.get_times(), dtype=np.int64)
         assert (starts <= ends).all(), "Start times must be <= end times"
         
-        event_ids = self.df[self.id_field]
-        interval_starts = self.df[self.start_time_field].astype(np.float64)
-        interval_ends = self.df[self.end_time_field].astype(np.float64)
-        interval_values = self.df[self.value_field]
-        
-        if isinstance(interval_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(interval_values.dtype):
-            # Convert to numbers before using numba
-            if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
-                raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
-            interval_values, uniques = pd.factorize(interval_values)
-            interval_values = np.where(pd.isna(interval_values), np.nan, interval_values).astype(np.float64)
-        else:
-            interval_values = interval_values.values
-            uniques = None
+        event_ids, interval_starts, interval_ends, interval_values, uniques = self.prepare_aggregation_inputs(agg_func)
         
         grouped_values = numba_join_intervals(List(ids.values.tolist()),
                                              starts, 
@@ -636,6 +859,7 @@ class Intervals(TimeSeriesQueryable):
     def __invert__(self): return self.with_values(self.df[self.value_field].__invert__(), preserve_nans=True)
 
     def _handle_binary_op(self, opname, other):
+        if isinstance(other, Compilable): return NotImplemented
         return self.with_values(getattr(self.df[self.value_field], opname)(make_aligned_value_series(self, other)), preserve_nans=True)
     
     def __eq__(self, other): return self._handle_binary_op("__eq__", other)
@@ -818,6 +1042,14 @@ class TimeIndex(TimeSeriesQueryable):
             
     def __len__(self): return len(self.timesteps)
     
+    def __eq__(self, other): return (
+        isinstance(other, TimeIndex) and 
+        (self.get_ids() == other.get_ids()).all() and
+        (self.get_times() == other.get_times()).all()
+    )
+    
+    def __ne__(self, other): return not (self == other)
+    
     def get_ids(self):
         return self.timesteps[self.id_field]
     
@@ -976,6 +1208,7 @@ class TimeIndex(TimeSeriesQueryable):
     def __rsub__(self, other): return (-self).add(other)
 
     def _handle_binary_op(self, opname, other):
+        if isinstance(other, Compilable): return NotImplemented
         return TimeSeries(self, getattr(self.timesteps[self.time_field], opname)(make_aligned_value_series(self, other)))
     
     def __eq__(self, other): return self._handle_binary_op("__eq__", other)
@@ -1119,7 +1352,7 @@ class TimeSeries(TimeSeriesQueryable):
     def __invert__(self): return self.with_values(self.series.__invert__(), preserve_nans=True)
     
     def _handle_binary_op(self, opname, other):
-        if isinstance(other, (Events, Intervals, TimeIndex)):
+        if isinstance(other, (Events, Intervals, TimeIndex, Compilable)):
             return NotImplemented
         if isinstance(other, Attributes):
             return self.with_values(getattr(self.series, opname)(make_aligned_value_series(self, other)), preserve_nans=True)
@@ -1254,17 +1487,33 @@ if __name__ == "__main__":
         'value': np.random.uniform(0, 100)
     } for _ in range(10)]))
     
-    print(events.get('e1').df, attributes.get('a2').fillna(0).series)
+    # print(events.get('e1').df, attributes.get('a2').fillna(0).series)
     # print((attributes.get('a2').fillna(0) < events.get('e1')).df)
     
-    print(intervals.get('i1').df)
+    # print(intervals.get('i1').df)
     
     start_times = TimeIndex.from_attributes(attributes.get('start'))
     end_times = TimeIndex.from_attributes(attributes.get('end'))
     times = TimeIndex.range(start_times, end_times, Duration(30))
     
-    print(intervals.get('i1').bin_aggregate(
+    print(events.get('e1'))
+    compiled_expression = intervals.get('i1') - Compilable(events.get('e1').bin_aggregate(
+        times,
+        times - Duration(30),
+        times,
+        "last"
+    ))
+
+    # compiled_expression = Compilable(events.get('e1')).filter(events.get('e1') < Compilable(events.get('e1').bin_aggregate(
+    #     times,
+    #     times - Duration(30),
+    #     times,
+    #     "mean"
+    # )))
+
+    print(compiled_expression.bin_aggregate(
         times,
         times, times + Duration(30),
-        "amount", "sum"
+        "amount",
+        "sum"
     ))

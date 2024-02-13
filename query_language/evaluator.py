@@ -59,7 +59,7 @@ class EvaluateExpression(lark.visitors.Transformer):
         )
         candidates = [c for c in candidates if len(c) > 0]
         if len(candidates) > 1:
-            raise ValueError(f"Multiple data elements found with name {el_name}. Try specifying a scope such as \{attr:{el_name}\} (or event: or interval:).")
+            raise ValueError(f"Multiple data elements found with name {el_name}. Try specifying a scope such as \{{attr:{el_name}\}} (or event: or interval:).")
         elif len(candidates) == 0:
             raise KeyError(f"No data element found with name {el_name}")
         return candidates[0]
@@ -170,7 +170,7 @@ class EvaluateExpression(lark.visitors.Transformer):
             assert len(time_bounds[1]) == len(self.time_index), f"End time bounds for aggregation (length {len(time_bounds[1])}) must be equal length to overall time index (length {len(self.time_index)})"
             if isinstance(expr, Events):
                 return expr.bin_aggregate(self.time_index, *time_bounds, agg_method[0])
-            elif isinstance(expr, Intervals):
+            elif isinstance(expr, (Intervals, Compilable)):
                 result = expr.bin_aggregate(self.time_index, *time_bounds, agg_method[1], agg_method[0])
                 return result
             else:
@@ -192,6 +192,19 @@ class EvaluateExpression(lark.visitors.Transformer):
     def case_expr(self, args):
         whens = args[:-1]
         else_clause = args[-1]
+        
+        if (any(isinstance(clause, Compilable) for when in args[:-1] for clause in when.children) or 
+            isinstance(else_clause, Compilable)):
+            # The entire case expression needs to be a Compilable
+            whens = [tuple(Compilable(c) if not isinstance(c, Compilable) else c
+                           for c in when.children) for when in whens]
+            if not isinstance(else_clause, Compilable):
+                else_clause = Compilable(else_clause)
+            result = else_clause
+            for condition, value in reversed(whens):
+                result = value.where(condition, result)
+            return result
+        
         result = else_clause
         if isinstance(result, Duration): result = result.value()
         
@@ -223,6 +236,7 @@ class EvaluateExpression(lark.visitors.Transformer):
         # Defines how far the values in the time series should be
         # carried forward within a given ID
         var_exp = args[0]
+        if isinstance(args[0], Compilable): raise NotImplementedError("Carry forward not yet implemented for nested aggregations")
         if isinstance(args[1], lark.Tree) and args[1].data == "step_quantity":
             steps = int(args[1].children[0].value)
             return var_exp.carry_forward_steps(steps)
@@ -236,6 +250,15 @@ class EvaluateExpression(lark.visitors.Transformer):
     def impute_clause(self, args):
         # Defines how NaN values should be substituted
         var_exp = args[0]
+        if isinstance(var_exp, Compilable):
+            method = "constant"
+            if args[1].value in ("mean", "median"):
+                method = args[1].value
+                constant_value = None
+            else:
+                constant_value = self._parse_literal(args[1].value)
+            return var_exp.impute(method=method, constant_value=constant_value)
+        
         nan_mask = ~pd.isna(var_exp.get_values())
         if args[1].value in ("mean", "median"):
             impute_method = args[1].value.lower()
@@ -288,7 +311,7 @@ class EvaluateExpression(lark.visitors.Transformer):
         elif all(isinstance(a, TimeSeries) for a in args):
             return TimeSeriesSet.from_series(args)
         raise ValueError("Variable list must contain either all Attributes or all TimeSeries objects")
-        
+
 class EvaluateQuery(lark.visitors.Interpreter):
     def __init__(self, attributes, events, intervals, eventtype_macros=None, cache_dir=None, verbose=False):
         super().__init__()
@@ -431,7 +454,9 @@ class EvaluateQuery(lark.visitors.Interpreter):
             if var_name is not None:
                 var_exp = var_exp.rename(var_name)
             return var_exp.compress()
-    
+
+        self._preprocess_nested_aggregations(tree)
+            
         for node in tree.iter_subtrees():
             if node is None: continue
             node.children = [lark.Tree('atom', [self._parse_where_clause(n)]) if isinstance(n, lark.Tree) and n.data == "where_clause" else n for n in node.children]
@@ -489,12 +514,27 @@ class EvaluateQuery(lark.visitors.Interpreter):
         else:
             return TimeSeriesSet.from_series(variable_definitions)
         
+    def _preprocess_nested_aggregations(self, tree):
+        for node in tree.iter_subtrees_topdown():
+            if node is None: continue
+            if not (isinstance(node, lark.Tree) and node.data == "agg_expr"): continue
+            # For aggregation expressions, convert all inner aggregation expressions
+            # to Compilables! This will enable us to calculate dynamic values
+            # during the aggregation.
+            
+            for desc in node.iter_subtrees():
+                if desc is None or desc == node: continue
+                desc.children = [Compilable(self.evaluator.transform(n)) if isinstance(n, lark.Tree) and n.data == "agg_expr" else n for n in desc.children]
+                
+        
     def _parse_where_clause(self, tree):
         base = self.evaluator.transform(tree.children[0])
         self.evaluator.value_placeholder = base
         where = self.evaluator.transform(tree.children[1])
         self.evaluator.value_placeholder = None
-        if isinstance(base, (Events, Intervals, EventSet, IntervalSet)):
+        if isinstance(where, Compilable):
+            return Compilable(base).filter(where)
+        elif isinstance(base, (Events, Intervals, EventSet, IntervalSet, Compilable)):
             return base.filter(where)
         else:
             return base.where(where, pd.NA)
@@ -574,7 +614,7 @@ AGG_TYPE: "rate"i|"amount"i|"value"i|"duration"i
     | comparison "IN"i value_list            -> isin
     | agg_expr
 
-?agg_expr: agg_method agg_expr time_bounds
+?agg_expr: agg_method expr time_bounds
     | sum
 
 ?sum: sum "+" product                       -> expr_add
@@ -676,6 +716,9 @@ if __name__ == '__main__':
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
     # print(dataset.query("min {'e1', e2} from now - 30 seconds to now at every {e1} from {start} to {end}"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))
-    print(dataset.query("(my_age: (last {e1} from #now - 10 sec to #now) impute 'Missing') every 3 sec from #mintime to #maxtime"))
+    # print(dataset.query("(my_age: (last {e1} from #now - 10 sec to #now) impute 'Missing') every 3 sec from #mintime to #maxtime"))
     # print(dataset.query("mean {e1} * 3 from now - 30 s to now"))
     # print(dataset.query("max(mean {e2} from now - 30 seconds to now, mean {e1} from now - 30 seconds to now) at every {e2} from {start} to {end}"))
+    print(events.get('e1'))
+    print(dataset.query("mean {e1} where {e1} > (last {e1} from #now - 30 sec to #now) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
+    print(dataset.query("mean (case when {e1} > (last {e2} from #now - 30 sec to #now) then {e1} else 0 end) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
