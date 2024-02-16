@@ -113,28 +113,24 @@
                 Variable Summary
               </div>
               <div>
-                {#if evaluationSummary.type == 'binary' && !!evaluationSummary.rate}
+                {#if evaluationSummary.type == 'binary' && !!evaluationSummary.mean}
                   <SliceMetricBar
-                    value={evaluationSummary.rate}
+                    value={evaluationSummary.mean}
                     width={metricWidth}
                   >
                     <span slot="caption">
-                      <strong>{d3.format('.1%')(evaluationSummary.rate)}</strong
+                      <strong>{d3.format('.1%')(evaluationSummary.mean)}</strong
                       >
                       true,
                       <strong
-                        >{d3.format('.1%')(1 - evaluationSummary.rate)}</strong
+                        >{d3.format('.1%')(1 - evaluationSummary.mean)}</strong
                       > false
                     </span>
                   </SliceMetricBar>
                 {:else if evaluationSummary.type == 'continuous' && !!evaluationSummary.hist}
                   <SliceMetricHistogram
                     mean={evaluationSummary.mean ?? 0}
-                    histValues={Object.fromEntries(
-                      evaluationSummary.hist.bins
-                        .slice(0, evaluationSummary.hist.bins.length - 1)
-                        .map((b, i) => [b, evaluationSummary.hist.counts[i]])
-                    )}
+                    histValues={evaluationSummary.hist}
                     width={metricWidth}
                   />
                 {:else if evaluationSummary.type == 'categorical' && !!evaluationSummary.counts}

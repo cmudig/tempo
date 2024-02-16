@@ -1,15 +1,10 @@
+import type { SliceMetric } from './slices/utils/slice.type';
+
 export type ModelDataSummaryItem = {
   name: string;
   type: string;
   children?: ModelDataSummaryItem[];
-  summary?: {
-    type: 'binary' | 'continuous' | 'categorical';
-    rate?: number;
-    counts?: { [key: string]: number };
-    mean?: number;
-    std?: number;
-    hist?: { counts: number[]; bins: number[] };
-  };
+  summary?: SliceMetric;
 };
 
 export type ModelMetrics = {
@@ -18,40 +13,59 @@ export type ModelMetrics = {
     [key: string]: number;
   };
   confusion_matrix?: number[][];
-  positive_rate?: number;
+  true_values: SliceMetric;
   n_train: { instances: number; trajectories: number };
   n_val: { instances: number; trajectories: number };
   n_slice_eval: { instances: number; trajectories: number };
   trivial_solution_warning?: {
     variables: string[];
-    auc: number;
-    auc_threshold: number;
-    auc_fraction: number;
+    metric: number;
+    metric_value: number;
+    metric_threshold: number;
+    metric_fraction: number;
   };
   class_not_predicted_warnings?: {
     class: number;
     true_positive_fraction: number;
     true_positive_threshold: number;
   }[];
-  roc: {
+  roc?: {
     thresholds: number[];
     tpr: number[];
     fpr: number[];
     performance: { [key: string]: number }[];
   };
+  perclass?: {
+    label: string;
+    performance: { [key: string]: number };
+  }[];
   data_summary?: {
     fields: ModelDataSummaryItem[];
   };
+
+  hist: {
+    values: number[][];
+    bins: number[];
+  };
 };
+
+export const decimalMetrics = ['R^2', 'MSE', 'Macro F1', 'Micro F1', 'F1'];
+
+export enum ModelType {
+  BinaryClassification = 'binary_classification',
+  MulticlassClassification = 'multiclass_classification',
+  Regression = 'regression',
+}
 
 export type ModelSummary = {
   outcome?: string;
-  regression?: boolean;
+  model_type?: ModelType;
   likely_trivial?: boolean;
   metrics?: ModelMetrics;
   training?: boolean;
   timestep_definition: string;
   status?: { state: string; message: string };
+  output_values?: string[];
 };
 
 export type VariableDefinition = {

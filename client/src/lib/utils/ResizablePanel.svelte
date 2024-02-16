@@ -83,7 +83,7 @@
   <slot />
   {#if leftResizable}
     <div
-      class="absolute right-full z-1 top-0 w-1 h-full bg-slate-300 cursor-col-resize"
+      class="absolute right-full z-10 top-0 w-2 h-full pointer-events-auto cursor-col-resize"
       on:pointerdown|preventDefault={(e) => onMousedown(e, 'left')}
       on:pointermove|preventDefault={onMousemove}
       on:pointerup|preventDefault={onMouseup}
@@ -91,7 +91,7 @@
   {/if}
   {#if topResizable}
     <div
-      class="absolute left-0 z-1 bottom-full h-1 w-full bg-slate-300 cursor-row-resize"
+      class="absolute left-0 z-10 bottom-full h-2 w-full pointer-events-auto cursor-row-resize"
       on:pointerdown|preventDefault={(e) => onMousedown(e, 'top')}
       on:pointermove|preventDefault={onMousemove}
       on:pointerup|preventDefault={onMouseup}
@@ -99,7 +99,7 @@
   {/if}
   {#if bottomResizable}
     <div
-      class="absolute left-0 z-1 top-full h-1 w-full bg-slate-300 cursor-row-resize"
+      class="absolute left-0 z-10 top-full h-2 w-full pointer-events-auto cursor-row-resize"
       on:pointerdown|preventDefault={(e) => onMousedown(e, 'bottom')}
       on:pointermove|preventDefault={onMousemove}
       on:pointerup|preventDefault={onMouseup}
@@ -107,7 +107,7 @@
   {/if}
   {#if rightResizable}
     <div
-      class="absolute left-full z-1 top-0 w-1 h-full bg-slate-300 cursor-col-resize"
+      class="absolute left-full z-10 top-0 w-2 h-full pointer-events-auto cursor-col-resize"
       on:pointerdown|preventDefault={(e) => onMousedown(e, 'right')}
       on:pointermove|preventDefault={onMousemove}
       on:pointerup|preventDefault={onMouseup}

@@ -16,7 +16,6 @@
     faPencil,
     faPlus,
     faRotateRight,
-    faDownload,
     faSearch,
     faHeart,
   } from '@fortawesome/free-solid-svg-icons';
@@ -368,7 +367,7 @@
             ? metricInfo(name)
             : metricInfo[name]}
         <div
-          class="p-2 pt-3 overflow-visible whitespace-nowrap"
+          class="p-2 pt-3 overflow-visible whitespace-nowrap self-start"
           style="width: {!!mInfo && mInfo.visible
             ? TableWidths.Metric
             : TableWidths.CollapsedMetric}px;"
@@ -392,6 +391,18 @@
                         metric.share
                       )} of +s){:else}&nbsp;{/if}</span
                   >
+                </span>
+              </SliceMetricBar>
+            {:else if metric.type == 'numeric'}
+              <SliceMetricBar
+                value={metric.value}
+                scale={mInfo.scale ?? ((v) => v)}
+                color={mInfo.color ?? null}
+                colorScale={mInfo.colorScale ?? interpolateViridis}
+                width={scoreCellWidth}
+              >
+                <span slot="caption">
+                  <strong>{format(',.3~')(metric.value ?? 0)}</strong>
                 </span>
               </SliceMetricBar>
             {:else if metric.type == 'count'}

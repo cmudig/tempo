@@ -37,27 +37,23 @@
         {element.name}
       </div>
       <div style="width: {metricWidth + 16}px;">
-        {#if summary.type == 'binary' && !!summary.rate}
+        {#if summary.type == 'binary' && !!summary.mean}
           <SliceMetricBar
-            value={summary.rate}
+            value={summary.mean}
             width={metricWidth}
             color="#3b82f6"
             showFullBar
           >
             <span slot="caption">
-              <strong>{d3.format('.1%')(summary.rate)}</strong>
+              <strong>{d3.format('.1%')(summary.mean)}</strong>
               true,
-              <strong>{d3.format('.1%')(1 - summary.rate)}</strong> false
+              <strong>{d3.format('.1%')(1 - summary.mean)}</strong> false
             </span>
           </SliceMetricBar>
         {:else if summary.type == 'continuous' && !!summary.hist}
           <SliceMetricHistogram
             mean={summary.mean ?? 0}
-            histValues={Object.fromEntries(
-              summary.hist.bins
-                .slice(0, summary.hist.bins.length - 1)
-                .map((b, i) => [b, summary.hist.counts[i]])
-            )}
+            histValues={summary.hist}
             width={metricWidth}
           />
         {:else if summary.type == 'categorical' && !!summary.counts}

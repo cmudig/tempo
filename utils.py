@@ -18,7 +18,7 @@ def make_series_summary(values):
         is_quantitative = False
     if is_binary:
         summary["type"] = "binary"
-        summary["rate"] = values.mean().astype(float)
+        summary["mean"] = values.mean().astype(float)
     elif not is_quantitative or num_unique <= 10:
         uniques, counts = np.unique(values, return_counts=True)
         uniques_to_show = np.argsort(uniques)[:10]
@@ -40,6 +40,5 @@ def make_series_summary(values):
                                 (np.ceil(max_val / (10 ** bin_scale)) + upper_tol) * (10 ** bin_scale),
                                 10 ** bin_scale)
         
-        summary["hist"] = {"counts": np.histogram(values, bins=hist_bins)[0].astype(int).tolist(), 
-                        "bins": hist_bins.astype(float).tolist()}
+        summary["hist"] = dict(zip(hist_bins.astype(float).tolist(), np.histogram(values, bins=hist_bins)[0].astype(int).tolist())) 
     return summary

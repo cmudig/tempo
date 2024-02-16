@@ -98,10 +98,13 @@
   {#if !!label}
     <g
       class="axis-label"
-      transform="translate({-32 + $padding.left}, {$height}) rotate(-90)"
+      transform="translate({$xRange[0] + $padding.left - 4 - 12})"
     >
-      <text x={$height * 0.5} y={0} text-anchor="middle" style="fill: {color};"
-        >{@html label}</text
+      <text
+        x={xTick}
+        y={0}
+        text-anchor={isBandwidth ? 'end' : textAnchor}
+        style="fill: {color};">{@html label}</text
       >
     </g>
   {/if}

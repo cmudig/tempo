@@ -3,7 +3,8 @@ export interface Histogram {
 }
 
 export interface SliceMetric {
-  type: string;
+  type: 'binary' | 'continuous' | 'categorical' | 'count' | 'numeric';
+  value?: number;
   mean?: number;
   share?: number;
   count?: number;

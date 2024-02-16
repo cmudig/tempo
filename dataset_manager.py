@@ -46,7 +46,7 @@ class DatasetManager:
         if "path" in interval_config:
             intervals = IntervalSet(pd.read_feather(os.path.join(self.base_path, interval_config["path"])),
                                     id_field=event_config.get("id_field", "id"), 
-                                    type_field=event_config.get("type_field", "eventtype"), 
+                                    type_field=event_config.get("type_field", "intervaltype"), 
                                     value_field=event_config.get("value_field", "value"), 
                                     start_time_field=event_config.get("start_time_field", "starttime"),
                                     end_time_field=event_config.get("end_time_field", "endtime"))

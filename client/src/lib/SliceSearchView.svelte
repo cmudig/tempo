@@ -217,13 +217,22 @@
             1e9
           ) - 0.01;
         newInfo.scale = (v: number) => v / maxScore;
+      } else if (met.type == 'numeric') {
+        let maxScore =
+          allSlices.reduce(
+            (curr, next) => Math.max(curr, getMetric(next.metrics!, n)!.value!),
+            -1e9
+          ) + 0.01;
+        newInfo.scale = (v: number) => v / maxScore;
       } else if (met.type == 'categorical') {
         let uniqueKeys: Set<string> = new Set();
         allSlices.forEach((s) =>
-          Object.keys(s.metrics![n].counts!).forEach((v) => uniqueKeys.add(v))
+          Object.keys(getMetric(s.metrics!, n)!.counts!).forEach((v) =>
+            uniqueKeys.add(v)
+          )
         );
-        let order = Array.from(uniqueKeys);
-        order.sort((a, b) => met.counts![b] - met.counts![a]);
+        let order = Array.from(uniqueKeys).sort();
+        // order.sort((a, b) => met.counts![b] - met.counts![a]);
         newInfo.order = order;
       }
       newInfo.visible = (

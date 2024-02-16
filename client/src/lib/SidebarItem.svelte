@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ModelMetrics, ModelSummary } from './model';
+  import { type ModelSummary, decimalMetrics } from './model';
   import * as d3 from 'd3';
   import { SidebarTableWidths } from './utils/sidebarwidths';
   import Checkbox from './utils/Checkbox.svelte';
@@ -9,6 +9,8 @@
   import Fa from 'svelte-fa/src/fa.svelte';
   import { createEventDispatcher } from 'svelte';
   import { MetricColors } from './colors';
+  import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
+  import SliceMetricCategoryBar from './slices/metric_charts/SliceMetricCategoryBar.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -25,22 +27,41 @@
   export let metricScales: { [key: string]: (v: number) => number } = {};
 
   const accuracyFormat = d3.format('.1~%');
+  const decimalFormat = d3.format(',.2~');
   const countFormat = d3.format(',');
 
-  let metricValues: { [key: string]: number } | undefined;
+  let metricValues: { [key: string]: SliceMetric | null } | undefined;
   $: if (!!customMetrics)
     metricValues = {
-      Timesteps: customMetrics['Timesteps']?.count ?? 0,
-      Trajectories: customMetrics['Trajectories']?.count ?? 0,
-      [metricToShow]: customMetrics[metricToShow]?.mean ?? 0,
-      'Positive Rate': customMetrics['Positive Rate']?.mean ?? 0,
+      Timesteps: {
+        type: 'binary',
+        mean: customMetrics['Timesteps']?.count ?? 0,
+      },
+      Trajectories: {
+        type: 'binary',
+        mean: customMetrics['Trajectories']?.count ?? 0,
+      },
+      [metricToShow]: customMetrics[metricToShow] ?? null,
+      'True Values': customMetrics['True Values'] ?? null,
     };
   else if (!!model && !!model.metrics)
     metricValues = {
-      Timesteps: model.metrics?.n_slice_eval.instances ?? 0,
-      Trajectories: model.metrics?.n_slice_eval.trajectories ?? 0,
-      [metricToShow]: model.metrics?.performance[metricToShow] ?? 0,
-      'Positive Rate': model.metrics?.positive_rate ?? 0,
+      Timesteps: {
+        type: 'binary',
+        mean: model.metrics?.n_slice_eval.instances ?? 0,
+      },
+      Trajectories: {
+        type: 'binary',
+        mean: model.metrics?.n_slice_eval.trajectories ?? 0,
+      },
+      [metricToShow]:
+        model.metrics?.performance[metricToShow] !== undefined
+          ? {
+              type: 'numeric',
+              value: model.metrics?.performance[metricToShow],
+            }
+          : null,
+      'True Values': model.metrics?.true_values ?? null,
     };
   else metricValues = undefined;
 </script>
@@ -66,14 +87,14 @@
     </div>
   {/if}
   <div
-    class="font-mono p-2 grow-0 shrink-0 text-sm"
+    class="font-mono p-2 grow-0 shrink-0 text-sm flex items-center"
     style="width: {SidebarTableWidths.ModelName}px;"
   >
     {#if model.training && !!model.status && model.status.state != 'error'}
-      <span
+      <div
         role="status"
         title={model.status.message}
-        class="inline-block flex items-center justify-center"
+        class="grow-0 shrink-0 flex items-center justify-center mr-2"
       >
         <svg
           aria-hidden="true"
@@ -97,12 +118,12 @@
             fill="none"
           />
         </svg>
-      </span>
+      </div>
     {/if}
     {#if !!model && !!model.metrics && (!!model.metrics.trivial_solution_warning || (!!model.metrics.class_not_predicted_warnings && model.metrics.class_not_predicted_warnings.length > 0))}
-      <Fa class="text-orange-300 inline" icon={faWarning} />
+      <Fa class="text-orange-300 mr-2" icon={faWarning} />
     {/if}
-    {modelName}
+    <div class="flex-auto whitespace-nowrap truncate">{modelName}</div>
   </div>
   {#if !!metricValues}
     <div
@@ -110,13 +131,13 @@
       style="width: {SidebarTableWidths.Metric}px;"
     >
       <SliceMetricBar
-        value={metricValues['Timesteps'] ?? 0}
+        value={metricValues['Timesteps']?.mean ?? 0}
         scale={metricScales['Timesteps'] ?? ((v) => v)}
         color={MetricColors.Timesteps}
         width={SidebarTableWidths.Metric - 20}
       >
         <span slot="caption">
-          <strong>{countFormat(metricValues['Timesteps'] ?? 0)}</strong>
+          <strong>{countFormat(metricValues['Timesteps']?.mean ?? 0)}</strong>
         </span>
       </SliceMetricBar>
     </div>
@@ -125,13 +146,14 @@
       style="width: {SidebarTableWidths.Metric}px;"
     >
       <SliceMetricBar
-        value={metricValues['Trajectories'] ?? 0}
+        value={metricValues['Trajectories']?.mean ?? 0}
         scale={metricScales['Trajectories'] ?? ((v) => v)}
         color={MetricColors.Trajectories}
         width={SidebarTableWidths.Metric - 20}
       >
         <span slot="caption">
-          <strong>{countFormat(metricValues['Trajectories'] ?? 0)}</strong>
+          <strong>{countFormat(metricValues['Trajectories']?.mean ?? 0)}</strong
+          >
         </span>
       </SliceMetricBar>
     </div>
@@ -139,34 +161,69 @@
       class="p-2 grow-0 shrink-0"
       style="width: {SidebarTableWidths.Metric}px;"
     >
-      <SliceMetricBar
-        value={metricValues[metricToShow] ?? 0}
-        scale={metricScales[metricToShow] ?? ((v) => v)}
-        color={MetricColors.Accuracy}
-        width={SidebarTableWidths.Metric - 20}
-      >
-        <span slot="caption">
-          <strong>{accuracyFormat(metricValues[metricToShow] ?? 0)}</strong>
-        </span>
-      </SliceMetricBar>
+      {#if !!metricValues[metricToShow]}
+        {@const metric = metricValues[metricToShow]}
+        <SliceMetricBar
+          value={metric?.value ?? 0}
+          scale={metricScales[metricToShow] ?? ((v) => v)}
+          color={MetricColors.Accuracy}
+          width={SidebarTableWidths.Metric - 20}
+        >
+          <span slot="caption">
+            <strong
+              >{decimalMetrics.includes(metricToShow)
+                ? decimalFormat(metric?.value ?? 0)
+                : accuracyFormat(metric?.value ?? 0)}</strong
+            >
+          </span>
+        </SliceMetricBar>
+      {:else}
+        &mdash;
+      {/if}
     </div>
     <div
-      class="p-2 grow-0 shrink-0"
+      class="p-2 grow-0 shrink-0 whitespace-nowrap"
       style="width: {SidebarTableWidths.Metric}px;"
     >
-      <SliceMetricBar
-        value={metricValues['Positive Rate'] ?? 0}
-        scale={metricScales['Positive Rate'] ?? ((v) => v)}
-        color={MetricColors['Positive Rate']}
-        width={SidebarTableWidths.Metric - 20}
-      >
-        <span slot="caption">
-          <strong>{accuracyFormat(metricValues['Positive Rate'] ?? 0)}</strong>
-        </span>
-      </SliceMetricBar>
+      {#if !!metricValues['True Values']}
+        {@const metric = metricValues['True Values']}
+        {#if metric.type == 'binary'}
+          <SliceMetricBar
+            value={metric.mean}
+            color={MetricColors['True Values']}
+            width={SidebarTableWidths.Metric - 20}
+          >
+            <span slot="caption">
+              <strong>{d3.format('.1%')(metric?.mean ?? 0)}</strong> positive
+            </span>
+          </SliceMetricBar>
+        {:else if metric.type == 'numeric'}
+          <SliceMetricBar
+            value={metric.value}
+            color={MetricColors['True Values']}
+            width={SidebarTableWidths.Metric - 20}
+          >
+            <span slot="caption">
+              <strong>{d3.format(',.3~')(metric?.value ?? 0)}</strong>
+            </span>
+          </SliceMetricBar>
+        {:else if metric.type == 'continuous'}
+          <SliceMetricHistogram
+            mean={metric.mean}
+            histValues={metric.hist}
+            width={SidebarTableWidths.Metric - 20}
+          />
+        {:else if metric.type == 'categorical'}
+          <SliceMetricCategoryBar
+            order={model.output_values}
+            counts={metric.counts}
+            width={SidebarTableWidths.Metric - 20}
+          />
+        {/if}
+      {/if}
     </div>
   {:else}
-    {#each ['Timesteps', 'Trajectories', metricToShow, 'Positive Rate'] as label}
+    {#each ['Timesteps', 'Trajectories', metricToShow, 'True Values'] as label}
       <div
         class="p-2 grow-0 shrink-0 text-slate-500"
         style="width: {SidebarTableWidths.Metric}px;"

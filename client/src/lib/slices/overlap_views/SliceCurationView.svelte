@@ -86,8 +86,8 @@
       selectedIndexes={hoveredIndex != null
         ? d3.range(sliceIntersectionLabels.length).map((i) => i == hoveredIndex)
         : isFiltered
-        ? filteredSlices
-        : null}
+          ? filteredSlices
+          : null}
       bind:hoveredSlices
       centerYRatio={2 / 3}
       {errorKey}

@@ -20,6 +20,7 @@
     end: number;
     index: number;
     count: number;
+    share: number;
   }
   let data: Array<Datum> = [];
 
@@ -35,9 +36,9 @@
         index: i,
         name: d,
         count: counts![d] || 0,
+        share: counts![d] / totalCount,
       };
     });
-    console.log(data);
   } else {
     data = [];
   }
@@ -45,10 +46,19 @@
   let hoveredIndex: number;
 
   let countFormat = format(',');
+  let percentFormat = format('.1~%');
 
   function makeTooltipText(d: Datum) {
-    return `${d.name}: ${countFormat(d.count)} instances`;
+    return `<strong>${percentFormat(d.share)}</strong> ${d.name}`;
   }
+
+  let mostCommonDatum: Datum | null = null;
+  $: if (data.length > 0)
+    mostCommonDatum = data.reduce(
+      (prev, curr) => (prev.count > curr.count ? prev : curr),
+      data[0]
+    );
+  else mostCommonDatum = null;
 </script>
 
 {#if !!counts}
@@ -56,7 +66,7 @@
     style="width: {`${width}`.includes('%')
       ? width
       : `${width}px`}; height: 6px;"
-    class="inline-block rounded overflow-hidden"
+    class="relative rounded overflow-hidden mb-1"
   >
     <LayerCake
       padding={{ top: 0, right: 0, bottom: 0, left: 0 }}
@@ -87,9 +97,9 @@
     {#if $$slots.caption}
       <slot name="caption" />
     {:else if hoveredIndex != null}
-      {makeTooltipText(data[hoveredIndex])}
-    {:else}
-      &nbsp;
+      {@html makeTooltipText(data[hoveredIndex])}
+    {:else if !!mostCommonDatum}
+      {@html makeTooltipText(mostCommonDatum)}
     {/if}
   </div>
 {/if}

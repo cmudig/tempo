@@ -1,8 +1,8 @@
 <script lang="ts">
   import {
-    AllCategories,
-    VariableCategory,
+    decimalMetrics,
     type ModelMetrics,
+    type ModelSummary,
     type VariableDefinition,
   } from './model';
   import Fa from 'svelte-fa/src/fa.svelte';
@@ -16,10 +16,12 @@
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
   import ModelDataSummaryElement from './ModelDataSummaryElement.svelte';
   import { MetricColors } from './colors';
+  import Histogram2D from './slices/charts/Histogram2D.svelte';
 
   const dispatch = createEventDispatcher();
 
   export let modelName = 'vasopressor_8h';
+  export let modelSummary: ModelSummary | null = null;
   let metrics: ModelMetrics | null = null;
 
   let selectedThreshold: number | null = null;
@@ -55,6 +57,7 @@
   });
 
   const percentageFormat = d3.format('.1~%');
+  const decimalFormat = d3.format(',.3~');
   const thresholdFormat = d3.format('.3~');
   const nFormat = d3.format(',');
 
@@ -93,8 +96,9 @@
           may be trivially solvable
         </h4>
         <div class="text-gray-800 text-sm mb-2">
-          The target variable can be predicted with an AUROC of {percentageFormat(
-            metrics.trivial_solution_warning.auc
+          The target variable can be predicted with {metrics
+            .trivial_solution_warning.metric} of {percentageFormat(
+            metrics.trivial_solution_warning.metric_value
           )} using the following input variables:
         </div>
         <ul>
@@ -106,15 +110,18 @@
     {/if}
     {#if !!metrics.class_not_predicted_warnings}
       {#each metrics.class_not_predicted_warnings as warning}
+        {@const className = !!modelSummary?.output_values
+          ? modelSummary?.output_values[warning.class]
+          : warning.class}
         <div class="mb-2 p-4 bg-orange-100 rounded-lg">
           <h4 class="font-bold text-orange-700/80 mb-2">
-            <Fa class="inline text-orange-300" icon={faWarning} /> Class {warning.class}
+            <Fa class="inline text-orange-300" icon={faWarning} /> Class {className}
             rarely predicted
           </h4>
           <div class="text-gray-800 text-sm">
-            The class {warning.class} is only correctly predicted in {percentageFormat(
+            The class {className} is only correctly predicted in {percentageFormat(
               warning.true_positive_fraction
-            )} of timesteps with a true label of {warning.class}.
+            )} of timesteps that have a true label of {className}.
           </div>
         </div>
       {/each}
@@ -154,7 +161,9 @@
                   showFullBar
                 >
                   <span slot="caption" class="font-mono text-base">
-                    {percentageFormat(value)}
+                    {decimalMetrics.includes(metricName)
+                      ? decimalFormat(value)
+                      : percentageFormat(value)}
                   </span>
                 </SliceMetricBar>
               </div>
@@ -199,8 +208,28 @@
           </div>
         </div>
       </div>
-      <div class="aspect-square h-64 shrink-0 grow-0" style="min-width: 200px;">
-        <RocLineChart roc={metrics.roc} bind:selectedThreshold />
+      <div
+        class="aspect-square {!!metrics.roc
+          ? 'h-64'
+          : 'h-full'} shrink-0 grow-0"
+        style="min-width: 200px; min-height: 300px;"
+      >
+        {#if !!metrics.roc}
+          <RocLineChart roc={metrics.roc} bind:selectedThreshold />
+        {:else if !!metrics.confusion_matrix}
+          <Histogram2D
+            invertY
+            colorMap={d3.interpolateBlues}
+            data={{
+              values: metrics.confusion_matrix,
+              bins:
+                modelSummary?.output_values ??
+                d3.range(metrics.confusion_matrix.length),
+            }}
+          />
+        {:else if !!metrics.hist}
+          <Histogram2D colorMap={d3.interpolateBlues} data={metrics.hist} />
+        {/if}
       </div>
     </div>
     {#if !!metrics.data_summary}

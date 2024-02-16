@@ -8,7 +8,7 @@ import pickle
 import datetime
 from query_language.data_types import *
 from model_training import make_query
-from sklearn.metrics import roc_curve, roc_auc_score, confusion_matrix
+from sklearn.metrics import roc_curve, roc_auc_score, confusion_matrix, r2_score, f1_score
 import slice_finding as sf
 
 def make_slicing_variables(dataset, variable_definitions, timestep_definition):
@@ -130,7 +130,7 @@ def find_slices(discrete_df, score_fns, controls=None, progress_fn=None, n_sampl
                 new_filter = exclusion_criteria
         finder = finder.copy_spec(
             score_fns={**finder.score_fns, **new_score_fns},
-            source_mask=finder.source_mask & new_source_mask,
+            source_mask=finder.source_mask & new_source_mask if finder.source_mask is not None else new_source_mask,
             group_filter=new_filter,
             initial_slice=initial_slice,
         )
@@ -184,6 +184,10 @@ class SliceHelper:
         """
         self.discrete_dfs = {k: v for k, v in self.discrete_dfs.items() if k[0] != slice_spec_name}
 
+    def get_valid_model_mask(self, model_name):
+        with open(os.path.join(self.model_dir, f"preds_{model_name}.pkl"), "rb") as file:
+            return ~np.isnan(pickle.load(file)[0].astype(np.float64))
+            
     def get_score_functions(self, discrete_df, valid_mask, timestep_def, include_model_names=None, exclude_model_names=None, controls=None):
         score_fns = {
             "size": sf.scores.SliceSizeScore(0.2, 0.05),
@@ -192,39 +196,77 @@ class SliceHelper:
         model_names = []
         for path in os.listdir(self.model_dir):
             if not path.startswith("preds"): continue
-            model_name = re.search(r"^preds_(.*).npy$", path).group(1)
-            if self.get_model_timestep_def(model_name) != timestep_def:
+            model_name = re.search(r"^preds_(.*).pkl$", path).group(1)
+            spec = self.get_model_spec(model_name)
+            if spec["timestep_definition"] != timestep_def:
                 continue
             if include_model_names is not None and model_name not in include_model_names: continue
             if exclude_model_names is not None and model_name in exclude_model_names: continue
             
             model_names.append(model_name)
             
-            outcomes, preds = np.load(os.path.join(self.model_dir, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
-            with open(os.path.join(self.model_dir, f"metrics_{model_name}.json"), "r") as file:
-                metrics = json.load(file)
-                threshold = metrics['threshold']
+            with open(os.path.join(self.model_dir, f"preds_{model_name}.pkl"), "rb") as file:
+                outcomes, preds = pickle.load(file)
+            valid_outcomes = outcomes[valid_mask].astype(np.float64)
+            
+            if spec["model_type"] == "binary_classification":
+                with open(os.path.join(self.model_dir, f"metrics_{model_name}.json"), "r") as file:
+                    metrics = json.load(file)
+                    threshold = metrics['threshold']
                 preds = np.where(np.isnan(preds), np.nan, preds >= threshold)
                 
-            valid_outcomes = outcomes[valid_mask].astype(np.float64)
-            valid_preds = preds[valid_mask]
-            valid_true = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)
-            # TODO change to error rate? or mean difference of NLL?
-            valid_acc = np.where(np.isnan(valid_outcomes), np.nan, (valid_outcomes > 0) == valid_preds)
-            score_fns.update({
-                f"{model_name}_true": sf.scores.OutcomeRateScore(valid_true),
-                f"{model_name}_true_xf": sf.scores.InteractionEffectScore(valid_true),
-                f"{model_name}_pred": sf.scores.OutcomeRateScore(valid_preds),
-                f"{model_name}_pred_xf": sf.scores.InteractionEffectScore(valid_preds),
-                f"{model_name}_acc": sf.scores.OutcomeRateScore(valid_acc),
-                f"{model_name}_acc_xf": sf.scores.InteractionEffectScore(valid_acc),
-            })
-            
+                valid_preds = preds[valid_mask]
+                valid_true = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)
+                
+                valid_acc = np.where(np.isnan(valid_outcomes), np.nan, (valid_outcomes > 0) == valid_preds)
+                score_fns.update({
+                    f"{model_name}_true": sf.scores.OutcomeRateScore(valid_true),
+                    f"{model_name}_true_xf": sf.scores.InteractionEffectScore(valid_true),
+                    f"{model_name}_pred": sf.scores.OutcomeRateScore(valid_preds),
+                    f"{model_name}_pred_xf": sf.scores.InteractionEffectScore(valid_preds),
+                    f"{model_name}_err": sf.scores.OutcomeRateScore(1 - valid_acc),
+                    f"{model_name}_err_xf": sf.scores.InteractionEffectScore(1 - valid_acc),
+                })
+
+            elif spec["model_type"] == "multiclass_classification":
+                valid_preds = np.where(np.isnan(preds).max(axis=1), np.nan, np.argmax(preds, axis=1))[valid_mask]
+                
+                valid_acc = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes == valid_preds)
+                score_fns.update({
+                    f"{model_name}_err": sf.scores.OutcomeRateScore(1 - valid_acc),
+                    f"{model_name}_err_xf": sf.scores.InteractionEffectScore(1 - valid_acc),
+                })
+                if preds.shape[1] <= 10:
+                    # Add score functions for every single category
+                    for i, output_value in enumerate(spec["output_values"]):
+                        valid_true_value = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes == i)
+                        valid_pred_value = np.where(np.isnan(valid_preds), np.nan, valid_preds == i)
+                        score_fns.update({
+                            f"{model_name}_=_{output_value}_true": sf.scores.OutcomeRateScore(valid_true_value),
+                            # f"{model_name}_{output_value}_true_xf": sf.scores.InteractionEffectScore(valid_true_value),
+                            f"{model_name}_=_{output_value}_pred": sf.scores.OutcomeRateScore(valid_pred_value),
+                            # f"{model_name}_{output_value}_pred_xf": sf.scores.InteractionEffectScore(valid_pred_value),
+                        })
+            elif spec["model_type"] == "regression":
+                valid_preds = preds[valid_mask]
+                
+                valid_diff = np.where(np.isnan(valid_outcomes), np.nan, np.abs(valid_outcomes - valid_preds))
+                score_fns.update({
+                    f"{model_name}_diff_mean": sf.scores.MeanDifferenceScore(valid_diff),
+                    f"{model_name}_true_mean": sf.scores.MeanDifferenceScore(valid_outcomes),
+                    f"{model_name}_pred_mean": sf.scores.MeanDifferenceScore(valid_preds)
+                })
+                            
         if controls is not None:
             new_score_fns, _, _, _ = parse_controls(discrete_df, controls)
             score_fns.update(new_score_fns)
         return score_fns, model_names
 
+    def get_model_spec(self, model_name):
+        with open(os.path.join(self.model_dir, f"spec_{model_name}.json"), "r") as file:
+            spec = json.load(file)
+        return spec
+    
     def get_model_timestep_def(self, model_name):
         with open(os.path.join(self.model_dir, f"spec_{model_name}.json"), "r") as file:
             spec = json.load(file)
@@ -364,14 +406,17 @@ class SliceDiscoveryHelper(SliceHelper):
         try:
             self.write_status(True, search_status={"state": "loading", "message": "Loading data", "model_name": model_name})
             
-            timestep_def = self.get_model_timestep_def(model_name)
+            spec = self.get_model_spec(model_name)
+            timestep_def = spec["timestep_definition"]
             self.load_timestep_slice_results(timestep_def)
             self.write_status(True, search_status={"state": "loading", "message": "Loading variables", "model_name": model_name})
             valid_df, discovery_mask, _, slice_filter = self.get_slicing_data(controls["slice_spec_name"], timestep_def)
                  
             self.write_status(True, search_status={"state": "loading", "message": f"Finding slices for {model_name}", "model_name": model_name})
             
-            outcomes, _ = np.load(os.path.join(self.model_dir, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
+            with open(os.path.join(self.model_dir, f"preds_{model_name}.pkl"), "rb") as file:
+                outcomes = pickle.load(file)[0].astype(np.float64)
+                
             # don't add control-related score functions here as they will be added
             # in find_slices
             discovery_score_fns, _ = self.get_score_functions(valid_df, discovery_mask, timestep_def, include_model_names=[model_name])
@@ -405,6 +450,19 @@ class SliceDiscoveryHelper(SliceHelper):
             command_results = self.slice_scores[timestep_def].setdefault(result_key, {})
             print(discovery_df.df.shape, min_items, self.slice_finding_kwargs)
 
+            if spec["model_type"].endswith("classification"):
+                # Randomly select a subset of rows such that the number of elements
+                # with each outcome value is roughly constant
+                unique_values, unique_counts = np.unique(discovery_outcomes, return_counts=True)
+                sample_count = max(np.min(unique_counts), int(len(discovery_outcomes) * 0.01))
+                source_mask = np.zeros(len(discovery_outcomes), dtype=bool)
+                for val, count in zip(unique_values, unique_counts):
+                    matching_idxs = np.arange(len(discovery_outcomes), dtype=np.uint32)[discovery_outcomes == val]
+                    source_mask[np.random.choice(matching_idxs, size=min(count, sample_count), replace=False)] = True
+                print(np.unique(discovery_outcomes[source_mask], return_counts=True))
+            else:
+                source_mask = None
+            
             results = find_slices(discovery_df, 
                                     discovery_score_fns,
                                     controls=controls,
@@ -413,7 +471,7 @@ class SliceDiscoveryHelper(SliceHelper):
                                     n_samples=self.samples_per_model, 
                                     min_items=min_items,
                                     n_workers=None,
-                                    source_mask=discovery_outcomes > 0,
+                                    source_mask=source_mask,
                                     group_filter=slice_filter,
                                     **self.slice_finding_kwargs)
 
@@ -457,12 +515,25 @@ class SliceEvaluationHelper(SliceHelper):
             control_weights = default_control_weights(controls)
         else:
             control_weights = {}
-        eval_weights = {**{n: 0.5 for model_name in model_names
+        eval_weights = {**control_weights, "size": 0.5, "complexity": 0.5}
+        for model_name in model_names:
+            spec = self.get_model_spec(model_name)
+            if spec["model_type"] == "binary_classification":
+                eval_weights.update({n: 0.5 for model_name in model_names
                    for n in [f"{model_name}_true", f"{model_name}_true_xf",
                              f"{model_name}_pred", f"{model_name}_pred_xf",
-                             f"{model_name}_acc", f"{model_name}_acc_xf"]},
-                **control_weights,
-                "size": 0.5, "complexity": 0.5}
+                             f"{model_name}_err", f"{model_name}_err_xf",]
+                })
+            elif spec["model_type"] == "multiclass_classification":
+                eval_weights[f"{model_name}_err"] = 0.5
+                eval_weights[f"{model_name}_err_xf"] = 0.5
+                for val in spec["output_values"]:
+                    eval_weights[f"{model_name}_=_{val}_true"] = 0.0
+                    eval_weights[f"{model_name}_=_{val}_pred"] = 0.0
+            else:
+                eval_weights[f"{model_name}_diff_mean"] = 1.0
+                eval_weights[f"{model_name}_true_mean"] = 1.0
+                eval_weights[f"{model_name}_pred_mean"] = 1.0
         return eval_weights
         
     def weights_for_evaluation(self, display_weights):
@@ -477,10 +548,31 @@ class SliceEvaluationHelper(SliceHelper):
                 model_name = match.group(1)
                 new_weights[f"{model_name}_pred"] = w * .5
                 new_weights[f"{model_name}_pred_xf"] = w * .5
+            elif (match := re.match(r"^True '(.*)' = '(.*)'$", wname)) is not None:
+                model_name = match.group(1)
+                value = match.group(2)
+                new_weights[f"{model_name}_=_{value}_true"] = w
+            elif (match := re.match(r"^Predicted '(.*)' = '(.*)'$", wname)) is not None:
+                model_name = match.group(1)
+                value = match.group(2)
+                new_weights[f"{model_name}_=_{value}_pred"] = w
+            elif (match := re.match(r'^Difference (.*)$', wname)) is not None:
+                model_name = match.group(1)
+                new_weights[f"{model_name}_diff_mean"] = w
+            elif (match := re.match(r'^True Mean (.*)$', wname)) is not None:
+                model_name = match.group(1)
+                new_weights[f"{model_name}_true_mean"] = w
+            elif (match := re.match(r'^Predicted Mean (.*)$', wname)) is not None:
+                model_name = match.group(1)
+                new_weights[f"{model_name}_pred_mean"] = w
             elif (match := re.match(r'^Accuracy (.*)$', wname)) is not None:
                 model_name = match.group(1)
                 new_weights[f"{model_name}_acc"] = w * .5
                 new_weights[f"{model_name}_acc_xf"] = w * .5
+            elif (match := re.match(r'^Error (.*)$', wname)) is not None:
+                model_name = match.group(1)
+                new_weights[f"{model_name}_err"] = w * .5
+                new_weights[f"{model_name}_err_xf"] = w * .5
             else:
                 new_weights[wname] = w
         return new_weights
@@ -490,12 +582,24 @@ class SliceEvaluationHelper(SliceHelper):
         new_weights = {}
         for wname, w in evaluation_weights.items():
             display_key = wname
-            if (match := re.match(r'^(.*)_true(_xf)?$', wname)) is not None:
+            if (match := re.match(r'^(.*)_=_(.*)_true(_xf)?$', wname)) is not None:
+                display_key = f"True '{match.group(1)}' = '{match.group(2)}'"
+            elif (match := re.match(r'^(.*)_=_(.*)_pred(_xf)?$', wname)) is not None:
+                display_key = f"Predicted '{match.group(1)}' = '{match.group(2)}'"
+            elif (match := re.match(r'^(.*)_true(_xf)?$', wname)) is not None:
                 display_key = f"True Pos {match.group(1)}"
             elif (match := re.match(r'^(.*)_pred(_xf)?$', wname)) is not None:
                 display_key = f"Predicted Pos {match.group(1)}"
+            elif (match := re.match(r'^(.*)_true_mean$', wname)) is not None:
+                display_key = f"True Mean {match.group(1)}"
+            elif (match := re.match(r'^(.*)_pred_mean$', wname)) is not None:
+                display_key = f"Predicted Mean {match.group(1)}"
             elif (match := re.match(r'^(.*)_acc(_xf)?$', wname)) is not None:
                 display_key = f"Accuracy {match.group(1)}"
+            elif (match := re.match(r'^(.*)_err(_xf)?$', wname)) is not None:
+                display_key = f"Error {match.group(1)}"
+            elif (match := re.match(r'^(.*)_diff_mean$', wname)) is not None:
+                display_key = f"Difference {match.group(1)}"
             new_weights[display_key] = new_weights.get(display_key, 0) + w
         return new_weights
         
@@ -524,6 +628,8 @@ class SliceEvaluationHelper(SliceHelper):
         
         instance_behaviors = {}
         for model_name in model_names:
+            spec = self.get_model_spec(model_name)
+            
             true_outcome = metrics[f"{model_name} True"]
             total_nonna = (~pd.isna(true_outcome)).sum()
             matching_nonna = (~pd.isna(true_outcome[mask])).sum()
@@ -536,45 +642,63 @@ class SliceEvaluationHelper(SliceHelper):
             slice_ids = ids[mask][~pd.isna(full_slice_true)]
             slice_pred = full_slice_pred[~pd.isna(full_slice_true)]
             slice_true = full_slice_true[~pd.isna(full_slice_true)]
-            if len(slice_pred) > 0:
-                fpr, tpr, thresholds = roc_curve(slice_true, slice_pred)
-                opt_threshold = thresholds[np.argmax(tpr - fpr)]
-            else:
-                opt_threshold = 0.0
-            instance_behaviors[model_name] = (full_slice_true, np.where(pd.isna(full_slice_true), np.nan, full_slice_pred >= opt_threshold))
-            if len(np.unique(slice_true)) <= 1:
-                auroc = 1
-            else:
-                auroc = roc_auc_score(slice_true, slice_pred)
-            if len(slice_pred) > 0:
-                conf = confusion_matrix(slice_true, (slice_pred >= opt_threshold), labels=[0, 1])
-                tn, fp, fn, tp = conf.ravel()
-                acc = ((slice_pred >= opt_threshold) == slice_true).mean()
-            else:
-                tn, fp, fn, tp = 0, 1, 1, 0
-                acc = float('nan')
-            
             matching_unique_ids = len(np.unique(slice_ids))
-            
             desc["metrics"][model_name] = {
                 "Timesteps": {"type": "count", "count": matching_nonna, "share": matching_nonna / total_nonna},
                 "Trajectories": {"type": "count", 
                                  "count": matching_unique_ids, 
                                  "share": matching_unique_ids / total_unique_ids},
-                "Positive Rate": old_desc_metrics[f"{model_name} True"],
-                "Accuracy": {"type": "binary", 
-                             "count": matching_nonna, 
-                             "mean": acc},
-                "AUROC": {"type": "binary", 
-                             "count": matching_nonna, 
-                             "mean": auroc},
-                "Sensitivity": {"type": "binary", 
-                             "count": matching_nonna, 
-                             "mean": float(tp / (tp + fn))},
-                "Specificity": {"type": "binary", 
-                             "count": matching_nonna, 
-                             "mean": float(tn / (tn + fp))},
+                "True Values": old_desc_metrics[f"{model_name} True"],
             }
+            
+            if spec["model_type"] == "binary_classification":
+                if len(slice_pred) > 0:
+                    fpr, tpr, thresholds = roc_curve(slice_true, slice_pred)
+                    opt_threshold = thresholds[np.argmax(tpr - fpr)]
+                else:
+                    opt_threshold = 0.0
+                instance_behaviors[model_name] = (full_slice_true, np.where(pd.isna(full_slice_true), np.nan, full_slice_pred >= opt_threshold))
+                if len(np.unique(slice_true)) <= 1:
+                    auroc = 1
+                else:
+                    auroc = roc_auc_score(slice_true, slice_pred)
+                if len(slice_pred) > 0:
+                    conf = confusion_matrix(slice_true, (slice_pred >= opt_threshold), labels=[0, 1])
+                    tn, fp, fn, tp = conf.ravel()
+                    acc = ((slice_pred >= opt_threshold) == slice_true).mean()
+                else:
+                    tn, fp, fn, tp = 0, 1, 1, 0
+                    acc = float('nan')
+                             
+                f1 = f1_score(slice_true, slice_pred >= opt_threshold)
+                   
+                desc["metrics"][model_name].update({
+                    "Accuracy": {"type": "numeric", 
+                                "value": acc},
+                    "AUROC": {"type": "numeric", 
+                                "value": auroc},
+                    "Sensitivity": {"type": "numeric", 
+                                "value": float(tp / (tp + fn))},
+                    "Specificity": {"type": "numeric", 
+                                "value": float(tn / (tn + fp))},
+                    "Precision": {"type": "numeric", 
+                                "value": float(tp / (tp + fp))},
+                    "Micro F1": {"type": "numeric", 
+                                "value": f1},
+                    "Macro F1": {"type": "numeric", 
+                                "value": f1},
+                })
+            elif spec["model_type"] == "multiclass_classification":
+                desc["metrics"][model_name].update({
+                    "Accuracy": {"type": "numeric", "value": float((slice_true == slice_pred).mean())},
+                    "Micro F1": {"type": "numeric", "value": float(f1_score(slice_true, slice_pred, average="micro"))},
+                    "Macro F1": {"type": "numeric", "value": float(f1_score(slice_true, slice_pred, average="macro"))},
+                })
+            else:
+                desc["metrics"][model_name].update({
+                    "R^2": {"type": "numeric", "value": float(r2_score(slice_true, slice_pred))},
+                    "MSE": {"type": "numeric", "value": float(np.mean((slice_true - slice_pred) ** 2))}
+                })
             
         # Remove scores that aren't related to these model names
         desc["scoreValues"] = {k: v for k, v in desc["scoreValues"].items() 
@@ -596,14 +720,29 @@ class SliceEvaluationHelper(SliceHelper):
         metrics = {}
         for model_name in model_names:
             if model_name not in self.metrics:
+                spec = self.get_model_spec(model_name)
+                
                 model_metrics = {}
-                outcomes, preds = np.load(os.path.join(self.model_dir, f"preds_{model_name}.npy"), allow_pickle=True).T.astype(float)
+                with open(os.path.join(self.model_dir, f"preds_{model_name}.pkl"), "rb") as file:
+                    outcomes, preds = pickle.load(file)
             
                 valid_outcomes = outcomes[eval_mask].astype(np.float64)
                 valid_preds = preds[eval_mask]
+                if len(valid_preds.shape) > 1: valid_preds = np.argmax(valid_preds, axis=1)
 
-                model_metrics[f"{model_name} True"] = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)
-                model_metrics[f"{model_name} Predicted"] = np.where(np.isnan(valid_preds), np.nan, valid_preds)
+                if spec["model_type"] == "multiclass_classification":
+                    output_vals = np.array(spec["output_values"])
+                    true_metrics = np.empty(len(valid_outcomes), dtype=object)
+                    true_metrics.fill(None)
+                    true_metrics[~np.isnan(valid_outcomes)] = output_vals[valid_outcomes[~np.isnan(valid_outcomes)].astype(int)]
+                    pred_metrics = np.empty(len(valid_outcomes), dtype=object)
+                    pred_metrics.fill(None)
+                    pred_metrics[~np.isnan(valid_preds)] = output_vals[valid_preds[~np.isnan(valid_preds)].astype(int)]
+                    model_metrics[f"{model_name} True"] = true_metrics
+                    model_metrics[f"{model_name} Predicted"] = pred_metrics
+                else:
+                    model_metrics[f"{model_name} True"] = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes)
+                    model_metrics[f"{model_name} Predicted"] = np.where(np.isnan(valid_preds), np.nan, valid_preds)
                 self.metrics[model_name] = model_metrics
                 
             metrics.update(self.metrics[model_name])

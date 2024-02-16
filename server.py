@@ -132,9 +132,10 @@ if __name__ == '__main__':
                         models[model_id] = {
                             "outcome": model_spec["outcome"],
                             "timestep_definition": model_spec["timestep_definition"],
-                            "regression": model_spec.get("regression", False),
+                            "model_type": model_spec.get("model_type", "binary_classification"),
                             "n_variables": len(model_spec["variables"]),
-                            "metrics": json.load(file)
+                            "metrics": json.load(file),
+                            **({"output_values": model_spec["output_values"]} if "output_values" in model_spec else {})
                         }
 
         return jsonify({ "models": models })
@@ -473,8 +474,7 @@ if __name__ == '__main__':
         
         offset = body.get("offset", None)
         
-        metrics = evaluator.get_eval_metrics(model_names, eval_mask)
-        valid_mask = np.all(np.vstack(list(metrics.values())), axis=0)
+        valid_mask = np.all(np.vstack([evaluator.get_valid_model_mask(n)[eval_mask] for n in model_names]), axis=0)
         if offset is not None:
             try:
                 if int(offset) != offset:

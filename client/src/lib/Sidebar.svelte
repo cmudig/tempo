@@ -40,11 +40,25 @@
   $: if (Object.values(models).length > 0) {
     let modelsWithMetrics = Object.values(models).filter((m) => !!m.metrics);
     if (modelsWithMetrics.length > 0)
-      metricOptions = Object.keys(
-        modelsWithMetrics[0].metrics!.performance
+      metricOptions = Array.from(
+        new Set(
+          modelsWithMetrics
+            .map((m) => Object.keys(m.metrics!.performance))
+            .flat()
+        )
       ).sort();
     else metricOptions = [];
   } else metricOptions = [];
+
+  let availableMetrics: string[] = [];
+  $: availableMetrics = [
+    'Timesteps',
+    'Trajectories',
+    metricToShow,
+    'True Values',
+  ];
+  $: if (sortField != 'name' && !availableMetrics.includes(sortField))
+    sortField = 'name';
 
   $: {
     let maxInstances = Object.values(models)
@@ -78,7 +92,6 @@
           : (v: number) => v,
       Timesteps: (v: number) => v / maxInstances,
       Trajectories: (v: number) => v / maxTrajectories,
-      'Positive Rate': (v: number) => v,
     };
   }
 
@@ -145,7 +158,9 @@
       modelOrder = Object.keys(models).sort();
       if (sortDescending) modelOrder = modelOrder.reverse();
     } else {
-      let metricValues: { [key: string]: { [key: string]: number } };
+      let metricValues: {
+        [key: string]: { [key: string]: number };
+      };
       if (!!sliceMetrics)
         metricValues = Object.fromEntries(
           Object.keys(models).map((m) => [
@@ -156,8 +171,8 @@
                 (sliceMetrics![m]['Trajectories']?.count as number) ?? 0,
               [metricToShow]:
                 (sliceMetrics![m][metricToShow]?.mean as number) ?? 0,
-              'Positive Rate':
-                (sliceMetrics![m]['Positive Rate']?.mean as number) ?? 0,
+              'True Values':
+                (sliceMetrics![m]['True Values']?.mean as number) ?? 0,
             },
           ])
         );
@@ -169,7 +184,10 @@
               Timesteps: model.metrics?.n_slice_eval.instances ?? 0,
               Trajectories: model.metrics?.n_slice_eval.trajectories ?? 0,
               [metricToShow]: model.metrics?.performance[metricToShow] ?? 0,
-              'Positive Rate': model.metrics?.positive_rate ?? 0,
+              'True Values':
+                model.metrics?.true_values?.value ??
+                model.metrics?.true_values?.mean ??
+                0,
             },
           ])
         );
@@ -231,7 +249,7 @@
           />
         {/if}
       </button>
-      {#each ['Timesteps', 'Trajectories', metricToShow, 'Positive Rate'] as fieldName}
+      {#each availableMetrics as fieldName}
         <button
           class="p-2 rounded text-left grow-0 shrink-0 hover:bg-slate-200 whitespace-nowrap"
           class:font-bold={sortField == fieldName}

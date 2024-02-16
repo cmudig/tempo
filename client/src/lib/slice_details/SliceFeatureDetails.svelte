@@ -46,7 +46,7 @@
     {#if !!valueComparison && expanded}
       <div class="flex items-start gap-2">
         <div
-          class="w-16 shrink-0 grow-0 font-bold text-slate-500 text-xs text-right mt-2"
+          class="w-16 shrink-0 grow-0 font-bold text-slate-500 text-xs text-right"
         >
           Overall
         </div>
@@ -62,7 +62,7 @@
       </div>
       <div class="flex items-start gap-2">
         <div
-          class="w-16 shrink-0 grow-0 font-bold text-slate-500 text-xs text-right mt-2"
+          class="w-16 shrink-0 grow-0 font-bold text-slate-500 text-xs text-right"
         >
           In slice
         </div>

@@ -154,6 +154,7 @@
         valueNames = null;
         pollSliceStatus();
       }
+      console.log('slices:', slices);
     } catch (e) {
       console.error('error:', e);
       retrievingSlices = false;
@@ -265,12 +266,7 @@
   <div class="px-4 flex-auto h-0 overflow-auto" style="width: 100% !important;">
     <SliceSearchView
       modelNames={modelsToShow}
-      metricsToShow={[
-        'Timesteps',
-        'Trajectories',
-        metricToShow,
-        'Positive Rate',
-      ]}
+      metricsToShow={['Timesteps', 'Trajectories', metricToShow, 'True Values']}
       slices={areObjectsEqual(queryControls, resultControls)
         ? slices ?? []
         : []}

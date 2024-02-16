@@ -49,6 +49,16 @@
   onDestroy(() => {
     if (!!refreshTimer) clearTimeout(refreshTimer);
   });
+
+  $: if (
+    !!models[currentModel] &&
+    !models[currentModel].metrics?.performance[metricToShow]
+  ) {
+    let availableMetrics = Object.keys(
+      models[currentModel].metrics?.performance ?? {}
+    ).sort();
+    if (availableMetrics.length > 0) metricToShow = availableMetrics[0];
+  }
 </script>
 
 <main class="w-screen h-screen flex flex-col">
@@ -93,7 +103,10 @@
           class:overflow-y-auto={currentView != View.slices}
         >
           {#if currentView == View.results}
-            <ModelResultsView modelName={currentModel} />
+            <ModelResultsView
+              modelName={currentModel}
+              modelSummary={models[currentModel]}
+            />
           {:else if currentView == View.slices}
             <SlicesView
               bind:selectedSlice

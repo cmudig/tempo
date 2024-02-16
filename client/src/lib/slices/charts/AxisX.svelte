@@ -4,7 +4,8 @@
  -->
 <script>
   import { getContext } from 'svelte';
-  const { width, height, xScale, xDomain, yRange } = getContext('LayerCake');
+  const { width, height, xRange, padding, xScale, xDomain, yRange } =
+    getContext('LayerCake');
 
   /** @type {Boolean} [gridlines=true] - Extend lines from the ticks into the chart space */
   export let gridlines = true;
@@ -31,20 +32,25 @@
   export let yTick = 16;
 
   export let label = '';
+  export let labelLeft = false;
 
   export let color = '#333';
+
+  export let angle = false;
 
   $: isBandwidth = typeof $xScale.bandwidth === 'function';
 
   $: tickVals = Array.isArray(ticks)
     ? ticks
     : isBandwidth
-    ? $xScale.domain()
-    : typeof ticks === 'function'
-    ? ticks($xScale.ticks())
-    : $xScale.ticks(ticks);
+      ? $xScale.domain()
+      : typeof ticks === 'function'
+        ? ticks($xScale.ticks())
+        : $xScale.ticks(ticks);
 
   function textAnchor(x) {
+    if (angle) return 'end';
+
     if (snapTicks === true) {
       if (x == $xDomain[0]) {
         return 'start';
@@ -85,9 +91,10 @@
       {/if}
       <text
         x={xTick || isBandwidth ? $xScale.bandwidth() / 2 : 0}
-        y={yTick}
+        y={yTick - (angle ? 4 : 0)}
         dx=""
         dy=""
+        transform={angle ? 'rotate(-45)' : ''}
         style="fill: {color};"
         text-anchor={textAnchor(tick)}>{formatTick(tick)}</text
       >
@@ -104,10 +111,10 @@
   {/if}
   {#if !!label}
     <text
-      x={$width * 0.5}
+      x={labelLeft ? $xRange[0] - 4 - 12 : $width * 0.5}
       y={$height}
-      dy="36px"
-      text-anchor="middle"
+      dy={labelLeft ? '18px' : '36px'}
+      text-anchor={labelLeft ? 'end' : 'middle'}
       style="fill: {color};"
       class="axis-label">{@html label}</text
     >
