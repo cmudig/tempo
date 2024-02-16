@@ -209,9 +209,7 @@
         </div>
       </div>
       <div
-        class="aspect-square {!!metrics.roc
-          ? 'h-64'
-          : 'h-full'} shrink-0 grow-0"
+        class="aspect-square {!!metrics.roc ? 'h-64' : 'h-72'} shrink-0 grow-0"
         style="min-width: 200px; min-height: 300px;"
       >
         {#if !!metrics.roc}
