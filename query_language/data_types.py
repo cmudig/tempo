@@ -1303,9 +1303,9 @@ class TimeSeries(TimeSeriesQueryable):
         if pd.api.types.is_object_dtype(self.series.dtype):
             # Convert to numbers before using numba
             codes, uniques = pd.factorize(self.series)
-            codes = np.where(pd.isna(self.series), np.nan, codes)
+            codes = np.where(pd.isna(self.series), np.nan, codes).astype(np.float64)
         else:
-            codes = self.series.values
+            codes = self.series.values.astype(np.float64)
             uniques = None
         result = numba_carry_forward(List(self.index.get_ids().values.tolist()), 
                                      np.array(self.index.get_times().values, dtype=np.int64), 
