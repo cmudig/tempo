@@ -2,7 +2,7 @@ from flask import Flask, send_from_directory, request, jsonify, send_file
 from dataset_manager import DatasetManager
 from model_training import make_modeling_variables
 from model_slice_finding import describe_slice_change_differences, describe_slice_differences
-from utils import make_series_summary
+from utils import make_series_summary, make_query_result_summary
 import slice_finding as sf
 import json
 import os
@@ -188,6 +188,22 @@ if __name__ == '__main__':
             evaluator.rescore_model(model_name, meta["timestep_definition"])
         return f"Started training model '{model_name}'", 200
         
+    data_summary = None
+    
+    @app.route("/data/summary")
+    def get_data_summary():
+        global data_summary
+        if data_summary is not None: return jsonify(data_summary)
+        result = {}
+        result["attributes"] = {attr_name: make_query_result_summary(sample_dataset, sample_dataset.attributes.get(attr_name))
+                                for attr_name in sample_dataset.attributes.df.columns}
+        result["events"] = {eventtype: make_query_result_summary(sample_dataset, sample_dataset.events.get(eventtype))
+                            for eventtype in sample_dataset.events.get_types().unique()}
+        result["intervals"] = {eventtype: make_query_result_summary(sample_dataset, sample_dataset.intervals.get(eventtype))
+                            for eventtype in sample_dataset.intervals.get_types().unique()}
+        data_summary = sf.utils.convert_to_native_types(result)
+        return jsonify(data_summary)
+        
     @app.route("/data/query")
     def query_dataset():
         args = request.args
@@ -199,8 +215,7 @@ if __name__ == '__main__':
                 "n_trajectories": len(set(result.get_ids().values.tolist())),
                 "query": args.get("q")
             }
-            values = result.get_values()
-            return jsonify({"summary": {**summary, **make_series_summary(values)}})
+            return jsonify({**summary, "result": make_query_result_summary(sample_dataset, result)})
         except Exception as e:
             import traceback
             print(traceback.format_exc())

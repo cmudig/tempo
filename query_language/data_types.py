@@ -925,6 +925,9 @@ class IntervalSet(TimeSeriesQueryable):
     def get_ids(self):
         return self.df[self.id_field]
     
+    def get_types(self):
+        return self.df[self.type_field]
+    
     def get_start_times(self):
         return self.df[self.start_time_field]
     
@@ -1300,7 +1303,7 @@ class TimeSeries(TimeSeriesQueryable):
             float(duration)
         except ValueError:
             raise ValueError(f"carry_forward_duration requires a scalar value or Duration")
-        if pd.api.types.is_object_dtype(self.series.dtype):
+        if not pd.api.types.is_numeric_dtype(self.series.dtype):
             # Convert to numbers before using numba
             codes, uniques = pd.factorize(self.series)
             codes = np.where(pd.isna(self.series), np.nan, codes).astype(np.float64)

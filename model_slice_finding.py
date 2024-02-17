@@ -276,7 +276,7 @@ class SliceHelper:
         """Returns a key into the slice results file representing the results for
         this set of controls."""
         def make_slice(obj):
-            if obj is None: return None
+            if obj is None or len(obj) == 0: return None
             return sf.slices.SliceFeatureBase.from_dict(obj)
         return (controls["slice_spec_name"],
                 make_slice(controls.get("contains_slice", None)),

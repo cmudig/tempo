@@ -8,3 +8,5 @@ tqdm>=4.66.1
 xgboost>=2.0.1
 lark>=1.1.8
 -e git+https://github.com/venkatesh-sivaraman/slice-finding.git#egg=slice_finding
+torch>=2.0.0
+pyarrow>=13.0.0

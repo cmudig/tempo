@@ -33,7 +33,7 @@
       absolutePosition
       maxWidth={width}
       fraction={1.0}
-      color="#e5e7eb"
+      color="#cbd5e1"
       {hoverable}
       on:mouseenter={(e) => (hoveringIndex = -1)}
       on:mouseleave={(e) => (hoveringIndex = null)}

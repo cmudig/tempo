@@ -18,15 +18,19 @@ class EvaluateExpression(lark.visitors.Transformer):
         self.eventtype_macros = eventtype_macros if eventtype_macros is not None else {}
         self.value_placeholder = None
         self.variables = {}
+        self._all_ids = None
         
     def get_all_ids(self):
+        if self._all_ids is not None: return self._all_ids
+        all_ids = []
         if len(self.attributes.get_ids()):
-            ids = self.attributes.get_ids()
-        elif len(self.events.get_ids()):
-            ids = self.events.get_ids().unique()
+            all_ids.append(self.attributes.get_ids().values)
+        if len(self.events.get_ids()):
+            all_ids.append(self.events.get_ids().unique())
         elif len(self.intervals.get_ids()):
-            ids = self.intervals.get_ids().unique()
-        return ids        
+            all_ids.append(self.intervals.get_ids().unique())
+        self._all_ids = np.unique(np.concatenate(all_ids))
+        return self._all_ids
         
     def _get_data_element(self, query):
         comps = query.split(":")

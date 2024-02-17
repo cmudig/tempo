@@ -74,16 +74,18 @@ export type VariableDefinition = {
   enabled: boolean;
 };
 
+export type QueryResult = {
+  name?: string;
+  values?: SliceMetric & { missingness?: number };
+  occurrences?: SliceMetric & { missingness?: number };
+  durations?: SliceMetric & { missingness?: number };
+};
+
 export type VariableEvaluationSummary = {
   query: string;
   n_values: number;
   n_trajectories: number;
-  type: 'binary' | 'continuous' | 'categorical';
-  rate?: number;
-  counts?: { [key: string]: number };
-  mean?: number;
-  std?: number;
-  hist?: { counts: number[]; bins: number[] };
+  result: QueryResult;
 };
 
 export type SliceFilter = { [key: string]: any } & { type: string };

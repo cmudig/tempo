@@ -183,8 +183,8 @@ class ModelTrainer:
                             "Sensitivity": recall,
                             "Specificity": float(tn / (tn + fp)),
                             "Precision": precision,
-                            "Micro F1": 2 * precision * recall / (precision + recall),
-                            "Macro F1": 2 * precision * recall / (precision + recall),
+                            "Micro F1": 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0,
+                            "Macro F1": 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0,
                         })
                     
                     conf = confusion_matrix(val_y, (val_pred >= opt_threshold))

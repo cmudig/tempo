@@ -230,12 +230,10 @@
     <div
       class="text-sm text-left inline-flex align-top slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600"
     >
-      {#if !!selectedSlice}
-        <div
-          class="grow-0 shrink-0"
-          style="width: {SidebarTableWidths.Checkbox}px;"
-        ></div>
-      {/if}
+      <div
+        class="grow-0 shrink-0"
+        style="width: {SidebarTableWidths.Checkbox}px;"
+      ></div>
       <button
         class="p-2 text-left grow-0 shrink-0 hover:bg-slate-200 whitespace-nowrap"
         on:click={() => setSort('name')}
@@ -273,7 +271,6 @@
         {modelName}
         {metricToShow}
         {metricScales}
-        showCheckbox={!!selectedSlice}
         customMetrics={sliceMetrics?.[modelName] ?? undefined}
         isActive={activeModel === modelName}
         isChecked={selectedModels.includes(modelName) ||

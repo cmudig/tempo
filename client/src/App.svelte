@@ -6,10 +6,11 @@
   import SlicesView from './lib/SlicesView.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import type { Slice, SliceFeatureBase } from './lib/slices/utils/slice.type';
-  import { faHeart } from '@fortawesome/free-solid-svg-icons';
+  import { faHeart, faInfoCircle } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import SavedSlicesView from './lib/SavedSlicesView.svelte';
   import ResizablePanel from './lib/utils/ResizablePanel.svelte';
+  import DatasetInfoView from './lib/DatasetInfoView.svelte';
 
   let models: { [key: string]: ModelSummary } = {};
 
@@ -20,6 +21,7 @@
   }
   let currentView: View = View.results;
   let showingSaved: boolean = false;
+  let showingDatasetInfo: boolean = false;
 
   let currentModel = 'vasopressor_8h';
   let selectedModels: string[] = [];
@@ -63,6 +65,11 @@
 
 <main class="w-screen h-screen flex flex-col">
   <div class="w-full h-12 grow-0 shrink-0 bg-slate-500 flex py-2 px-3">
+    <button
+      class="btn btn-dark-slate"
+      on:click={() => (showingDatasetInfo = true)}
+      ><Fa icon={faInfoCircle} class="inline mr-2" /> Dataset Info</button
+    >
     <div class="flex-auto" />
     <button
       class="btn {showingSaved ? 'btn-dark-blue' : 'btn-dark-slate'}"
@@ -137,4 +144,21 @@
       </div>
     {/if}
   </div>
+  {#if showingDatasetInfo}
+    <div
+      class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 bg-black/70"
+      on:click={() => (showingDatasetInfo = false)}
+      on:keydown={(e) => {}}
+    />
+    <div
+      class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 flex items-center justify-center pointer-events-none"
+    >
+      <div
+        class="w-2/3 h-2/3 z-20 rounded-md bg-white p-1 pointer-events-auto"
+        style="min-width: 200px; max-width: 100%;"
+      >
+        <DatasetInfoView />
+      </div>
+    </div>
+  {/if}
 </main>

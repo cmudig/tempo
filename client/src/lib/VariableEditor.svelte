@@ -18,6 +18,10 @@
   export let varName: string = '';
   export let varInfo: VariableDefinition | null = null;
   export let editing = false;
+  export let showName = true;
+  export let showButtons = true;
+  export let showCheckbox = true;
+  export let autosave = false;
 
   export let timestepDefinition: string = '';
 
@@ -44,6 +48,7 @@
       evaluateQuery();
     }
   } else {
+    console.log(editing, newVariableQuery);
     evaluationSummary = null;
     evaluationError = null;
   }
@@ -76,25 +81,31 @@
 
   let evaluationTimer: NodeJS.Timeout | null = null;
   const metricWidth = 176;
+
+  const countFormat = d3.format(',');
 </script>
 
 {#if !!varInfo && !!varName}
-  <div class="ml-2 mb-1 flex items-center gap-1">
-    <Checkbox
-      checked={varInfo.enabled}
-      on:change={(e) => {
-        dispatch('toggle', e.detail);
-      }}
-    />
-    <div class="w-2" />
+  <div class:ml-2={showCheckbox} class="mb-1 flex items-center gap-1">
+    {#if showCheckbox}
+      <Checkbox
+        checked={varInfo.enabled}
+        on:change={(e) => {
+          dispatch('toggle', e.detail);
+        }}
+      />
+      <div class="w-2" />
+    {/if}
     {#if editing}
       <div class="flex-auto flex flex-col gap-2 h-full">
-        <input
-          type="text"
-          class="flat-text-input w-full font-mono text-sm"
-          placeholder="Variable Name"
-          bind:value={newVariableName}
-        />
+        {#if showName}
+          <input
+            type="text"
+            class="flat-text-input w-full font-mono text-sm"
+            placeholder="Variable Name"
+            bind:value={newVariableName}
+          />
+        {/if}
         <div class="flex flex-auto w-full">
           <div
             class="text-sm w-48 self-stretch bg-slate-200 rounded mr-2 p-2"
@@ -117,6 +128,8 @@
                   <SliceMetricBar
                     value={evaluationSummary.mean}
                     width={metricWidth}
+                    color="#d97706"
+                    showFullBar
                   >
                     <span slot="caption">
                       <strong>{d3.format('.1%')(evaluationSummary.mean)}</strong
@@ -146,39 +159,53 @@
                 {/if}
 
                 <p class="mt-2 text-xs text-slate-500">
-                  {evaluationSummary.n_trajectories} trajectories, {evaluationSummary.n_values}
-                  values
+                  (Evaluated over {countFormat(
+                    evaluationSummary.n_trajectories
+                  )} trajectories, {countFormat(evaluationSummary.n_values)}
+                  values)
                 </p>
               </div>
             {/if}
           </div>
           <div class="flex-auto">
-            <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
+            {#if showName}
+              <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
+            {/if}
             <textarea
-              class="flat-text-input w-full h-24 font-mono"
+              class="flat-text-input w-full {showName
+                ? 'h-24'
+                : 'h-full min-h-0'} font-mono"
               bind:value={newVariableQuery}
               on:input={() => {
+                if (autosave) {
+                  dispatch('save', {
+                    name: newVariableName,
+                    query: newVariableQuery,
+                  });
+                }
                 if (!!evaluationTimer) clearTimeout(evaluationTimer);
                 evaluationTimer = setTimeout(evaluateQuery, 2000);
                 summaryIsStale = true;
               }}
             />
-            <div class="mt-2 flex gap-1">
-              <button
-                class="my-1 py-1 text-sm px-3 rounded text-slate-800 bg-slate-200 hover:bg-slate-300 font-bold"
-                on:click={() => dispatch('cancel')}>Cancel</button
-              >
-              <button
-                class="my-1 py-1 text-sm px-3 rounded text-slate-800 bg-slate-200 hover:bg-slate-300 font-bold"
-                class:opacity-30={newVariableQuery == varInfo.query}
-                disabled={newVariableQuery == varInfo.query}
-                on:click={() =>
-                  dispatch('save', {
-                    name: newVariableName,
-                    query: newVariableQuery,
-                  })}>Save</button
-              >
-            </div>
+            {#if showButtons}
+              <div class="mt-2 flex gap-1">
+                <button
+                  class="my-1 py-1 text-sm px-3 rounded text-slate-800 bg-slate-200 hover:bg-slate-300 font-bold"
+                  on:click={() => dispatch('cancel')}>Cancel</button
+                >
+                <button
+                  class="my-1 py-1 text-sm px-3 rounded text-slate-800 bg-slate-200 hover:bg-slate-300 font-bold"
+                  class:opacity-30={newVariableQuery == varInfo.query}
+                  disabled={newVariableQuery == varInfo.query}
+                  on:click={() =>
+                    dispatch('save', {
+                      name: newVariableName,
+                      query: newVariableQuery,
+                    })}>Save</button
+                >
+              </div>
+            {/if}
           </div>
         </div>
       </div>

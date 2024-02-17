@@ -129,15 +129,41 @@
     <VariableEditorPanel {timestepDefinition} bind:inputVariables />
   </div>
   <h3 class="font-bold mt-3 mb-1">Outcome Variable</h3>
-  <textarea
+  {#if !!outcomeVariable}
+    <VariableEditor
+      varName="outcome"
+      varInfo={{ query: outcomeVariable, category: '', enabled: true }}
+      {timestepDefinition}
+      showCheckbox={false}
+      showButtons={false}
+      autosave
+      showName={false}
+      editing
+      on:save={(e) => (outcomeVariable = e.detail.query)}
+    />
+  {/if}
+  <!-- <textarea
     class="flat-text-input w-full font-mono"
     bind:value={outcomeVariable}
-  />
+  /> -->
   <h3 class="font-bold mt-3 mb-1">Timestep Filter</h3>
-  <textarea
+  {#if !!patientCohort}
+    <VariableEditor
+      varName="cohort"
+      varInfo={{ query: patientCohort, category: '', enabled: true }}
+      {timestepDefinition}
+      showCheckbox={false}
+      showButtons={false}
+      autosave
+      showName={false}
+      editing
+      on:save={(e) => (patientCohort = e.detail.query)}
+    />
+  {/if}
+  <!-- <textarea
     class="flat-text-input w-full font-mono"
     bind:value={patientCohort}
-  />
+  /> -->
   <div class="mt-2 flex gap-2">
     <button
       class="my-1 py-1.5 text-sm px-4 rounded text-slate-800 bg-red-200 hover:bg-red-300 font-bold"
