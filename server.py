@@ -351,9 +351,8 @@ if __name__ == '__main__':
         return jsonify(response)
         
     def _score_slice(model_names, timestep_def, slice_spec_name, slice_requests, return_instance_info=False):
-        result = evaluator.get_results(timestep_def, {"slice_spec_name": slice_spec_name}, model_names, always_return=True)
+        rank_list, metrics, ids, df = evaluator.get_slice_ranking_info(timestep_def, {"slice_spec_name": slice_spec_name}, model_names)
         
-        rank_list, metrics, ids, df = result
         slices_to_score = {k: rank_list.encode_slice(v) for k, v in slice_requests.items()}
         scored_slices = {
             k: evaluator.describe_slice(rank_list,

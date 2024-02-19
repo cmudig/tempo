@@ -114,7 +114,7 @@ class DatasetManager:
         return os.path.join(self.model_dir, f"metrics_{model_name}.json")
     
     def model_preds_path(self, model_name):
-        return os.path.join(self.model_dir, f"preds_{model_name}.npy")
+        return os.path.join(self.model_dir, f"preds_{model_name}.pkl")
     
     def model_weights_path(self, model_name):
         return os.path.join(self.model_dir, f"model_{model_name}.json")

@@ -6,10 +6,13 @@ import tqdm
 import torch
 import pickle
 import datetime
+import time
 from query_language.data_types import *
 from model_training import make_query
 from sklearn.metrics import roc_curve, roc_auc_score, confusion_matrix, r2_score, f1_score
 import slice_finding as sf
+
+MODEL_CACHE_UPDATE_TIME = 300 # 5 minutes
 
 def make_slicing_variables(dataset, variable_definitions, timestep_definition):
     """Creates the slicing variables dataframe."""
@@ -163,6 +166,11 @@ class SliceHelper:
         self.results_dir = results_dir     
         self.discrete_dfs = {}
         
+        self.last_cache_time = None
+        self.model_spec_cache = {}
+        self.model_preds_cache = {}
+        self.model_threshold_cache = {} # just for binary classification models
+        
     def get_status(self):
         status_path = os.path.join(self.results_dir, "discovery_status.json")
         try:
@@ -196,13 +204,45 @@ class SliceHelper:
         """
         self.discrete_dfs = {k: v for k, v in self.discrete_dfs.items() if k[0] != slice_spec_name}
 
-    def get_valid_model_mask(self, model_name):
-        with open(os.path.join(self.model_dir, f"preds_{model_name}.pkl"), "rb") as file:
-            return ~np.isnan(pickle.load(file)[0].astype(np.float64))
+    def clear_model_caches(self):
+        self.model_spec_cache = {}
+        self.model_preds_cache = {}
+        self.model_threshold_cache = {}
+        self.last_cache_time = time.time()
+        
+    def get_model_spec(self, model_name):
+        if self.last_cache_time is None or time.time() - self.last_cache_time >= MODEL_CACHE_UPDATE_TIME:
+            self.clear_model_caches()
+            
+        if model_name not in self.model_spec_cache:
+            with open(self.manager.model_spec_path(model_name), "r") as file:
+                self.model_spec_cache[model_name] = json.load(file)
+        return self.model_spec_cache[model_name]
+        
+    def get_model_preds(self, model_name):
+        """Returns a tuple of (true values, predicted values)."""
+        if self.last_cache_time is None or time.time() - self.last_cache_time >= MODEL_CACHE_UPDATE_TIME:
+            self.clear_model_caches()
+            
+        if model_name not in self.model_preds_cache:
+            with open(self.manager.model_preds_path(model_name), "rb") as file:
+                self.model_preds_cache[model_name] = tuple((x.astype(np.float64) for x in pickle.load(file)))
+        return self.model_preds_cache[model_name]
     
-    def get_model_outcomes(self, model_name):
-        with open(os.path.join(self.model_dir, f"preds_{model_name}.pkl"), "rb") as file:
-            return pickle.load(file)[0].astype(np.float64)
+    def get_model_opt_threshold(self, model_name):
+        if self.last_cache_time is None or time.time() - self.last_cache_time >= MODEL_CACHE_UPDATE_TIME:
+            self.clear_model_caches()
+            
+        if model_name not in self.model_threshold_cache:
+            with open(self.manager.model_metrics_path(model_name), "r") as file:
+                self.model_threshold_cache[model_name] = json.load(file)["threshold"]
+        return self.model_threshold_cache[model_name]        
+        
+    def get_valid_model_mask(self, model_name):
+        return ~np.isnan(self.get_model_preds(model_name)[0])
+    
+    def get_model_labels(self, model_name):
+        return self.get_model_preds(model_name)[0]
             
     def get_score_functions(self, discrete_df, valid_mask, timestep_def, include_model_names=None, exclude_model_names=None, controls=None):
         score_fns = {
@@ -221,14 +261,11 @@ class SliceHelper:
             
             model_names.append(model_name)
             
-            with open(os.path.join(self.model_dir, f"preds_{model_name}.pkl"), "rb") as file:
-                outcomes, preds = pickle.load(file)
+            outcomes, preds = self.get_model_preds(model_name)
             valid_outcomes = outcomes[valid_mask].astype(np.float64)
             
             if spec["model_type"] == "binary_classification":
-                with open(os.path.join(self.model_dir, f"metrics_{model_name}.json"), "r") as file:
-                    metrics = json.load(file)
-                    threshold = metrics['threshold']
+                threshold = self.get_model_opt_threshold(model_name)
                 preds = np.where(np.isnan(preds), np.nan, preds >= threshold)
                 
                 valid_preds = preds[valid_mask]
@@ -280,15 +317,8 @@ class SliceHelper:
             score_fns.update(new_score_fns)
         return score_fns, model_names
 
-    def get_model_spec(self, model_name):
-        with open(os.path.join(self.model_dir, f"spec_{model_name}.json"), "r") as file:
-            spec = json.load(file)
-        return spec
-    
     def get_model_timestep_def(self, model_name):
-        with open(os.path.join(self.model_dir, f"spec_{model_name}.json"), "r") as file:
-            spec = json.load(file)
-        return spec['timestep_definition']
+        return self.get_model_spec(model_name)['timestep_definition']
     
     def controls_to_result_key(self, controls):
         """Returns a key into the slice results file representing the results for
@@ -432,8 +462,7 @@ class SliceDiscoveryHelper(SliceHelper):
                  
             self.write_status(True, search_status={"state": "loading", "message": f"Finding slices for {model_name}", "model_name": model_name})
             
-            with open(os.path.join(self.model_dir, f"preds_{model_name}.pkl"), "rb") as file:
-                outcomes = pickle.load(file)[0].astype(np.float64)
+            outcomes = self.get_model_labels(model_name)
                 
             # don't add control-related score functions here as they will be added
             # in find_slices
@@ -708,8 +737,7 @@ class SliceEvaluationHelper(SliceHelper):
             }
             
             if spec["model_type"] == "binary_classification":
-                with open(os.path.join(self.model_dir, f"metrics_{model_name}.json"), "r") as file:
-                    opt_threshold = json.load(file)['threshold']
+                opt_threshold = self.get_model_opt_threshold(model_name)
                     
                 instance_behaviors[model_name] = (full_slice_true, np.where(pd.isna(full_slice_true), np.nan, full_slice_pred >= opt_threshold))
                 if len(np.unique(slice_true)) <= 1:
@@ -777,8 +805,7 @@ class SliceEvaluationHelper(SliceHelper):
                 spec = self.get_model_spec(model_name)
                 
                 model_metrics = {}
-                with open(os.path.join(self.model_dir, f"preds_{model_name}.pkl"), "rb") as file:
-                    outcomes, preds = pickle.load(file)
+                outcomes, preds = self.get_model_preds(model_name)
             
                 valid_outcomes = outcomes[eval_mask].astype(np.float64)
                 valid_preds = preds[eval_mask]
@@ -803,7 +830,25 @@ class SliceEvaluationHelper(SliceHelper):
                         
         return metrics
     
-    def get_results(self, timestep_def, controls, model_names, always_return=False):
+    def get_slice_ranking_info(self, timestep_def, controls, model_names):
+        """Returns a RankedSliceList object with no slices, allowing clients to
+        score custom slices without going through the slice search ranking process."""
+        result_key = self.controls_to_result_key(controls)
+        
+        valid_df, eval_mask, ids, _ = self.get_slicing_data(controls["slice_spec_name"], timestep_def, True)
+            
+        score_fns, _ = self.get_score_functions(valid_df, eval_mask, timestep_def, controls=controls)
+                
+        metrics = self.get_eval_metrics(model_names, eval_mask)
+        
+        rank_list = sf.slices.RankedSliceList([], 
+                                              valid_df, 
+                                              score_fns, 
+                                              similarity_threshold=0.7)
+        rank_list.score_cache = self.eval_score_caches.setdefault(timestep_def, {}).setdefault(result_key, {})
+        return rank_list, metrics, ids, valid_df
+
+    def get_results(self, timestep_def, controls, model_names):
         current_status = self.get_status()
         if current_status != self.slice_finding_status:
             print("Refreshing stored slice scores")
@@ -812,15 +857,13 @@ class SliceEvaluationHelper(SliceHelper):
             # reload slice results
             self.load_timestep_slice_results(timestep_def)
         
-        if (timestep_def not in self.slice_scores or not len(self.slice_scores[timestep_def])) and not always_return:
+        if (timestep_def not in self.slice_scores or not len(self.slice_scores[timestep_def])):
             return None
         
         result_key = self.controls_to_result_key(controls)
         print("result key for rescoring:", result_key)
         if result_key not in self.slice_scores.get(timestep_def, {}):
-            if always_return: scored_slices = []
-            else:
-                return None
+            return None
         else:
             scored_slices = list(self.slice_scores[timestep_def][result_key].keys())
         
@@ -829,7 +872,7 @@ class SliceEvaluationHelper(SliceHelper):
         score_fns, _ = self.get_score_functions(valid_df, eval_mask, timestep_def, controls=controls)
                 
         metrics = self.get_eval_metrics(model_names, eval_mask)
-        all_outcomes = np.vstack([self.get_model_outcomes(model_name)[eval_mask]
+        all_outcomes = np.vstack([self.get_model_labels(model_name)[eval_mask]
                                   for model_name in model_names])
         scored_slices = [s for s in scored_slices if np.any(~np.isnan(all_outcomes[:,s.make_mask(valid_df.df)]), axis=0).sum() > 0]
 
