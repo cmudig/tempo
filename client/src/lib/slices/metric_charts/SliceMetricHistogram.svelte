@@ -11,6 +11,7 @@
 
   export let histValues: Histogram;
   export let mean = null;
+  export let color = '#3b82f6';
 
   let data: Array<{ bin: number; count: number }> = [];
   let histBins: Array<number> = [];
@@ -61,7 +62,7 @@
   >
     <Svg>
       <Column
-        fill="#3b82f6"
+        fill={color}
         on:hover={(e) => (hoveredBin = e.detail != null ? e.detail.bin : null)}
       />
     </Svg>

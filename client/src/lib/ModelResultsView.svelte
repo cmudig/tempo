@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     decimalMetrics,
+    ModelTypeStrings,
     type ModelMetrics,
     type ModelSummary,
     type VariableDefinition,
@@ -86,9 +87,14 @@
   {#if isTraining}
     <ModelTrainingView {modelName} on:finish={loadModelResults} />
   {:else if !!metrics}
-    <h2 class="text-lg font-bold mb-3">
-      Model Metrics: <span class="font-mono">{modelName}</span>
-    </h2>
+    <div class="text-lg font-bold mb-3 w-full flex items-center gap-2">
+      <div class="font-mono">{modelName}</div>
+      {#if !!modelSummary && !!modelSummary.model_type}
+        <div class="rounded text-xs font-normal bg-slate-200 px-2 py-1">
+          {ModelTypeStrings[modelSummary.model_type]}
+        </div>
+      {/if}
+    </div>
     {#if !!metrics.trivial_solution_warning}
       <div class="mb-2 p-4 bg-orange-100 rounded-lg">
         <h4 class="font-bold text-orange-700/80 mb-2">
@@ -149,7 +155,7 @@
         {/if}
         {#if !!performanceMetrics}
           <div class="flex flex-wrap gap-4 mb-4">
-            {#each Object.entries(performanceMetrics) as [metricName, value]}
+            {#each Object.entries(performanceMetrics) as [metricName, value] (metricName)}
               <div class="w-32">
                 <div class="font-bold text-slate-600 text-sm mb-2">
                   {metricName}

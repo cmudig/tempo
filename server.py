@@ -66,18 +66,7 @@ def _background_model_generation(base_path, queue):
             command, model_name, controls = arg
             if finder is None:
                 finder = make_finder()
-            def filter_single_values(valid_df, outcomes):
-                # Exclude any features that have only one value
-                single_value_filters = []
-                for col_idx, (col, value_pairs) in valid_df.value_names.items():
-                    unique_vals = np.unique(valid_df.df[:,col_idx][~pd.isna(outcomes)])
-                    if len(unique_vals) == 1:
-                        single_value_filters.append(sf.filters.ExcludeFeatureValue(col_idx, unique_vals[0]))
-                        
-                print("Single value filters:", [(f.feature, f.value) for f in single_value_filters])
-                return sf.filters.ExcludeIfAny(single_value_filters)
-                
-            finder.find_slices(model_name, controls, additional_filter=filter_single_values)
+            finder.find_slices(model_name, controls)
         elif arg[0] == "invalidate_slice_spec":
             command, spec_name = arg
             if finder is None:

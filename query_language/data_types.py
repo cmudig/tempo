@@ -26,7 +26,7 @@ def make_aligned_value_series(value_set, other):
 def compress_series(v):
     if pd.api.types.is_object_dtype(v.dtype) or isinstance(v.dtype, pd.CategoricalDtype):
         # Convert category types if needed
-        if len(v.unique()) < 64:
+        if len(v.unique()) < len(v) * 0.5:
             v = v.astype("category")
             
         if isinstance(v.dtype, pd.CategoricalDtype) and pd.api.types.is_object_dtype(v.dtype.categories.dtype):
@@ -53,7 +53,9 @@ def compress_series(v):
             return v.astype(pd.Int64Dtype() if has_nans else np.int64)
     except:
         pass
-    return v.astype(np.float32)
+    if pd.api.types.is_numeric_dtype(v):
+        return v.astype(np.float32)
+    return v
 
     
 EXCLUDE_SERIES_METHODS = ("_repr_latex_",)
@@ -516,7 +518,7 @@ class Events(TimeSeriesQueryable):
         event_values = self.df[self.value_field]
         if isinstance(event_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(event_values.dtype):
             # Convert to numbers before using numba
-            if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
+            if agg_func not in CATEGORICAL_SUPPORT_AGG_FUNCTIONS:
                 raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
             event_values, uniques = pd.factorize(event_values)
             event_values = np.where(pd.isna(event_values), np.nan, event_values).astype(np.float64)
@@ -552,7 +554,7 @@ class Events(TimeSeriesQueryable):
                                              AGG_FUNCTIONS[agg_func])
         grouped_values = convert_numba_result_dtype(grouped_values, agg_func)
         
-        if uniques is not None:
+        if uniques is not None and agg_func in TYPE_PRESERVING_AGG_FUNCTIONS:
             grouped_values = np.where(np.isnan(grouped_values), 
                                     np.nan, 
                                     uniques[np.where(np.isnan(grouped_values), -1, grouped_values).astype(int)])
@@ -796,7 +798,7 @@ class Intervals(TimeSeriesQueryable):
         
         if isinstance(interval_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(interval_values.dtype):
             # Convert to numbers before using numba
-            if agg_func in ("sum", "mean", "median", "min", "max", "integral"):
+            if agg_func not in CATEGORICAL_SUPPORT_AGG_FUNCTIONS:
                 raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
             interval_values, uniques = pd.factorize(interval_values)
             interval_values = np.where(pd.isna(interval_values), np.nan, interval_values).astype(np.float64)
@@ -836,7 +838,7 @@ class Intervals(TimeSeriesQueryable):
                                              AGG_FUNCTIONS[agg_func])
         grouped_values = convert_numba_result_dtype(grouped_values, agg_func)
         
-        if uniques is not None:
+        if uniques is not None and agg_func in TYPE_PRESERVING_AGG_FUNCTIONS:
             grouped_values = np.where(np.isnan(grouped_values), 
                                     np.nan, 
                                     uniques[np.where(np.isnan(grouped_values), -1, grouped_values).astype(int)])

@@ -9,6 +9,9 @@
   } from './slicedescription';
   import SliceFeatureDetails from './SliceFeatureDetails.svelte';
   import SliceDetailsColumn from './SliceDetailsColumn.svelte';
+  import { createEventDispatcher } from 'svelte';
+
+  const dispatch = createEventDispatcher();
 
   export let modelNames: string[] = [];
   export let slice: SliceFeatureBase | null = null;
@@ -155,6 +158,11 @@
             on:click={() => (selectedFeature = null)}>Show All</button
           >
         {/if}
+        <button
+          class="text-slate-600 px-2 hover:opacity-50"
+          on:click={() => dispatch('close')}
+          ><Fa icon={faXmark} class="inline" /></button
+        >
       </div>
       <div class="flex-auto min-h-0 w-full flex">
         <div class="w-1/3 overflow-auto pt-2 p-1">

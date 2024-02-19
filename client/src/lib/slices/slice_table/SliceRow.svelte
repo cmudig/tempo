@@ -366,75 +366,89 @@
           typeof metricInfo === 'function'
             ? metricInfo(name)
             : metricInfo[name]}
-        <div
-          class="p-2 pt-3 overflow-visible whitespace-nowrap self-start"
-          style="width: {!!mInfo && mInfo.visible
-            ? TableWidths.Metric
-            : TableWidths.CollapsedMetric}px;"
-        >
-          {#if sliceForScores.isEmpty}
-            <span class="text-slate-600">Empty</span>
-          {:else if !!mInfo && mInfo.visible}
-            {#if metric.type == 'binary'}
-              <SliceMetricBar
-                value={metric.mean}
-                scale={mInfo.scale ?? ((v) => v)}
-                color={mInfo.color ?? null}
-                colorScale={mInfo.colorScale ?? interpolateViridis}
-                width={scoreCellWidth}
-              >
-                <span slot="caption">
-                  <strong>{format('.1%')(metric.mean)}</strong>
-                  <br />
-                  <span style="font-size: 0.7rem;" class="italic text-gray-700"
-                    >{#if metric.hasOwnProperty('share')}({format('.1%')(
-                        metric.share
-                      )} of +s){:else}&nbsp;{/if}</span
-                  >
-                </span>
-              </SliceMetricBar>
-            {:else if metric.type == 'numeric'}
-              <SliceMetricBar
-                value={metric.value}
-                scale={mInfo.scale ?? ((v) => v)}
-                color={mInfo.color ?? null}
-                colorScale={mInfo.colorScale ?? interpolateViridis}
-                width={scoreCellWidth}
-              >
-                <span slot="caption">
-                  <strong>{format(',.3~')(metric.value ?? 0)}</strong>
-                </span>
-              </SliceMetricBar>
-            {:else if metric.type == 'count'}
-              <SliceMetricBar
-                value={metric.share}
-                width={scoreCellWidth}
-                color={mInfo.color ?? null}
-                colorScale={mInfo.colorScale ?? interpolateViridis}
-              >
-                <span slot="caption">
-                  <strong>{format(',')(metric.count)}</strong><br /><span
-                    style="font-size: 0.7rem;"
-                    class="italic text-gray-700"
-                    >({format('.1%')(metric.share)})</span
-                  >
-                </span>
-              </SliceMetricBar>
-            {:else if metric.type == 'continuous'}
-              <SliceMetricHistogram
-                mean={metric.mean}
-                histValues={metric.hist}
-                width={scoreCellWidth}
-              />
-            {:else if metric.type == 'categorical'}
-              <SliceMetricCategoryBar
-                order={mInfo.order}
-                counts={metric.counts}
-                width={scoreCellWidth}
-              />
+        {#if !metric}
+          <div
+            class="p-2 pt-3 overflow-visible whitespace-nowrap self-start"
+            style="width: {!!mInfo && mInfo.visible
+              ? TableWidths.Metric
+              : TableWidths.CollapsedMetric}px;"
+          >
+            &mdash;
+          </div>
+        {:else}
+          <div
+            class="p-2 pt-3 overflow-visible whitespace-nowrap self-start"
+            style="width: {!!mInfo && mInfo.visible
+              ? TableWidths.Metric
+              : TableWidths.CollapsedMetric}px;"
+          >
+            {#if sliceForScores.isEmpty}
+              <span class="text-slate-600">Empty</span>
+            {:else if !!mInfo && mInfo.visible}
+              {#if metric.type == 'binary'}
+                <SliceMetricBar
+                  value={metric.mean}
+                  scale={mInfo.scale ?? ((v) => v)}
+                  color={mInfo.color ?? null}
+                  colorScale={mInfo.colorScale ?? interpolateViridis}
+                  width={scoreCellWidth}
+                >
+                  <span slot="caption">
+                    <strong>{format('.1%')(metric.mean)}</strong>
+                    <br />
+                    <span
+                      style="font-size: 0.7rem;"
+                      class="italic text-gray-700"
+                      >{#if metric.hasOwnProperty('share')}({format('.1%')(
+                          metric.share
+                        )} of +s){:else}&nbsp;{/if}</span
+                    >
+                  </span>
+                </SliceMetricBar>
+              {:else if metric.type == 'numeric'}
+                <SliceMetricBar
+                  value={metric.value}
+                  scale={mInfo.scale ?? ((v) => v)}
+                  color={mInfo.color ?? null}
+                  colorScale={mInfo.colorScale ?? interpolateViridis}
+                  width={scoreCellWidth}
+                >
+                  <span slot="caption">
+                    <strong>{format(',.3~')(metric.value ?? 0)}</strong>
+                  </span>
+                </SliceMetricBar>
+              {:else if metric.type == 'count'}
+                <SliceMetricBar
+                  value={metric.share}
+                  width={scoreCellWidth}
+                  color={mInfo.color ?? null}
+                  colorScale={mInfo.colorScale ?? interpolateViridis}
+                >
+                  <span slot="caption">
+                    <strong>{format(',')(metric.count)}</strong><br /><span
+                      style="font-size: 0.7rem;"
+                      class="italic text-gray-700"
+                      >({format('.1%')(metric.share)})</span
+                    >
+                  </span>
+                </SliceMetricBar>
+              {:else if metric.type == 'continuous'}
+                <SliceMetricHistogram
+                  mean={metric.mean}
+                  histValues={metric.hist}
+                  width={scoreCellWidth}
+                  color={mInfo.color ?? '#3b82f6'}
+                />
+              {:else if metric.type == 'categorical'}
+                <SliceMetricCategoryBar
+                  order={mInfo.order}
+                  counts={metric.counts}
+                  width={scoreCellWidth}
+                />
+              {/if}
             {/if}
-          {/if}
-        </div>
+          </div>
+        {/if}
       {/each}
       {#if showScores}
         {#each scoreNames as scoreName}

@@ -3,6 +3,7 @@
   import Fa from 'svelte-fa/src/fa.svelte';
   import VariableEditor from './VariableEditor.svelte';
   import { type VariableDefinition } from './model';
+  import Checkbox from './utils/Checkbox.svelte';
 
   export let timestepDefinition: string;
   export let inputVariables: { [key: string]: VariableDefinition } = {};
@@ -60,6 +61,11 @@
 
   $: visibleInputVariableCategory,
     (() => (currentEditingVariableName = null))();
+
+  let categoryVariables: [string, VariableDefinition][] = [];
+  $: categoryVariables = Object.entries(inputVariables)
+    .filter((c) => c[1].category == visibleInputVariableCategory)
+    .sort((a, b) => a[0].localeCompare(b[0]));
 </script>
 
 <div class="w-full rounded bg-slate-100 flex gap-1" class:h-full={fillHeight}>
@@ -80,9 +86,25 @@
     {/each}
   </div>
   <div class="flex-auto max-h-full overflow-y-scroll pr-3 pl-2 py-4">
-    {#each Object.entries(inputVariables)
-      .filter((c) => c[1].category == visibleInputVariableCategory)
-      .sort((a, b) => a[0].localeCompare(b[0])) as [varName, varInfo]}
+    <div
+      class="ml-2 pb-2 mb-2 flex items-center gap-1 border-b border-slate-300"
+    >
+      <Checkbox
+        checked={categoryVariables.every((item) => item[1].enabled)}
+        on:change={(e) => {
+          categoryVariables.forEach(
+            (item) => (inputVariables[item[0]].enabled = e.detail)
+          );
+        }}
+      />
+      <div class="w-2" />
+      <div class="text-slate-500 flex-auto text-left px-2 py-1">
+        {categoryVariables.length} variable{categoryVariables.length != 1
+          ? 's'
+          : ''}
+      </div>
+    </div>
+    {#each categoryVariables as [varName, varInfo]}
       <VariableEditor
         {varName}
         {varInfo}

@@ -51,9 +51,9 @@
         }
       }
       inputVariables = spec.variables;
-      outcomeVariable = spec.outcome;
-      patientCohort = spec.cohort;
-      timestepDefinition = spec.timestep_definition;
+      outcomeVariable = spec.outcome ?? '';
+      patientCohort = spec.cohort ?? '';
+      timestepDefinition = spec.timestep_definition ?? '';
     } catch (e) {
       console.error('error loading models:', e);
     }
@@ -129,37 +129,33 @@
     <VariableEditorPanel {timestepDefinition} bind:inputVariables />
   </div>
   <h3 class="font-bold mt-3 mb-1">Outcome Variable</h3>
-  {#if !!outcomeVariable}
-    <VariableEditor
-      varName="outcome"
-      varInfo={{ query: outcomeVariable, category: '', enabled: true }}
-      {timestepDefinition}
-      showCheckbox={false}
-      showButtons={false}
-      autosave
-      showName={false}
-      editing
-      on:save={(e) => (outcomeVariable = e.detail.query)}
-    />
-  {/if}
+  <VariableEditor
+    varName="outcome"
+    varInfo={{ query: outcomeVariable, category: '', enabled: true }}
+    {timestepDefinition}
+    showCheckbox={false}
+    showButtons={false}
+    autosave
+    showName={false}
+    editing
+    on:save={(e) => (outcomeVariable = e.detail.query)}
+  />
   <!-- <textarea
     class="flat-text-input w-full font-mono"
     bind:value={outcomeVariable}
   /> -->
   <h3 class="font-bold mt-3 mb-1">Timestep Filter</h3>
-  {#if !!patientCohort}
-    <VariableEditor
-      varName="cohort"
-      varInfo={{ query: patientCohort, category: '', enabled: true }}
-      {timestepDefinition}
-      showCheckbox={false}
-      showButtons={false}
-      autosave
-      showName={false}
-      editing
-      on:save={(e) => (patientCohort = e.detail.query)}
-    />
-  {/if}
+  <VariableEditor
+    varName="cohort"
+    varInfo={{ query: patientCohort, category: '', enabled: true }}
+    {timestepDefinition}
+    showCheckbox={false}
+    showButtons={false}
+    autosave
+    showName={false}
+    editing
+    on:save={(e) => (patientCohort = e.detail.query)}
+  />
   <!-- <textarea
     class="flat-text-input w-full font-mono"
     bind:value={patientCohort}

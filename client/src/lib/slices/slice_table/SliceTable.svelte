@@ -31,7 +31,7 @@
   export let slices: Array<Slice> = [];
   export let selectedSlices: Array<SliceFeatureBase> = [];
   export let selectedSlice: SliceFeatureBase | null = null; // if not allowMultiselect
-  export let savedSlices: Array<SliceFeatureBase> = [];
+  export let savedSlices: { [key: string]: SliceFeatureBase } = {};
 
   export let baseSlice: Slice | null = null;
   export let sliceRequests: { [key: string]: SliceFeatureBase } = {};
@@ -369,12 +369,7 @@
       {allowFavorite}
       {allowSearch}
       allowSelect={false}
-      isSaved={!!savedSlices.find((s) =>
-        areObjectsEqual(
-          s,
-          (sliceRequestResults[baseSlice.stringRep] || baseSlice).feature
-        )
-      )}
+      isSaved={!!savedSlices[baseSlice.stringRep]}
       isSelected={!!selectedSlices.find((s) =>
         areObjectsEqual(
           s,
@@ -421,7 +416,7 @@
       {allowSearch}
       allowSelect={!allowMultiselect}
       {fixedFeatureOrder}
-      isSaved={!!savedSlices.find((s) =>
+      isSaved={!!Object.values(savedSlices).find((s) =>
         areObjectsEqual(s, sliceToShow.feature)
       )}
       isSelected={!!selectedSlices.find((s) =>

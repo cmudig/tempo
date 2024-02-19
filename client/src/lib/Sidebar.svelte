@@ -55,7 +55,8 @@
     'Timesteps',
     'Trajectories',
     metricToShow,
-    'True Values',
+    'Labels',
+    'Predictions',
   ];
   $: if (sortField != 'name' && !availableMetrics.includes(sortField))
     sortField = 'name';
@@ -171,8 +172,9 @@
                 (sliceMetrics![m]['Trajectories']?.count as number) ?? 0,
               [metricToShow]:
                 (sliceMetrics![m][metricToShow]?.mean as number) ?? 0,
-              'True Values':
-                (sliceMetrics![m]['True Values']?.mean as number) ?? 0,
+              Labels: (sliceMetrics![m]['Labels']?.mean as number) ?? 0,
+              Predictions:
+                (sliceMetrics![m]['Predictions']?.mean as number) ?? 0,
             },
           ])
         );
@@ -184,9 +186,13 @@
               Timesteps: model.metrics?.n_slice_eval.instances ?? 0,
               Trajectories: model.metrics?.n_slice_eval.trajectories ?? 0,
               [metricToShow]: model.metrics?.performance[metricToShow] ?? 0,
-              'True Values':
-                model.metrics?.true_values?.value ??
-                model.metrics?.true_values?.mean ??
+              Labels:
+                model.metrics?.labels?.value ??
+                model.metrics?.labels?.mean ??
+                0,
+              Predictions:
+                model.metrics?.predictions?.value ??
+                model.metrics?.predictions?.mean ??
                 0,
             },
           ])

@@ -6,7 +6,7 @@
   import SlicesView from './lib/SlicesView.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import type { Slice, SliceFeatureBase } from './lib/slices/utils/slice.type';
-  import { faHeart, faInfoCircle } from '@fortawesome/free-solid-svg-icons';
+  import { faDatabase, faHeart } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import SavedSlicesView from './lib/SavedSlicesView.svelte';
   import ResizablePanel from './lib/utils/ResizablePanel.svelte';
@@ -32,7 +32,8 @@
   let selectedSlice: SliceFeatureBase | null = null;
   $: if (currentView !== View.slices) selectedSlice = null;
 
-  let savedSlices: { [key: string]: SliceFeatureBase[] } = {};
+  // keys are slice specification names
+  let savedSlices: { [key: string]: { [key: string]: SliceFeatureBase } } = {};
 
   onMount(async () => {
     await refreshModels();
@@ -42,6 +43,7 @@
     let result = await fetch('/models');
     models = (await result.json()).models;
     console.log('models:', models);
+    if (!models[currentModel]) currentModel = Object.keys(models).sort()[0];
     if (!!refreshTimer) clearTimeout(refreshTimer);
     refreshTimer = setTimeout(refreshModels, 5000);
   }
@@ -65,84 +67,73 @@
 
 <main class="w-screen h-screen flex flex-col">
   <div class="w-full h-12 grow-0 shrink-0 bg-slate-500 flex py-2 px-3">
+    <div class="flex-auto" />
     <button
       class="btn btn-dark-slate"
       on:click={() => (showingDatasetInfo = true)}
-      ><Fa icon={faInfoCircle} class="inline mr-2" /> Dataset Info</button
-    >
-    <div class="flex-auto" />
-    <button
-      class="btn {showingSaved ? 'btn-dark-blue' : 'btn-dark-slate'}"
-      on:click={() => (showingSaved = !showingSaved)}
-      ><Fa icon={faHeart} class="inline mr-2" /> Saved Slices</button
+      ><Fa icon={faDatabase} class="inline mr-2" /> Dataset Info</button
     >
   </div>
   <div class="flex-auto w-full flex h-0">
-    {#if showingSaved}
-      <SavedSlicesView bind:savedSlices bind:metricToShow />
-    {:else}
-      <ResizablePanel rightResizable width={540} maxWidth="40%" height="100%">
-        <Sidebar
-          {models}
-          bind:metricToShow
-          bind:activeModel={currentModel}
-          bind:selectedModels
-          bind:selectedSlice
-          {sliceSpec}
-        />
-      </ResizablePanel>
-      <div class="flex-auto h-full flex flex-col w-0">
-        <div
-          class="w-full px-4 py-2 flex gap-3 bg-slate-300 border-b border-slate-400"
-        >
-          {#each [View.results, View.slices, View.editor] as view}
-            <button
-              class="rounded my-2 py-1 px-6 text-center w-32 {currentView ==
-              view
-                ? 'bg-blue-600 text-white font-bold hover:bg-blue-700'
-                : 'text-slate-700 hover:bg-slate-200'}"
-              on:click={() => (currentView = view)}>{view}</button
-            >
-          {/each}
-        </div>
-        <div
-          class="w-full flex-auto"
-          class:overflow-y-auto={currentView != View.slices}
-        >
-          {#if currentView == View.results}
-            <ModelResultsView
-              modelName={currentModel}
-              modelSummary={models[currentModel]}
-            />
-          {:else if currentView == View.slices}
-            <SlicesView
-              bind:selectedSlice
-              bind:sliceSpec
-              bind:savedSlices
-              bind:metricToShow
-              modelName={currentModel}
-              timestepDefinition={models[currentModel]?.timestep_definition ??
-                ''}
-              modelsToShow={Array.from(
-                new Set([...selectedModels, currentModel])
-              )}
-            />
-          {:else if currentView == View.editor}
-            <ModelEditor
-              modelName={currentModel}
-              on:viewmodel={(e) => {
-                currentView = View.results;
-                currentModel = e.detail;
-              }}
-              on:train={(e) => {
-                currentModel = e.detail;
-                refreshModels();
-              }}
-            />
-          {/if}
-        </div>
+    <ResizablePanel rightResizable width={540} maxWidth="40%" height="100%">
+      <Sidebar
+        {models}
+        bind:metricToShow
+        bind:activeModel={currentModel}
+        bind:selectedModels
+        bind:selectedSlice
+        {sliceSpec}
+      />
+    </ResizablePanel>
+    <div class="flex-auto h-full flex flex-col w-0">
+      <div
+        class="w-full px-4 py-2 flex gap-3 bg-slate-300 border-b border-slate-400"
+      >
+        {#each [View.results, View.slices, View.editor] as view}
+          <button
+            class="rounded my-2 py-1 px-6 text-center w-32 {currentView == view
+              ? 'bg-blue-600 text-white font-bold hover:bg-blue-700'
+              : 'text-slate-700 hover:bg-slate-200'}"
+            on:click={() => (currentView = view)}>{view}</button
+          >
+        {/each}
       </div>
-    {/if}
+      <div
+        class="w-full flex-auto"
+        class:overflow-y-auto={currentView != View.slices}
+      >
+        {#if currentView == View.results}
+          <ModelResultsView
+            modelName={currentModel}
+            modelSummary={models[currentModel]}
+          />
+        {:else if currentView == View.slices}
+          <SlicesView
+            bind:selectedSlice
+            bind:sliceSpec
+            bind:savedSlices
+            bind:metricToShow
+            modelName={currentModel}
+            timestepDefinition={models[currentModel]?.timestep_definition ?? ''}
+            modelsToShow={Array.from(
+              new Set([...selectedModels, currentModel])
+            )}
+          />
+        {:else if currentView == View.editor}
+          <ModelEditor
+            modelName={currentModel}
+            on:viewmodel={(e) => {
+              currentView = View.results;
+              currentModel = e.detail;
+            }}
+            on:train={(e) => {
+              currentModel = e.detail;
+              refreshModels();
+            }}
+          />
+        {/if}
+      </div>
+    </div>
   </div>
   {#if showingDatasetInfo}
     <div
@@ -157,7 +148,7 @@
         class="w-2/3 h-2/3 z-20 rounded-md bg-white p-1 pointer-events-auto"
         style="min-width: 200px; max-width: 100%;"
       >
-        <DatasetInfoView />
+        <DatasetInfoView on:close={() => (showingDatasetInfo = false)} />
       </div>
     </div>
   {/if}

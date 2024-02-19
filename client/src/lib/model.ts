@@ -13,7 +13,8 @@ export type ModelMetrics = {
     [key: string]: number;
   };
   confusion_matrix?: number[][];
-  true_values: SliceMetric;
+  labels: SliceMetric;
+  predictions: SliceMetric;
   n_train: { instances: number; trajectories: number };
   n_val: { instances: number; trajectories: number };
   n_slice_eval: { instances: number; trajectories: number };
@@ -56,6 +57,12 @@ export enum ModelType {
   MulticlassClassification = 'multiclass_classification',
   Regression = 'regression',
 }
+
+export const ModelTypeStrings: { [key in ModelType]: string } = {
+  [ModelType.BinaryClassification]: 'Binary Classification',
+  [ModelType.MulticlassClassification]: 'Multiclass Classification',
+  [ModelType.Regression]: 'Regression',
+};
 
 export type ModelSummary = {
   outcome?: string;

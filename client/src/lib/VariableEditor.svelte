@@ -2,6 +2,7 @@
   import {
     AllCategories,
     VariableCategory,
+    type QueryResult,
     type VariableDefinition,
     type VariableEvaluationSummary,
   } from './model';
@@ -12,6 +13,8 @@
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
   import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
   import SliceMetricCategoryBar from './slices/metric_charts/SliceMetricCategoryBar.svelte';
+  import QueryResultView from './QueryResultView.svelte';
+  import { areObjectsEqual } from './slices/utils/utils';
 
   const dispatch = createEventDispatcher();
 
@@ -28,15 +31,17 @@
   let newVariableName: string | null = null;
   let newVariableQuery: string | null = null;
 
-  let evaluationSummary: VariableEvaluationSummary | null = null;
+  let evaluationSummary: QueryResult | null = null;
   let evaluationError: string | null = null;
   let summaryIsStale: boolean = false;
   let loadingSummary: boolean = false;
 
-  $: if (editing && !!varInfo) {
-    if (newVariableName == null) {
+  let oldVarInfo: VariableDefinition | null = null;
+  $: if (editing) {
+    if (!areObjectsEqual(varInfo, oldVarInfo)) {
       newVariableName = varName;
       newVariableQuery = varInfo!.query;
+      oldVarInfo = varInfo;
     }
   } else {
     newVariableName = null;
@@ -48,7 +53,6 @@
       evaluateQuery();
     }
   } else {
-    console.log(editing, newVariableQuery);
     evaluationSummary = null;
     evaluationError = null;
   }
@@ -65,8 +69,8 @@
       if (result.error) {
         evaluationError = result.error;
         evaluationSummary = null;
-      } else if (result.summary) {
-        evaluationSummary = result.summary as VariableEvaluationSummary;
+      } else if (result.result) {
+        evaluationSummary = result.result as QueryResult;
         evaluationError = null;
       }
       summaryIsStale = false;
@@ -120,51 +124,11 @@
                   '</p>'}
               </div>
             {:else if !!evaluationSummary}
-              <div class="mb-1 text-slate-500 text-xs font-bold">
-                Variable Summary
-              </div>
-              <div>
-                {#if evaluationSummary.type == 'binary' && !!evaluationSummary.mean}
-                  <SliceMetricBar
-                    value={evaluationSummary.mean}
-                    width={metricWidth}
-                    color="#d97706"
-                    showFullBar
-                  >
-                    <span slot="caption">
-                      <strong>{d3.format('.1%')(evaluationSummary.mean)}</strong
-                      >
-                      true,
-                      <strong
-                        >{d3.format('.1%')(1 - evaluationSummary.mean)}</strong
-                      > false
-                    </span>
-                  </SliceMetricBar>
-                {:else if evaluationSummary.type == 'continuous' && !!evaluationSummary.hist}
-                  <SliceMetricHistogram
-                    mean={evaluationSummary.mean ?? 0}
-                    histValues={evaluationSummary.hist}
-                    width={metricWidth}
-                  />
-                {:else if evaluationSummary.type == 'categorical' && !!evaluationSummary.counts}
-                  <SliceMetricCategoryBar
-                    order={Object.keys(evaluationSummary.counts).sort(
-                      (a, b) =>
-                        evaluationSummary.counts[b] -
-                        evaluationSummary.counts[a]
-                    )}
-                    counts={evaluationSummary.counts}
-                    width={metricWidth}
-                  />
-                {/if}
-
-                <p class="mt-2 text-xs text-slate-500">
-                  (Evaluated over {countFormat(
-                    evaluationSummary.n_trajectories
-                  )} trajectories, {countFormat(evaluationSummary.n_values)}
-                  values)
-                </p>
-              </div>
+              <QueryResultView
+                {evaluationSummary}
+                evaluateQuery={false}
+                query={newVariableQuery ?? ''}
+              />
             {/if}
           </div>
           <div class="flex-auto">

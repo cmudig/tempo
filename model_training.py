@@ -127,7 +127,7 @@ class ModelTrainer:
         else:
             val_pred = model.predict_proba(val_X)[:,1]
         metrics = {}
-        metrics["true_values"] = make_series_summary(val_y 
+        metrics["labels"] = make_series_summary(val_y 
                                                      if model_type != 'multiclass_classification' 
                                                      else pd.Series([model_meta["output_values"][i] for i in val_y]))
         if model_type == "regression":
@@ -145,6 +145,8 @@ class ModelTrainer:
                 "values": hist.tolist(),
                 "bins": bin_edges.tolist()
             }
+            metrics["predictions"] = make_series_summary(val_pred)
+
             submodel_metric = "R^2"
         else:
             val_y = val_y.astype(np.uint8)
@@ -193,6 +195,8 @@ class ModelTrainer:
                     metrics["performance"]["Sensitivity"] = float(tp / (tp + fn))
                     metrics["performance"]["Specificity"] = float(tn / (tn + fp))
                     metrics["performance"]["Precision"] = float(tp / (tp + fp))
+                    metrics["predictions"] = make_series_summary(val_pred)
+
                     submodel_metric = "AUROC"
                 elif model_type == "multiclass_classification":
                     max_predictions = np.argmax(val_pred, axis=1)
@@ -218,6 +222,8 @@ class ModelTrainer:
                                                 ((max_predictions == i) & (val_y != i)).sum()))
                         }
                     } for i, c in enumerate(model_meta["output_values"])]
+                    metrics["predictions"] = make_series_summary(pd.Series([model_meta["output_values"][i] for i in max_predictions]))
+
                     submodel_metric = "Macro F1"
                 
                 if full_metrics:

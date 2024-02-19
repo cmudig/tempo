@@ -34,7 +34,9 @@
   let sliceSearchError: string | null = null;
 
   let selectedSlices: SliceFeatureBase[] = [];
-  export let savedSlices: { [key: string]: SliceFeatureBase[] } = {};
+  export let savedSlices: {
+    [key: string]: { [key: string]: SliceFeatureBase };
+  } = {};
 
   let oldSelectedSlices: SliceFeatureBase[] = [];
   $: if (oldSelectedSlices !== selectedSlices) {
@@ -77,8 +79,6 @@
     searchStatus = null;
     scoreWeights = null;
     if (modelsToShow.length > 0) {
-      console.log('changing bc models changed');
-      selectedSlices = [];
       getSlicesIfAvailable();
       pollSliceStatus();
     }
@@ -117,7 +117,7 @@
 
   async function getSlicesIfAvailable() {
     try {
-      console.log('Fetching slices', modelsToShow.join(','), scoreWeights);
+      console.log('Fetching slices', slices);
       retrievingSlices = true;
       retrievedScoreWeights = null;
       resultControls = {};
@@ -146,6 +146,13 @@
         scoreWeights = result.results.score_weights;
         retrievedScoreWeights = result.results.score_weights;
         valueNames = result.results.value_names;
+        selectedSlices = selectedSlices.filter(
+          (sf) =>
+            slices!.find((other) => areObjectsEqual(sf, other.feature)) ||
+            Object.values(savedSlices[sliceSpec]).find((other) =>
+              areObjectsEqual(sf, other)
+            )
+        );
       } else {
         slices = null;
         selectedSlice = null;
@@ -207,11 +214,11 @@
   }
 
   function saveSlice(slice: Slice) {
-    let saved = savedSlices[sliceSpec] ?? [];
-    let idx = saved.findIndex((s) => areObjectsEqual(s, slice.feature));
-    if (idx < 0) saved = [...saved, slice.feature];
-    else saved = [...saved.slice(0, idx), ...saved.slice(idx + 1)];
-    savedSlices[sliceSpec] = saved;
+    let saved = savedSlices[sliceSpec] ?? {};
+    if (!!saved[slice.stringRep]) delete saved[slice.stringRep];
+    else saved[slice.stringRep] = slice.feature;
+    savedSlices = { ...savedSlices, [sliceSpec]: saved };
+    console.log('saved slices:', savedSlices);
   }
 
   let trainingStatusTimer: any | null = null;
@@ -266,8 +273,14 @@
   <div class="px-4 flex-auto h-0 overflow-auto" style="width: 100% !important;">
     <SliceSearchView
       modelNames={modelsToShow}
-      metricsToShow={['Timesteps', 'Trajectories', metricToShow, 'True Values']}
-      slices={areObjectsEqual(queryControls, resultControls)
+      metricsToShow={[
+        'Timesteps',
+        'Trajectories',
+        metricToShow,
+        'Labels',
+        'Predictions',
+      ]}
+      slices={areObjectsEqual(queryControls, resultControls) || retrievingSlices
         ? slices ?? []
         : []}
       {baseSlice}
@@ -310,7 +323,11 @@
       maxHeight="80%"
       width="100%"
     >
-      <SliceDetailsView slice={selectedSlice} modelNames={modelsToShow} />
+      <SliceDetailsView
+        slice={selectedSlice}
+        modelNames={modelsToShow}
+        on:close={() => (selectedSlices = [])}
+      />
     </ResizablePanel>
   {/if}
 </div>

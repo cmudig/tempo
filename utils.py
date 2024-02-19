@@ -28,7 +28,7 @@ def make_series_summary(values, value_type=None):
         summary["mean"] = values.mean().astype(float)
     elif value_type == "categorical":
         uniques, counts = np.unique(values, return_counts=True)
-        uniques_to_show = np.argsort(uniques)[:10]
+        uniques_to_show = np.argsort(uniques)
         summary["counts"] = {str(uniques[i]): int(counts[i]) for i in uniques_to_show}
     else:
         summary["mean"] = np.mean(values.astype(float))

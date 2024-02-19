@@ -35,6 +35,9 @@ AGG_FUNCTIONS = {
     "integral": numba_integral
 }
 
+CATEGORICAL_SUPPORT_AGG_FUNCTIONS = {"first", "last", "exists", "count"}
+TYPE_PRESERVING_AGG_FUNCTIONS = {"sum", "mean", "median", "min", "max", "first", "last", "integral"}
+
 def convert_numba_result_dtype(x, agg_func):
     """Converts the output of a numba join events/intervals call to the right dtype."""
     if agg_func == "exists":

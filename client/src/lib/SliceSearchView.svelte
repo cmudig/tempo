@@ -53,6 +53,9 @@
   export let baseSlice: Slice | null = null;
   export let sliceRequests: { [key: string]: SliceFeatureBase } = {};
   export let sliceRequestResults: { [key: string]: Slice } = {};
+  let savedSliceResults: { [key: string]: Slice } = {};
+  let savedSliceRequests: { [key: string]: SliceFeatureBase } = {};
+  let savedSliceRequestResults: { [key: string]: Slice } = {};
 
   export let scoreWeights: any = {};
 
@@ -74,7 +77,7 @@
   export let subsliceOfSlice: any = {};
 
   export let selectedSlices: SliceFeatureBase[] = [];
-  export let savedSlices: SliceFeatureBase[] = [];
+  export let savedSlices: { [key: string]: SliceFeatureBase } = {};
 
   export let groupedMetrics: boolean = false;
   export let metricsToShow: string[] | null = null;
@@ -111,14 +114,25 @@
     metricInfo = {};
   }
 
-  $: requestSliceScores(sliceRequests);
+  $: requestSliceScores(sliceRequests, modelNames).then(
+    (r) => (sliceRequestResults = r)
+  );
+  $: requestSliceScores(savedSlices, modelNames).then(
+    (r) => (savedSliceResults = r)
+  );
+  $: requestSliceScores(savedSliceRequests, modelNames).then(
+    (r) => (savedSliceRequestResults = r)
+  );
 
-  async function requestSliceScores(requests: {
-    [key: string]: SliceFeatureBase;
-  }) {
+  async function requestSliceScores(
+    requests: {
+      [key: string]: SliceFeatureBase;
+    },
+    models: string[]
+  ) {
     try {
       let results = await (
-        await fetch(`/slices/${modelNames.join(',')}/score`, {
+        await fetch(`/slices/${models.join(',')}/score`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -126,11 +140,11 @@
           body: JSON.stringify({ sliceRequests: requests, sliceSpec }),
         })
       ).json();
-      sliceRequestResults = results.sliceRequestResults;
-      console.log('results:', sliceRequestResults);
+      return results.sliceRequestResults;
     } catch (e) {
       console.log('error calculating slice requests:', e);
     }
+    return {};
   }
 
   let allowedValues: { [key: string]: (string | number)[] } | null = null;
@@ -410,37 +424,16 @@
       {/if}
     </div>
   </div>
-  {#if retrievingSlices}
-    <div class="w-full flex-auto flex flex-col items-center justify-center">
-      <div>Retrieving slices...</div>
-      <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-2">
-        <svg
-          aria-hidden="true"
-          class="text-gray-200 animate-spin stroke-gray-600 w-8 h-8 align-middle"
-          viewBox="-0.5 -0.5 99.5 99.5"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <ellipse
-            cx="50"
-            cy="50"
-            rx="45"
-            ry="45"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="10"
-          />
-          <path
-            d="M 50 5 A 45 45 0 0 1 95 50"
-            stroke-width="10"
-            stroke-linecap="round"
-            fill="none"
-          />
-        </svg>
-      </div>
-    </div>
-  {:else if !!baseSlice}
-    <div class="flex-auto min-h-0 overflow-auto">
-      <div class="search-view-header bg-white" bind:this={searchViewHeader}>
+  <div class="flex-auto min-h-0 overflow-auto relative">
+    {#if !!baseSlice}
+      <div
+        class="bg-white sticky top-0 z-10 {Object.values(
+          enabledSliceControls
+        ).some((v) => !!v) || Object.keys(savedSlices).length > 0
+          ? ''
+          : 'border-b-4 border-slate-200'}"
+        bind:this={searchViewHeader}
+      >
         <SliceTable
           slices={[]}
           {savedSlices}
@@ -468,6 +461,50 @@
           on:saveslice
         />
       </div>
+      {#if Object.keys(savedSlices).length > 0}
+        <div
+          class="{Object.values(enabledSliceControls).some((v) => !!v)
+            ? ''
+            : 'border-b-4 border-slate-200'} bg-white"
+        >
+          <SliceTable
+            slices={Object.keys(savedSlices).map((sr) =>
+              Object.assign(
+                savedSliceResults[sr] ?? {
+                  feature: savedSlices[sr],
+                  scoreValues: {},
+                  metrics: {},
+                  stringRep: sr,
+                },
+                { stringRep: 'saved_' + sr }
+              )
+            )}
+            {savedSlices}
+            bind:selectedSlices
+            showHeader={false}
+            bind:sliceRequests={savedSliceRequests}
+            bind:sliceRequestResults={savedSliceRequestResults}
+            {positiveOnly}
+            {valueNames}
+            {allowedValues}
+            bind:metricGroups
+            allowFavorite={true}
+            allowMultiselect={false}
+            metricInfo={(n) => getMetric(metricInfo, n)}
+            metricGetter={(s, name) => getMetric(s.metrics, name)}
+            bind:metricNames
+            bind:scoreNames
+            bind:scoreWidthScalers
+            allowShowScores={false}
+            showCheckboxes={false}
+            on:newsearch={(e) => {
+              updateEditingControl(e.detail.type, e.detail.base_slice);
+              toggleSliceControl(e.detail.type, true);
+            }}
+            on:saveslice
+          />
+        </div>
+      {/if}
       {#if Object.values(enabledSliceControls).some((v) => !!v)}
         <div
           class="sampler-panel w-full mb-2 bg-white"
@@ -538,59 +575,92 @@
           </div>
         </div>
       {/if}
-      {#if !!slices && slices.length > 0}
-        <div class="flex-1 min-h-0" class:disable-div={runningSampler}>
-          <SliceTable
-            {slices}
-            {savedSlices}
-            bind:selectedSlices
-            bind:sliceRequests
-            bind:sliceRequestResults
-            {positiveOnly}
-            {valueNames}
-            {allowedValues}
-            showHeader={false}
-            bind:metricGroups
-            allowFavorite={true}
-            allowMultiselect={false}
-            metricInfo={(n) => getMetric(metricInfo, n)}
-            metricGetter={(s, name) => getMetric(s.metrics, name)}
-            bind:metricNames
-            bind:scoreNames
-            bind:scoreWidthScalers
-            allowShowScores={false}
-            showCheckboxes={false}
-            on:newsearch={(e) => {
-              updateEditingControl(e.detail.type, e.detail.base_slice);
-              toggleSliceControl(e.detail.type, true);
-            }}
-            on:saveslice
-          />
+      <div class="flex-auto relative w-full">
+        {#if !!slices && slices.length > 0}
+          <div class="w-full min-h-0" class:disable-div={runningSampler}>
+            <SliceTable
+              {slices}
+              {savedSlices}
+              bind:selectedSlices
+              bind:sliceRequests
+              bind:sliceRequestResults
+              {positiveOnly}
+              {valueNames}
+              {allowedValues}
+              showHeader={false}
+              bind:metricGroups
+              allowFavorite={true}
+              allowMultiselect={false}
+              metricInfo={(n) => getMetric(metricInfo, n)}
+              metricGetter={(s, name) => getMetric(s.metrics, name)}
+              bind:metricNames
+              bind:scoreNames
+              bind:scoreWidthScalers
+              allowShowScores={false}
+              showCheckboxes={false}
+              on:newsearch={(e) => {
+                updateEditingControl(e.detail.type, e.detail.base_slice);
+                toggleSliceControl(e.detail.type, true);
+              }}
+              on:saveslice
+            />
 
-          {#if slices.length > 0}
-            <div class="mt-2">
-              <button
-                class="btn btn-blue disabled:opacity-50"
-                on:click={() => dispatch('loadmore')}>Load More</button
-              >
-            </div>
-          {/if}
+            {#if slices.length > 0}
+              <div class="mt-2">
+                <button
+                  class="btn btn-blue disabled:opacity-50"
+                  on:click={() => dispatch('loadmore')}>Load More</button
+                >
+              </div>
+            {/if}
+          </div>
+        {:else}
+          <div
+            class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
+          >
+            <div>No slices yet!</div>
+          </div>
+        {/if}
+      </div>
+    {:else if !retrievingSlices}
+      <div
+        class="w-full flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
+      >
+        <div>No slices yet!</div>
+      </div>
+    {/if}
+    {#if retrievingSlices}
+      <div
+        class="absolute top-0 left-0 bg-white/80 w-full h-full flex flex-col items-center justify-center z-20"
+      >
+        <div>Retrieving slices...</div>
+        <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-2">
+          <svg
+            aria-hidden="true"
+            class="text-gray-200 animate-spin stroke-gray-600 w-8 h-8 align-middle"
+            viewBox="-0.5 -0.5 99.5 99.5"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <ellipse
+              cx="50"
+              cy="50"
+              rx="45"
+              ry="45"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="10"
+            />
+            <path
+              d="M 50 5 A 45 45 0 0 1 95 50"
+              stroke-width="10"
+              stroke-linecap="round"
+              fill="none"
+            />
+          </svg>
         </div>
-      {:else}
-        <div
-          class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
-        >
-          <div>No slices yet!</div>
-        </div>
-      {/if}
-    </div>
-  {:else}
-    <div
-      class="w-full flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
-    >
-      <div>No slices yet!</div>
-    </div>
-  {/if}
+      </div>
+    {/if}
+  </div>
 </div>
 
 {#if specEditorVisible}

@@ -42,7 +42,8 @@
         mean: customMetrics['Trajectories']?.count ?? 0,
       },
       [metricToShow]: customMetrics[metricToShow] ?? null,
-      'True Values': customMetrics['True Values'] ?? null,
+      Labels: customMetrics['Labels'] ?? null,
+      Predictions: customMetrics['Predictions'] ?? null,
     };
   else if (!!model && !!model.metrics)
     metricValues = {
@@ -61,7 +62,8 @@
               value: model.metrics?.performance[metricToShow],
             }
           : null,
-      'True Values': model.metrics?.true_values ?? null,
+      Labels: model.metrics?.labels ?? null,
+      Predictions: model.metrics?.predictions ?? null,
     };
   else metricValues = undefined;
 </script>
@@ -185,22 +187,22 @@
       class="p-2 grow-0 shrink-0 whitespace-nowrap"
       style="width: {SidebarTableWidths.Metric}px;"
     >
-      {#if !!metricValues['True Values']}
-        {@const metric = metricValues['True Values']}
+      {#if !!metricValues.Labels}
+        {@const metric = metricValues.Labels}
         {#if metric.type == 'binary'}
           <SliceMetricBar
             value={metric.mean}
-            color={MetricColors['True Values']}
+            color={MetricColors.Labels}
             width={SidebarTableWidths.Metric - 20}
           >
             <span slot="caption">
-              <strong>{d3.format('.1%')(metric?.mean ?? 0)}</strong> positive
+              <strong>{d3.format('.1%')(metric?.mean ?? 0)}</strong> pos.
             </span>
           </SliceMetricBar>
         {:else if metric.type == 'numeric'}
           <SliceMetricBar
             value={metric.value}
-            color={MetricColors['True Values']}
+            color={MetricColors.Labels}
             width={SidebarTableWidths.Metric - 20}
           >
             <span slot="caption">
@@ -211,6 +213,49 @@
           <SliceMetricHistogram
             mean={metric.mean}
             histValues={metric.hist}
+            color={MetricColors.Labels}
+            width={SidebarTableWidths.Metric - 20}
+          />
+        {:else if metric.type == 'categorical'}
+          <SliceMetricCategoryBar
+            order={model.output_values}
+            counts={metric.counts}
+            width={SidebarTableWidths.Metric - 20}
+          />
+        {/if}
+      {/if}
+    </div>
+    <div
+      class="p-2 grow-0 shrink-0 whitespace-nowrap"
+      style="width: {SidebarTableWidths.Metric}px;"
+    >
+      {#if !!metricValues.Predictions}
+        {@const metric = metricValues.Predictions}
+        {#if metric.type == 'binary'}
+          <SliceMetricBar
+            value={metric.mean}
+            color={MetricColors.Predictions}
+            width={SidebarTableWidths.Metric - 20}
+          >
+            <span slot="caption">
+              <strong>{d3.format('.1%')(metric?.mean ?? 0)}</strong> pos.
+            </span>
+          </SliceMetricBar>
+        {:else if metric.type == 'numeric'}
+          <SliceMetricBar
+            value={metric.value}
+            color={MetricColors.Predictions}
+            width={SidebarTableWidths.Metric - 20}
+          >
+            <span slot="caption">
+              <strong>{d3.format(',.3~')(metric?.value ?? 0)}</strong>
+            </span>
+          </SliceMetricBar>
+        {:else if metric.type == 'continuous'}
+          <SliceMetricHistogram
+            mean={metric.mean}
+            histValues={metric.hist}
+            color={MetricColors.Predictions}
             width={SidebarTableWidths.Metric - 20}
           />
         {:else if metric.type == 'categorical'}
@@ -223,7 +268,7 @@
       {/if}
     </div>
   {:else}
-    {#each ['Timesteps', 'Trajectories', metricToShow, 'True Values'] as label}
+    {#each ['Timesteps', 'Trajectories', metricToShow, 'Labels', 'Predictions'] as label}
       <div
         class="p-2 grow-0 shrink-0 text-slate-500"
         style="width: {SidebarTableWidths.Metric}px;"
