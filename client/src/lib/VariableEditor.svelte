@@ -31,11 +31,6 @@
   let newVariableName: string | null = null;
   let newVariableQuery: string | null = null;
 
-  let evaluationSummary: QueryResult | null = null;
-  let evaluationError: string | null = null;
-  let summaryIsStale: boolean = false;
-  let loadingSummary: boolean = false;
-
   let oldVarInfo: VariableDefinition | null = null;
   $: if (editing) {
     if (!areObjectsEqual(varInfo, oldVarInfo)) {
@@ -47,53 +42,13 @@
     newVariableName = null;
     newVariableQuery = null;
   }
-
-  $: if (editing && !!newVariableQuery) {
-    if (!evaluationSummary && !evaluationError) {
-      evaluateQuery();
-    }
-  } else {
-    evaluationSummary = null;
-    evaluationError = null;
-  }
-
-  async function evaluateQuery() {
-    evaluationTimer = null;
-    loadingSummary = true;
-    let query = encodeURIComponent(
-      `(${newVariableQuery}) ${timestepDefinition}`
-    );
-    try {
-      let result = await (await fetch(`/data/query?q=${query}`)).json();
-      console.log(result);
-      if (result.error) {
-        evaluationError = result.error;
-        evaluationSummary = null;
-      } else if (result.result) {
-        evaluationSummary = result.result as QueryResult;
-        evaluationError = null;
-      }
-      summaryIsStale = false;
-      loadingSummary = false;
-    } catch (e) {
-      evaluationError = `${e}`;
-      evaluationSummary = null;
-      summaryIsStale = false;
-      loadingSummary = false;
-    }
-  }
-
-  let evaluationTimer: NodeJS.Timeout | null = null;
-  const metricWidth = 176;
-
-  const countFormat = d3.format(',');
 </script>
 
 {#if !!varInfo && !!varName}
   <div class:ml-2={showCheckbox} class="mb-1 flex items-center gap-1">
     {#if showCheckbox}
       <Checkbox
-        checked={varInfo.enabled}
+        checked={varInfo.enabled ?? true}
         on:change={(e) => {
           dispatch('toggle', e.detail);
         }}
@@ -111,25 +66,13 @@
           />
         {/if}
         <div class="flex flex-auto w-full">
-          <div
-            class="text-sm w-48 self-stretch bg-slate-200 rounded mr-2 p-2"
-            class:opacity-50={summaryIsStale}
-          >
-            {#if loadingSummary}
-              <div class="mb-1 text-slate-500 text-xs">Loading summary...</div>
-            {:else if !!evaluationError}
-              <div class="text-red-600">
-                {@html '<p>' +
-                  evaluationError.replace('\n', '</p><p>') +
-                  '</p>'}
-              </div>
-            {:else if !!evaluationSummary}
-              <QueryResultView
-                {evaluationSummary}
-                evaluateQuery={false}
-                query={newVariableQuery ?? ''}
-              />
-            {/if}
+          <div class="text-sm w-48 self-stretch bg-slate-200 rounded mr-2 p-2">
+            <QueryResultView
+              delayEvaluation
+              query={!!newVariableQuery
+                ? `${newVariableQuery} ${timestepDefinition}`
+                : ''}
+            />
           </div>
           <div class="flex-auto">
             {#if showName}
@@ -147,9 +90,6 @@
                     query: newVariableQuery,
                   });
                 }
-                if (!!evaluationTimer) clearTimeout(evaluationTimer);
-                evaluationTimer = setTimeout(evaluateQuery, 2000);
-                summaryIsStale = true;
               }}
             />
             {#if showButtons}

@@ -114,10 +114,10 @@ if __name__ == '__main__':
                 model_id = re.search(r'^spec_(.*)\.json', path).group(1)
                 with open(os.path.join(MODEL_DIR, path), "r") as file:
                     model_spec = json.load(file)
-                if model_spec.get("training", False):
+                if model_spec.get("training", False) or not os.path.exists(dataset_manager.model_metrics_path(model_id)):
                     models[model_id] = model_spec
                 else:
-                    with open(os.path.join(MODEL_DIR, f"metrics_{model_id}.json"), "r") as file:
+                    with open(dataset_manager.model_metrics_path(model_id), "r") as file:
                         models[model_id] = {
                             "outcome": model_spec["outcome"],
                             "timestep_definition": model_spec["timestep_definition"],
@@ -135,6 +135,52 @@ if __name__ == '__main__':
             return f"Model '{model_name}' does not exist", 400
         
         return send_file(dataset_manager.model_spec_path(model_name), mimetype="application/json")
+
+    @app.post("/models/new/<reference_name>")
+    def make_new_model_spec(reference_name):
+        if reference_name == "default":
+            base_spec = dataset_manager.get_default_model_spec()
+            base_name = "Untitled"
+        else:
+            if not os.path.exists(dataset_manager.model_spec_path(reference_name)):
+                return f"Model '{reference_name}' does not exist", 400
+            with open(dataset_manager.model_spec_path(reference_name), "r") as file:
+                base_spec = json.load(file)
+            base_name = reference_name
+            
+        increment_index = None
+        final_name = base_name
+        while os.path.exists(dataset_manager.model_spec_path(final_name)):
+            if increment_index is None:
+                increment_index = 2
+            else:
+                increment_index += 1
+            final_name = f"{base_name} {increment_index}"
+            
+        with open(dataset_manager.model_spec_path(final_name), "w") as file:
+            json.dump({**base_spec, "training": False}, file)
+        return jsonify({"name": final_name, "spec": base_spec})
+    
+    @app.delete("/models/<model_name>")
+    def delete_model(model_name):
+        if not os.path.exists(dataset_manager.model_spec_path(model_name)):
+            return f"Model '{model_name}' does not exist", 400
+        
+        with open(dataset_manager.model_spec_path(model_name), "r") as file:
+            model_spec = json.load(file)
+            
+        os.remove(dataset_manager.model_spec_path(model_name))
+        if os.path.exists(dataset_manager.model_preds_path(model_name)):
+            os.remove(dataset_manager.model_preds_path(model_name))
+        if os.path.exists(dataset_manager.model_metrics_path(model_name)):
+            os.remove(dataset_manager.model_metrics_path(model_name))
+        if os.path.exists(dataset_manager.model_weights_path(model_name)):
+            os.remove(dataset_manager.model_weights_path(model_name))
+            
+        if evaluator is not None:
+            # Mark that the model's metrics have changed
+            evaluator.rescore_model(model_name, model_spec["timestep_definition"])
+        return "Success"
 
     @app.route("/models/<model_name>/metrics")
     def get_model_metrics(model_name):
@@ -158,6 +204,10 @@ if __name__ == '__main__':
         if "meta" not in body:
             return "Model 'meta' key required", 400
         meta = body["meta"]
+        if not meta.get("timestep_definition", None):
+            return "Timestep definition is required", 400
+        if not meta.get("outcome", None):
+            return "Outcome is required", 400
         
         if _is_model_training():
             with open(dataset_manager.model_spec_path(model_name), "w") as file:
@@ -292,10 +342,12 @@ if __name__ == '__main__':
         
         timestep_def = None
         for name in model_names:
-            with open(os.path.join(MODEL_DIR, f"spec_{name}.json"), "r") as file:
+            with open(dataset_manager.model_spec_path(name), "r") as file:
                 spec = json.load(file)
             if spec.get("training", False):
                 return "Cannot get slices for model that isn't finished training", 400
+            if not os.path.exists(dataset_manager.model_metrics_path(name)):
+                return "Cannot get slices for model with no metrics", 400
             if timestep_def is not None and spec["timestep_definition"] != timestep_def:
                 return "Cannot get slices for models with multiple timestep definitions", 400
             timestep_def = spec["timestep_definition"]
@@ -553,4 +605,4 @@ if __name__ == '__main__':
         
     atexit.register(close_running_threads)
     
-    app.run(debug=True, port=4999)
+    app.run(debug=True, port=4999, threaded=False)

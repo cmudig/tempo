@@ -15,15 +15,15 @@
   let models: { [key: string]: ModelSummary } = {};
 
   enum View {
-    results = 'Results',
+    editor = 'Specification',
+    results = 'Metrics',
     slices = 'Slices',
-    editor = 'Edit',
   }
   let currentView: View = View.results;
   let showingSaved: boolean = false;
   let showingDatasetInfo: boolean = false;
 
-  let currentModel = 'vasopressor_8h';
+  let currentModel: string | null = null;
   let selectedModels: string[] = [];
 
   let sliceSpec = 'default';
@@ -43,9 +43,24 @@
     let result = await fetch('/models');
     models = (await result.json()).models;
     console.log('models:', models);
-    if (!models[currentModel]) currentModel = Object.keys(models).sort()[0];
+    if (Object.keys(models).length > 0) {
+      if (!currentModel || !models[currentModel])
+        currentModel = Object.keys(models).sort()[0];
+    }
     if (!!refreshTimer) clearTimeout(refreshTimer);
     refreshTimer = setTimeout(refreshModels, 5000);
+  }
+
+  let oldCurrentModel: string | null = null;
+  $: if (oldCurrentModel !== currentModel) {
+    if (
+      !!models &&
+      !!currentModel &&
+      !!models[currentModel] &&
+      !models[currentModel].metrics
+    )
+      currentView = View.editor;
+    oldCurrentModel = currentModel;
   }
 
   let refreshTimer: NodeJS.Timeout | null = null;
@@ -62,6 +77,19 @@
       models[currentModel].metrics?.performance ?? {}
     ).sort();
     if (availableMetrics.length > 0) metricToShow = availableMetrics[0];
+  }
+
+  async function createModel(reference: string) {
+    try {
+      let newModel = await (
+        await fetch(`/models/new/${reference}`, { method: 'POST' })
+      ).json();
+      currentModel = newModel.name;
+      currentView = View.editor;
+    } catch (e) {
+      console.error('error creating new model:', e);
+    }
+    refreshModels();
   }
 </script>
 
@@ -83,15 +111,16 @@
         bind:selectedModels
         bind:selectedSlice
         {sliceSpec}
+        on:new={(e) => createModel(e.detail)}
       />
     </ResizablePanel>
     <div class="flex-auto h-full flex flex-col w-0">
       <div
         class="w-full px-4 py-2 flex gap-3 bg-slate-300 border-b border-slate-400"
       >
-        {#each [View.results, View.slices, View.editor] as view}
+        {#each [View.editor, View.results, View.slices] as view}
           <button
-            class="rounded my-2 py-1 px-6 text-center w-32 {currentView == view
+            class="rounded my-2 py-1 text-center w-36 {currentView == view
               ? 'bg-blue-600 text-white font-bold hover:bg-blue-700'
               : 'text-slate-700 hover:bg-slate-200'}"
             on:click={() => (currentView = view)}>{view}</button
@@ -105,7 +134,7 @@
         {#if currentView == View.results}
           <ModelResultsView
             modelName={currentModel}
-            modelSummary={models[currentModel]}
+            modelSummary={models[currentModel ?? '']}
           />
         {:else if currentView == View.slices}
           <SlicesView
@@ -114,10 +143,11 @@
             bind:savedSlices
             bind:metricToShow
             modelName={currentModel}
-            timestepDefinition={models[currentModel]?.timestep_definition ?? ''}
-            modelsToShow={Array.from(
-              new Set([...selectedModels, currentModel])
-            )}
+            timestepDefinition={models[currentModel ?? '']
+              ?.timestep_definition ?? ''}
+            modelsToShow={!!currentModel
+              ? Array.from(new Set([...selectedModels, currentModel]))
+              : []}
           />
         {:else if currentView == View.editor}
           <ModelEditor
@@ -126,9 +156,17 @@
               currentView = View.results;
               currentModel = e.detail;
             }}
-            on:train={(e) => {
+            on:train={async (e) => {
+              await refreshModels();
               currentModel = e.detail;
+            }}
+            on:delete={async () => {
+              await refreshModels();
+              currentView = View.results;
+            }}
+            on:finish={() => {
               refreshModels();
+              currentView = View.results;
             }}
           />
         {/if}

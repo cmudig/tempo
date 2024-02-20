@@ -17,7 +17,7 @@ def make_query(variable_definitions, timestep_definition):
     """
     variable_queries = ',\n\t'.join(f"{name}: {info['query']}" 
                                     for name, info in variable_definitions.items() 
-                                    if info["enabled"])
+                                    if info.get("enabled", True))
     return f"""
     (
         {variable_queries}

@@ -78,7 +78,7 @@ export type ModelSummary = {
 export type VariableDefinition = {
   category: string;
   query: string;
-  enabled: boolean;
+  enabled?: boolean;
 };
 
 export type QueryResult = {

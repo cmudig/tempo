@@ -107,6 +107,19 @@ class DatasetManager:
         
         return dataset, (train_ids, val_ids, test_ids)
 
+    def get_default_model_spec(self):
+        model_info = self.config.get("models", {})
+        default_info = model_info.get("default", {})
+        return {
+            "variables": default_info.get("variables", {"Untitled": {
+                "category": "Inputs",
+                "query": ""
+            }}),
+            "timestep_definition": default_info.get("timestep_definition", ""),
+            "cohort": default_info.get("cohort", ""),
+            "outcome": default_info.get("outcome", ""),
+        }
+        
     def model_spec_path(self, model_name):
         return os.path.join(self.model_dir, f"spec_{model_name}.json")
     

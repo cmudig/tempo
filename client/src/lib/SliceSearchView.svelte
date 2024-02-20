@@ -624,7 +624,7 @@
       </div>
     {:else if !retrievingSlices}
       <div
-        class="w-full flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
+        class="w-full flex-auto min-h-0 mt-6 flex flex-col items-center justify-center text-slate-500"
       >
         <div>No slices yet!</div>
       </div>

@@ -90,7 +90,7 @@
       class="ml-2 pb-2 mb-2 flex items-center gap-1 border-b border-slate-300"
     >
       <Checkbox
-        checked={categoryVariables.every((item) => item[1].enabled)}
+        checked={categoryVariables.every((item) => item[1].enabled ?? true)}
         on:change={(e) => {
           categoryVariables.forEach(
             (item) => (inputVariables[item[0]].enabled = e.detail)

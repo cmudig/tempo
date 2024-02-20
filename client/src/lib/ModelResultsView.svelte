@@ -21,7 +21,7 @@
 
   const dispatch = createEventDispatcher();
 
-  export let modelName = 'vasopressor_8h';
+  export let modelName: string | null = null;
   export let modelSummary: ModelSummary | null = null;
   let metrics: ModelMetrics | null = null;
 
@@ -34,6 +34,7 @@
   }
 
   async function loadModelResults() {
+    if (!modelName) return;
     try {
       let trainingStatus = await checkTrainingStatus(modelName);
       if (!!trainingStatus && trainingStatus.state != 'error') {
@@ -84,7 +85,7 @@
 </script>
 
 <div class="w-full py-2 px-4 h-full flex flex-col">
-  {#if isTraining}
+  {#if isTraining && !!modelName}
     <ModelTrainingView {modelName} on:finish={loadModelResults} />
   {:else if !!metrics}
     <div class="text-lg font-bold mb-3 w-full flex items-center gap-2">
@@ -236,7 +237,7 @@
         {/if}
       </div>
     </div>
-    {#if !!metrics.data_summary}
+    <!-- {#if !!metrics.data_summary}
       <div
         class="mb-2 rounded bg-slate-100 p-4 w-full flex-auto min-h-0 overflow-y-auto"
         style="min-height: 300px;"
@@ -248,6 +249,10 @@
           {/each}
         </div>
       </div>
-    {/if}
+    {/if} -->
+  {:else}
+    <div class="w-full h-full flex flex-column items-center justify-center">
+      <div class="text-slate-500">No metrics available for this model yet.</div>
+    </div>
   {/if}
 </div>

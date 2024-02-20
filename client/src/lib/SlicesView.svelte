@@ -21,7 +21,7 @@
 
   const dispatch = createEventDispatcher();
 
-  export let modelName: string;
+  export let modelName: string | null = null;
   export let modelsToShow: string[];
   export let metricToShow = 'AUROC';
   export let selectedSlice: SliceFeatureBase | null = null;
@@ -86,6 +86,7 @@
   }
 
   async function pollSliceStatus() {
+    if (!modelName) return;
     try {
       loadingSliceStatus = true;
       searchStatus = await checkSlicingStatus();
@@ -134,6 +135,7 @@
       if (response.status == 400) {
         sliceSearchError = await response.text();
         retrievingSlices = false;
+        resultControls = queryControls;
         return;
       }
       let result = await response.json();
@@ -169,6 +171,7 @@
   }
 
   async function loadSlices() {
+    if (!modelName) return;
     try {
       let trainingStatus = await checkTrainingStatus(modelName);
       if (!!trainingStatus && trainingStatus.state != 'error') {

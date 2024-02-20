@@ -21,7 +21,7 @@
   export let patientCohort = '';
   export let timestepDefinition = 'every 1 hour between {intime} and {outtime}';
 
-  export let modelName = 'vasopressor_8h';
+  export let modelName: string | null = null;
 
   let saveError: string | null = null;
 
@@ -35,6 +35,7 @@
   }
 
   async function loadModelSpec() {
+    if (!modelName) return;
     try {
       saveError = null;
       let result = await fetch(`/models/${modelName}/spec`);
@@ -60,11 +61,29 @@
   }
 
   function reset() {
+    if (!modelName) return;
+    newModelName = modelName;
     loadModelSpec();
   }
 
+  async function deleteModel() {
+    try {
+      await fetch(`/models/${modelName}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error('error deleting model:', e);
+    }
+  }
+
   async function trainModel() {
-    dispatch('train', newModelName);
+    if (newModelName.length == 0) {
+      saveError = 'Model must have a name.';
+      return;
+    }
+    saveError = null;
+    if (newModelName != modelName) {
+      // Delete the old version of the model
+      await deleteModel();
+    }
 
     try {
       let result = await fetch('/models', {
@@ -82,42 +101,40 @@
           },
         }),
       });
-      saveError = null;
-      isTraining = true;
+      if (result.status == 200) {
+        saveError = null;
+        isTraining = true;
+      } else {
+        saveError = await result.text();
+        isTraining = false;
+      }
     } catch (e) {
       console.error('error saving model:', e);
       saveError = `${e}`;
     }
-  }
-
-  async function saveAsNewModel() {
-    let newName = prompt('Choose a new model name.');
-    if (!newName) {
-      saveError = 'The model name cannot be empty.';
-      return;
-    }
-    try {
-      let result = await fetch(`/models/${newName}/metrics`);
-      if (result.status == 200)
-        saveError = 'A model with that name already exists.';
-    } catch (e) {}
-    newModelName = newName!;
-    trainModel();
+    dispatch('train', newModelName);
   }
 </script>
 
 <div class="w-full py-2 px-4">
-  {#if isTraining}
-    <ModelTrainingView {modelName} on:finish={reset} />
+  {#if isTraining && !!modelName}
+    <ModelTrainingView {modelName} on:finish />
   {/if}
-  <h2 class="text-lg font-bold mb-3">
-    Edit Model <span class="font-mono">{modelName}</span>
-  </h2>
   {#if !!saveError}
-    <div class="rounded mt-2 p-3 text-red-500 bg-red-50">
+    <div class="rounded my-2 p-3 text-red-500 bg-red-50">
       Training error: <span class="font-mono">{saveError}</span>
     </div>
   {/if}
+
+  <div class="mb-3 flex items-center">
+    <h2 class="text-lg font-bold">Edit Model</h2>
+    <input
+      type="text"
+      placeholder="Model Name"
+      class="flex-auto font-mono ml-2 flat-text-input"
+      bind:value={newModelName}
+    />
+  </div>
   <h3 class="font-bold mt-3 mb-1">Timestep Definition</h3>
   <textarea
     class="w-full font-mono flat-text-input"
@@ -161,17 +178,18 @@
     bind:value={patientCohort}
   /> -->
   <div class="mt-2 flex gap-2">
-    <button
-      class="my-1 py-1.5 text-sm px-4 rounded text-slate-800 bg-red-200 hover:bg-red-300 font-bold"
-      on:click={reset}
-    >
-      Reset
-    </button>
     <button class="my-1 btn btn-blue" on:click={trainModel}>
-      Overwrite Model
+      Save and Train
     </button>
-    <button class="my-1 btn btn-blue" on:click={saveAsNewModel}>
-      Save as New Model...
+    <button class="my-1 btn btn-slate" on:click={reset}> Reset </button>
+    <button
+      class="my-1 btn text-slate-800 bg-red-200 hover:bg-red-300"
+      on:click={async () => {
+        await deleteModel();
+        dispatch('delete', modelName);
+      }}
+    >
+      Delete Model
     </button>
   </div>
 </div>

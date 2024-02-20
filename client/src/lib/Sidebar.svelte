@@ -9,6 +9,7 @@
   } from './slices/utils/slice.type';
   import { SidebarTableWidths } from './utils/sidebarwidths';
   import {
+    faPlus,
     faSort,
     faSortDown,
     faSortUp,
@@ -16,6 +17,10 @@
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import { areSetsEqual } from './slices/utils/utils';
+  import ActionMenuButton from './slices/utils/ActionMenuButton.svelte';
+  import { createEventDispatcher } from 'svelte';
+
+  const dispatch = createEventDispatcher();
 
   export let models: { [key: string]: ModelSummary } = {};
   export let activeModel: string | undefined;
@@ -207,13 +212,39 @@
 </script>
 
 <div class="flex flex-col w-full h-full">
-  <div class="my-2 px-4 flex justify-between grow-0 shrink-0">
+  <div class="my-2 px-4 flex items-center grow-0 shrink-0">
     <div class="text-lg font-bold">Models</div>
-    <select class="flat-select" bind:value={metricToShow}>
-      {#each metricOptions as metricName}
-        <option value={metricName}>{metricName}</option>
-      {/each}
-    </select>
+    <div class="flex-auto" />
+    {#if metricOptions.length > 0}
+      <select class="flat-select" bind:value={metricToShow}>
+        {#each metricOptions as metricName}
+          <option value={metricName}>{metricName}</option>
+        {/each}
+      </select>
+    {/if}
+    <ActionMenuButton buttonClass="btn btn-blue ml-2"
+      ><span slot="button-content"
+        ><Fa icon={faPlus} class="inline" /> New...</span
+      >
+      <div slot="options">
+        <a
+          href="#"
+          tabindex="0"
+          role="menuitem"
+          on:click={() => dispatch('new', 'default')}
+          >From Default Specification</a
+        >
+        {#if !!activeModel}
+          <a
+            href="#"
+            tabindex="0"
+            role="menuitem"
+            on:click={() => dispatch('new', activeModel)}
+            >From <span class="font-mono">{activeModel}</span></a
+          >
+        {/if}
+      </div></ActionMenuButton
+    >
   </div>
   {#if !!selectedSlice}
     <div class="rounded bg-slate-100 px-3 pt-3 mx-2 mb-2">
@@ -232,70 +263,78 @@
       </div>
     </div>
   {/if}
-  <div class="px-2 overflow-auto flex-auto min-h-0">
+  {#if Object.keys(models).length == 0}
     <div
-      class="text-sm text-left inline-flex align-top slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600"
+      class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
     >
+      <div>No models yet!</div>
+    </div>
+  {:else}
+    <div class="px-2 overflow-auto flex-auto min-h-0">
       <div
-        class="grow-0 shrink-0"
-        style="width: {SidebarTableWidths.Checkbox}px;"
-      ></div>
-      <button
-        class="p-2 text-left grow-0 shrink-0 hover:bg-slate-200 whitespace-nowrap"
-        on:click={() => setSort('name')}
-        class:font-bold={sortField == 'name'}
-        style="width: {SidebarTableWidths.ModelName}px;"
+        class="text-sm text-left inline-flex align-top slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600"
       >
-        Model {#if sortField == 'name'}
-          <Fa
-            icon={sortDescending ? faSortDown : faSortUp}
-            class="inline text-xs"
-          />
-        {/if}
-      </button>
-      {#each availableMetrics as fieldName}
+        <div
+          class="grow-0 shrink-0"
+          style="width: {SidebarTableWidths.Checkbox}px;"
+        ></div>
         <button
-          class="p-2 rounded text-left grow-0 shrink-0 hover:bg-slate-200 whitespace-nowrap"
-          class:font-bold={sortField == fieldName}
-          on:click={() => setSort(fieldName)}
-          style="width: {SidebarTableWidths.Metric}px;"
+          class="p-2 text-left grow-0 shrink-0 hover:bg-slate-200 whitespace-nowrap"
+          on:click={() => setSort('name')}
+          class:font-bold={sortField == 'name'}
+          style="width: {SidebarTableWidths.ModelName}px;"
         >
-          {fieldName}
-          {#if sortField == fieldName}
+          Model {#if sortField == 'name'}
             <Fa
               icon={sortDescending ? faSortDown : faSortUp}
               class="inline text-xs"
             />
           {/if}
         </button>
+        {#each availableMetrics as fieldName}
+          <button
+            class="p-2 rounded text-left grow-0 shrink-0 hover:bg-slate-200 whitespace-nowrap"
+            class:font-bold={sortField == fieldName}
+            on:click={() => setSort(fieldName)}
+            style="width: {SidebarTableWidths.Metric}px;"
+          >
+            {fieldName}
+            {#if sortField == fieldName}
+              <Fa
+                icon={sortDescending ? faSortDown : faSortUp}
+                class="inline text-xs"
+              />
+            {/if}
+          </button>
+        {/each}
+      </div>
+      {#each modelOrder as modelName (modelName)}
+        {@const model = models[modelName]}
+        <SidebarItem
+          {model}
+          {modelName}
+          {metricToShow}
+          {metricScales}
+          customMetrics={sliceMetrics?.[modelName] ?? undefined}
+          isActive={activeModel === modelName}
+          isChecked={selectedModels.includes(modelName) ||
+            activeModel === modelName}
+          allowCheck={!activeModel ||
+            hasSameTimestepDefinition(modelName, activeModel)}
+          on:click={() => (activeModel = modelName)}
+          on:toggle={(e) => {
+            let idx = selectedModels.indexOf(modelName);
+            if (idx >= 0)
+              selectedModels = [
+                ...selectedModels.slice(0, idx),
+                ...selectedModels.slice(idx + 1),
+              ];
+            else selectedModels = [...selectedModels, modelName];
+          }}
+        />
       {/each}
     </div>
-    {#each modelOrder as modelName (modelName)}
-      {@const model = models[modelName]}
-      <SidebarItem
-        {model}
-        {modelName}
-        {metricToShow}
-        {metricScales}
-        customMetrics={sliceMetrics?.[modelName] ?? undefined}
-        isActive={activeModel === modelName}
-        isChecked={selectedModels.includes(modelName) ||
-          activeModel === modelName}
-        allowCheck={!activeModel ||
-          hasSameTimestepDefinition(modelName, activeModel)}
-        on:click={() => (activeModel = modelName)}
-        on:toggle={(e) => {
-          let idx = selectedModels.indexOf(modelName);
-          if (idx >= 0)
-            selectedModels = [
-              ...selectedModels.slice(0, idx),
-              ...selectedModels.slice(idx + 1),
-            ];
-          else selectedModels = [...selectedModels, modelName];
-        }}
-      />
-    {/each}
-  </div>
+  {/if}
 </div>
 
 <style>
