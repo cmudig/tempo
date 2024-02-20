@@ -1,20 +1,14 @@
 <script lang="ts">
-  import {
-    AllCategories,
-    VariableCategory,
-    type QueryResult,
-    type VariableDefinition,
-    type VariableEvaluationSummary,
-  } from './model';
+  import { type VariableDefinition } from './model';
   import Checkbox from './utils/Checkbox.svelte';
-  import Fa from 'svelte-fa/src/fa.svelte';
-  import * as d3 from 'd3';
   import { createEventDispatcher } from 'svelte';
-  import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
-  import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
-  import SliceMetricCategoryBar from './slices/metric_charts/SliceMetricCategoryBar.svelte';
   import QueryResultView from './QueryResultView.svelte';
   import { areObjectsEqual } from './slices/utils/utils';
+  import TextareaAutocomplete from './slices/utils/TextareaAutocomplete.svelte';
+  import {
+    getAutocompleteOptions,
+    performAutocomplete,
+  } from './utils/query_autocomplete';
 
   const dispatch = createEventDispatcher();
 
@@ -26,7 +20,11 @@
   export let showCheckbox = true;
   export let autosave = false;
 
+  export let dataFields: string[] = [];
+
   export let timestepDefinition: string = '';
+
+  let queryInput: HTMLElement;
 
   let newVariableName: string | null = null;
   let newVariableQuery: string | null = null;
@@ -78,20 +76,33 @@
             {#if showName}
               <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
             {/if}
-            <textarea
-              class="flat-text-input w-full {showName
-                ? 'h-24'
-                : 'h-full min-h-0'} font-mono"
-              bind:value={newVariableQuery}
-              on:input={() => {
-                if (autosave) {
-                  dispatch('save', {
-                    name: newVariableName,
-                    query: newVariableQuery,
-                  });
-                }
-              }}
-            />
+            <div class="relative w-full {showName ? 'h-24' : 'h-full min-h-0'}">
+              <textarea
+                class="flat-text-input w-full h-full font-mono"
+                bind:this={queryInput}
+                bind:value={newVariableQuery}
+                on:input={() => {
+                  if (autosave) {
+                    dispatch('save', {
+                      name: newVariableName,
+                      query: newVariableQuery,
+                    });
+                  }
+                }}
+              />
+              <TextareaAutocomplete
+                ref={queryInput}
+                resolveFn={(query, prefix) =>
+                  getAutocompleteOptions(dataFields, query, prefix)}
+                replaceFn={performAutocomplete}
+                triggers={['{', '#']}
+                delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
+                menuItemTextFn={(v) => v.value}
+                maxItems={3}
+                menuItemClass="p-2"
+                on:replace={(e) => (newVariableQuery = e.detail)}
+              />
+            </div>
             {#if showButtons}
               <div class="mt-2 flex gap-1">
                 <button

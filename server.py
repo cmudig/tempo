@@ -243,6 +243,15 @@ if __name__ == '__main__':
         data_summary = sf.utils.convert_to_native_types(result)
         return jsonify(data_summary)
         
+    @app.route("/data/fields")
+    def list_data_fields():
+        result = [
+            *sample_dataset.attributes.df.columns,
+            *sample_dataset.events.get_types().unique(),
+            *sample_dataset.intervals.get_types().unique()
+        ]
+        return jsonify({"fields": sf.utils.convert_to_native_types(result)})
+        
     @app.route("/data/query")
     def query_dataset():
         args = request.args

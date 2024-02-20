@@ -7,6 +7,7 @@
 
   export let timestepDefinition: string;
   export let inputVariables: { [key: string]: VariableDefinition } = {};
+  export let dataFields: string[] = [];
 
   export let fillHeight: boolean = true;
 
@@ -108,6 +109,7 @@
       <VariableEditor
         {varName}
         {varInfo}
+        {dataFields}
         {timestepDefinition}
         editing={currentEditingVariableName == varName}
         on:cancel={() => (currentEditingVariableName = null)}

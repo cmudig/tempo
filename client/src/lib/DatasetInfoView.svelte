@@ -9,6 +9,11 @@
   import SliceMetricCategoryBar from './slices/metric_charts/SliceMetricCategoryBar.svelte';
   import QueryResultView from './QueryResultView.svelte';
   import { faXmark } from '@fortawesome/free-solid-svg-icons';
+  import TextareaAutocomplete from './slices/utils/TextareaAutocomplete.svelte';
+  import {
+    getAutocompleteOptions,
+    performAutocomplete,
+  } from './utils/query_autocomplete';
 
   const dispatch = createEventDispatcher();
   type DatasetInfo = {
@@ -67,6 +72,7 @@
 
   let query: string = '';
   let finalQuery: string = '';
+  let queryInput: HTMLElement;
 </script>
 
 <div class="flex flex-col w-full h-full">
@@ -104,10 +110,35 @@
     <div class="w-full flex-auto overflow-y-auto min-h-0 relative">
       <div class="px-4 py-4">
         <div class="font-bold text-sm">Query</div>
-        <textarea
-          class="flat-text-input w-full h-24 font-mono"
-          bind:value={query}
-        />
+        <div class="relative w-full h-24 mb-2">
+          <textarea
+            class="flat-text-input w-full h-full font-mono"
+            bind:value={query}
+            bind:this={queryInput}
+          />
+          {#if !!datasetInfo}
+            <TextareaAutocomplete
+              ref={queryInput}
+              resolveFn={(query, prefix) =>
+                getAutocompleteOptions(
+                  [
+                    ...Object.keys(datasetInfo?.attributes ?? {}),
+                    ...Object.keys(datasetInfo?.events ?? {}),
+                    ...Object.keys(datasetInfo?.intervals ?? {}),
+                  ],
+                  query,
+                  prefix
+                )}
+              replaceFn={performAutocomplete}
+              triggers={['{', '#']}
+              delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
+              menuItemTextFn={(v) => v.value}
+              maxItems={3}
+              menuItemClass="p-2"
+              on:replace={(e) => (query = e.detail)}
+            />
+          {/if}
+        </div>
         <button class="btn btn-slate mb-2" on:click={() => (finalQuery = query)}
           >Evaluate</button
         >

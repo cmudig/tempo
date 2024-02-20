@@ -100,7 +100,7 @@
         resolveFn={getAutocompleteOptions}
         replaceFn={performAutocomplete}
         triggers={['"', "'", '{']}
-        delimiterPattern={/[\s\]\)](?=[\{\"\'])/}
+        delimiterPattern={/[\s\(\[\]\)](?=[\{\"\'])/}
         menuItemTextFn={(v) => v.value}
         maxItems={3}
         menuItemClass="p-2"

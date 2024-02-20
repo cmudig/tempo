@@ -8,7 +8,7 @@
   import { type VariableDefinition } from './model';
   import Checkbox from './utils/Checkbox.svelte';
   import Fa from 'svelte-fa/src/fa.svelte';
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import VariableEditor from './VariableEditor.svelte';
   import ModelTrainingView from './ModelTrainingView.svelte';
   import { checkTrainingStatus } from './training';
@@ -114,6 +114,12 @@
     }
     dispatch('train', newModelName);
   }
+
+  let dataFields: string[] = [];
+  onMount(
+    async () =>
+      (dataFields = (await (await fetch('/data/fields')).json()).fields)
+  );
 </script>
 
 <div class="w-full py-2 px-4">
@@ -143,7 +149,11 @@
 
   <h3 class="font-bold mt-2 mb-1">Input Variables</h3>
   <div class="w-full" style="height: 368px;">
-    <VariableEditorPanel {timestepDefinition} bind:inputVariables />
+    <VariableEditorPanel
+      {timestepDefinition}
+      {dataFields}
+      bind:inputVariables
+    />
   </div>
   <h3 class="font-bold mt-3 mb-1">Outcome Variable</h3>
   <VariableEditor
@@ -154,6 +164,7 @@
     showButtons={false}
     autosave
     showName={false}
+    {dataFields}
     editing
     on:save={(e) => (outcomeVariable = e.detail.query)}
   />
@@ -170,6 +181,7 @@
     showButtons={false}
     autosave
     showName={false}
+    {dataFields}
     editing
     on:save={(e) => (patientCohort = e.detail.query)}
   />
