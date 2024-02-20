@@ -47,11 +47,8 @@
 
   function getAutocompleteOptions(searchQuery, fullPrefix) {
     if (!allowedValues) return [];
-    // check for equals sign
-    let result = fullPrefix.match(
-      /['"]([^'"]+)['"]\s*=\s*\[?(\s*['"][^'"]+['"]\s*,\s*)*?['"][^'"]*$/
-    );
-    if (!result) {
+    let result = fullPrefix.match(/\{[^}]*$/i);
+    if (!!result) {
       return Object.keys(allowedValues)
         .filter((v) =>
           v.toLocaleLowerCase().includes(searchQuery.toLocaleLowerCase())
@@ -59,17 +56,24 @@
         .map((v) => ({ value: v, type: 'col' }));
     }
 
-    let featureColumn = result[1];
-    return allowedValues[featureColumn]
-      .filter((v) =>
-        v.toLocaleLowerCase().includes(searchQuery.toLocaleLowerCase())
-      )
-      .map((v) => ({ value: v, type: 'val' }));
+    // check for equals sign or 'in' keyword
+    result = fullPrefix.match(
+      /{([^}]+)}\s*((\!?=|<>)\s*['"][^'"]*|\s*(not\s*)?in\s*[[(](\s*['"][^'"]+['"]\s*,\s*)*?['"][^'"]*)$/i
+    );
+    if (!!result) {
+      let featureColumn = result[1];
+      return allowedValues[featureColumn]
+        .filter((v) =>
+          v.toLocaleLowerCase().includes(searchQuery.toLocaleLowerCase())
+        )
+        .map((v) => ({ value: v, type: 'val' }));
+    }
+    return [];
   }
 
   function performAutocomplete(item, trigger, fullPrefix) {
     if (positiveOnly) return `${trigger}${item.value}${trigger}`;
-    if (item.type == 'col') return `${trigger}${item.value}${trigger} = `;
+    if (item.type == 'col') return `{${item.value}} = `;
     return `${trigger}${item.value}${trigger}`;
   }
 </script>
@@ -95,6 +99,8 @@
         ref={inputItem}
         resolveFn={getAutocompleteOptions}
         replaceFn={performAutocomplete}
+        triggers={['"', "'", '{']}
+        delimiterPattern={/[\s\]\)](?=[\{\"\'])/}
         menuItemTextFn={(v) => v.value}
         maxItems={3}
         menuItemClass="p-2"

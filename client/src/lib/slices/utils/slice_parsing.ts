@@ -19,15 +19,17 @@ export function featureToString(
   } else if (feature.type == 'feature') {
     let atomicFeature = feature as SliceFeature;
     if (positiveOnly) return `"${atomicFeature.col}"`;
-    let base = `"${atomicFeature.col}" = `;
+    let base = `{${atomicFeature.col}}`;
     if (atomicFeature.vals.length > 1)
-      base += `[${atomicFeature.vals.map((v) => '"' + v + '"').join(', ')}]`;
-    else base += '"' + atomicFeature.vals[0] + '"';
+      base += ` in [${atomicFeature.vals
+        .map((v) => '"' + v + '"')
+        .join(', ')}]`;
+    else base += ' = "' + atomicFeature.vals[0] + '"';
     return base;
   } else if (feature.type == 'negation') {
     let negationFeature = feature as SliceFeatureNegation;
     return (
-      '!' +
+      'not ' +
       featureToString(
         negationFeature.feature,
         featureNeedsParentheses(negationFeature.feature, feature),
@@ -42,7 +44,7 @@ export function featureToString(
       featureNeedsParentheses(conjFeature.lhs, feature),
       positiveOnly
     );
-    base += feature.type == 'and' ? ' & ' : ' | ';
+    base += ' ' + feature.type + ' ';
     base += featureToString(
       conjFeature.rhs,
       featureNeedsParentheses(conjFeature.rhs, feature),

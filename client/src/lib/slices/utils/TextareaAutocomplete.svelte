@@ -108,6 +108,11 @@
   export let visible = false;
   export let maxItems = null;
 
+  // characters that when typed will trigger autocompletion
+  export let triggers = ['"', "'"];
+  // pattern that delimits the text such that text within the same component can be autocompleted
+  export let delimiterPattern = /[\s\[\]\(\)]/;
+
   $: visible = top !== undefined;
 
   let menuRef;
@@ -159,13 +164,13 @@
   function onInput(ev) {
     const positionIndex = ref.selectionStart;
     const textBeforeCaret = ref.value.slice(0, positionIndex);
-    const tokens = textBeforeCaret.split(/[\s\[\]\(\)]/);
+    const tokens = textBeforeCaret.split(delimiterPattern);
     const lastToken = tokens[tokens.length - 1];
     const newTriggerIdx = textBeforeCaret.endsWith(lastToken)
       ? textBeforeCaret.length - lastToken.length
       : -1;
     const maybeTrigger = textBeforeCaret[newTriggerIdx];
-    const keystrokeTriggered = maybeTrigger == '"' || maybeTrigger == "'";
+    const keystrokeTriggered = triggers.includes(maybeTrigger);
 
     if (!keystrokeTriggered) {
       closeMenu();
