@@ -486,8 +486,7 @@ class SliceDiscoveryHelper(SliceHelper):
             def update_sampler_progress(progress, total):
                 nonlocal last_progress
                 self.write_status(True, 
-                                  search_status={"state": "loading", "message": f"Finding slices for {model_name} ({progress} / {total})", "progress": progress / total, "model_name": model_name},
-                                  new_runs=progress - last_progress)
+                                  search_status={"state": "loading", "message": f"Finding slices for {model_name} ({progress} / {total})", "progress": progress / total, "model_name": model_name})
                 last_progress = progress
             
             print(len(discovery_outcomes), "outcomes")
@@ -549,7 +548,7 @@ class SliceDiscoveryHelper(SliceHelper):
                 command_results[r] = r.score_values
             
             self.save_timestep_slice_results(timestep_def)
-            self.write_status(False, timestep_defs_updated=[timestep_def], new_results=len(results), models_to_add=list(set([model_name, *scored_model_names])))
+            self.write_status(False, timestep_defs_updated=[timestep_def], new_runs=self.samples_per_model, new_results=len(results), models_to_add=[model_name])
         except KeyboardInterrupt:
             self.write_status(False, search_status=None)
         except Exception as e:
@@ -737,9 +736,13 @@ class SliceEvaluationHelper(SliceHelper):
                 "Trajectories": {"type": "count", 
                                  "count": matching_unique_ids, 
                                  "share": matching_unique_ids / total_unique_ids},
-                "Labels": old_desc_metrics[f"{model_name} True"],
-                "Predictions": old_desc_metrics[f"{model_name} Predicted"],
             }
+            if matching_nonna < self.min_items_fraction * total_nonna:
+                continue
+            desc["metrics"][model_name].update({
+                "Labels": old_desc_metrics[f"{model_name} True"],
+                "Predictions": old_desc_metrics[f"{model_name} Predicted"]
+            })
             
             if spec["model_type"] == "binary_classification":
                 opt_threshold = self.get_model_opt_threshold(model_name)
@@ -880,7 +883,7 @@ class SliceEvaluationHelper(SliceHelper):
         all_outcomes = np.vstack([self.get_model_labels(model_name)[eval_mask]
                                   for model_name in model_names])
         min_items_per_model = self.min_items_fraction * (~np.isnan(all_outcomes)).sum(axis=1) 
-        scored_slices = [s for s in scored_slices if np.any((~np.isnan(all_outcomes[:,s.make_mask(valid_df.df)])).sum() > min_items_per_model, axis=0)]
+        scored_slices = [s for s in scored_slices if np.any((~np.isnan(all_outcomes[:,s.make_mask(valid_df.df)])).sum(axis=1) >= min_items_per_model, axis=0)]
 
         filters = []
         for i, model_name in enumerate(model_names):

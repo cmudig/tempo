@@ -16,7 +16,7 @@
     faXmark,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
-  import { areSetsEqual } from './slices/utils/utils';
+  import { areObjectsEqual, areSetsEqual } from './slices/utils/utils';
   import ActionMenuButton from './slices/utils/ActionMenuButton.svelte';
   import { createEventDispatcher } from 'svelte';
 
@@ -209,20 +209,53 @@
       );
     }
   }
+
+  function compareModels(
+    baseModel: ModelSummary,
+    otherModel: ModelSummary
+  ): string[] {
+    let results: string[] = [];
+    if (baseModel.timestep_definition != otherModel.timestep_definition)
+      results.push('timestep definition');
+
+    if (baseModel.model_type != otherModel.model_type)
+      results.push('model type');
+    if (baseModel.outcome != otherModel.outcome) results.push('target');
+
+    if (!areObjectsEqual(baseModel.variables, otherModel.variables)) {
+      let numDifferences =
+        Object.keys(baseModel.variables).filter(
+          (name) =>
+            !otherModel.variables[name] ||
+            baseModel.variables[name].query != otherModel.variables[name].query
+        ).length +
+        Object.keys(otherModel.variables).filter(
+          (name) => !baseModel.variables[name]
+        ).length;
+      results.push(`${numDifferences} input${numDifferences != 1 ? 's' : ''}`);
+    }
+
+    if (baseModel.cohort != otherModel.cohort) results.push('filter');
+
+    return results;
+  }
 </script>
 
 <div class="flex flex-col w-full h-full">
-  <div class="my-2 px-4 flex items-center grow-0 shrink-0">
-    <div class="text-lg font-bold">Models</div>
+  <div class="my-2 px-4 flex items-center grow-0 shrink-0 overflow-hidden">
+    <div class="text-lg font-bold whitespace-nowrap shrink-1 overflow-hidden">
+      Models
+    </div>
     <div class="flex-auto" />
+    <div class="shrink-0 text-sm mr-2">Display metric:</div>
     {#if metricOptions.length > 0}
-      <select class="flat-select" bind:value={metricToShow}>
+      <select class="flat-select my-1 shrink-0" bind:value={metricToShow}>
         {#each metricOptions as metricName}
           <option value={metricName}>{metricName}</option>
         {/each}
       </select>
     {/if}
-    <ActionMenuButton buttonClass="btn btn-blue ml-2"
+    <ActionMenuButton buttonClass="btn btn-blue ml-2 shrink-0 whitespace-nowrap"
       ><span slot="button-content"
         ><Fa icon={faPlus} class="inline" /> New...</span
       >
@@ -315,6 +348,9 @@
           {modelName}
           {metricToShow}
           {metricScales}
+          differences={activeModel !== null && activeModel === modelName
+            ? []
+            : compareModels(models[activeModel], model)}
           customMetrics={sliceMetrics?.[modelName] ?? undefined}
           isActive={activeModel === modelName}
           isChecked={selectedModels.includes(modelName) ||

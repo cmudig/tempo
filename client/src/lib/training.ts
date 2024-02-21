@@ -19,6 +19,10 @@ export async function checkTrainingStatus(
 export type SliceFindingStatus = {
   searching: boolean;
   errors?: { [key: string]: string };
+  models: string[];
+  n_results: number; // number of slices discovered
+  n_runs: number; // number of rows sampled
+  last_updated: { [key: string]: string };
   status?: {
     state: string;
     message: string;

@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import type { ModelSummary } from './lib/model';
+  import { type ModelSummary, metricsHaveWarnings } from './lib/model';
   import ModelEditor from './lib/ModelEditor.svelte';
   import ModelResultsView from './lib/ModelResultsView.svelte';
   import SlicesView from './lib/SlicesView.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import type { Slice, SliceFeatureBase } from './lib/slices/utils/slice.type';
-  import { faDatabase, faHeart } from '@fortawesome/free-solid-svg-icons';
+  import { faDatabase, faWarning } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import SavedSlicesView from './lib/SavedSlicesView.svelte';
   import ResizablePanel from './lib/utils/ResizablePanel.svelte';
@@ -60,6 +60,16 @@
       !models[currentModel].metrics
     )
       currentView = View.editor;
+    if (
+      !!currentModel &&
+      !!models[currentModel] &&
+      !models[currentModel].metrics?.performance[metricToShow]
+    ) {
+      let availableMetrics = Object.keys(
+        models[currentModel].metrics?.performance ?? {}
+      ).sort();
+      if (availableMetrics.length > 0) metricToShow = availableMetrics[0];
+    }
     oldCurrentModel = currentModel;
   }
 
@@ -68,16 +78,6 @@
   onDestroy(() => {
     if (!!refreshTimer) clearTimeout(refreshTimer);
   });
-
-  $: if (
-    !!models[currentModel] &&
-    !models[currentModel].metrics?.performance[metricToShow]
-  ) {
-    let availableMetrics = Object.keys(
-      models[currentModel].metrics?.performance ?? {}
-    ).sort();
-    if (availableMetrics.length > 0) metricToShow = availableMetrics[0];
-  }
 
   async function createModel(reference: string) {
     try {
@@ -123,7 +123,12 @@
             class="rounded my-2 py-1 text-center w-36 {currentView == view
               ? 'bg-blue-600 text-white font-bold hover:bg-blue-700'
               : 'text-slate-700 hover:bg-slate-200'}"
-            on:click={() => (currentView = view)}>{view}</button
+            on:click={() => (currentView = view)}
+            >{#if view == View.results && !!currentModel && !!models && !!models[currentModel].metrics && metricsHaveWarnings(models[currentModel].metrics)}<Fa
+                icon={faWarning}
+                class="inline mr-1"
+              />{/if}
+            {view}</button
           >
         {/each}
       </div>

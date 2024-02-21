@@ -42,6 +42,7 @@
   export let runningSampler = false;
   export let numSamples = 10;
   export let shouldCancel = false;
+  export let samplingStatusOverview: string | null = null;
   export let samplerRunProgress: number | null = null;
   export let samplerProgressMessage: string | null = null;
   export let retrievingSlices: boolean = false;
@@ -221,27 +222,29 @@
           met.type == 'count'
             ? allSlices.reduce(
                 (curr, next) =>
-                  Math.max(curr, getMetric(next.metrics!, n)!.mean!),
+                  Math.max(curr, getMetric(next.metrics!, n!)?.mean ?? -1e9),
                 -1e9
               ) + 0.01
             : 1;
         let minScore =
           allSlices.reduce(
-            (curr, next) => Math.min(curr, getMetric(next.metrics!, n)!.mean!),
+            (curr, next) =>
+              Math.min(curr, getMetric(next.metrics!, n)?.mean ?? 1e9),
             1e9
           ) - 0.01;
         newInfo.scale = (v: number) => v / maxScore;
       } else if (met.type == 'numeric') {
         let maxScore =
           allSlices.reduce(
-            (curr, next) => Math.max(curr, getMetric(next.metrics!, n)!.value!),
+            (curr, next) =>
+              Math.max(curr, getMetric(next.metrics!, n)?.value ?? -1e9),
             -1e9
           ) + 0.01;
         newInfo.scale = (v: number) => v / maxScore;
       } else if (met.type == 'categorical') {
         let uniqueKeys: Set<string> = new Set();
         allSlices.forEach((s) =>
-          Object.keys(getMetric(s.metrics!, n)!.counts!).forEach((v) =>
+          Object.keys(getMetric(s.metrics!, n)?.counts ?? {}).forEach((v) =>
             uniqueKeys.add(v)
           )
         );
@@ -306,82 +309,75 @@
 
 <div class="w-full h-full flex flex-col">
   <div class="mb-3">
-    <div class="flex items-center whitespace-nowrap gap-3">
-      {#if runningSampler}
-        <button
-          class="btn btn-blue disabled:opacity-50"
-          on:click={() => dispatch('cancel')}>Stop</button
-        >
-      {:else}
-        <button
-          class="btn btn-blue"
-          on:click={() => dispatch('load')}
+    <div class="rounded bg-slate-100 flex items-center items-stretch">
+      <div class="p-3 border-r border-slate-200 flex gap-2 items-center">
+        {#if !!samplingStatusOverview}<div
+            class="text-xs w-max"
+            style="max-width: 240px;"
+          >
+            {samplingStatusOverview}
+          </div>{/if}
+        {#if runningSampler}
+          <button
+            class="btn btn-blue disabled:opacity-50"
+            on:click={() => dispatch('cancel')}>Stop</button
+          >
+        {:else}
+          <button
+            class="btn btn-blue"
+            on:click={() => dispatch('load')}
+            disabled={retrievingSlices}
+            >{retrievingSlices ? 'Loading...' : 'Find Slices'}</button
+          >
+        {/if}
+      </div>
+      <div class="p-3 border-r border-slate-200 flex gap-2 items-center">
+        {#if !!scoreWeights}
+          {@const sortedNames = Object.keys(scoreWeights)
+            .filter((n) => scoreWeights[n] > 0)
+            .sort((a, b) => scoreWeights[b] - scoreWeights[a])}
+          <div class="text-xs" style="max-width: 240px;">
+            Sorting by <strong>{sortedNames.slice(0, 2).join(', ')}</strong>
+            {#if sortedNames.length > 2}
+              and {sortedNames.length - 2} other{sortedNames.length - 2 > 1
+                ? 's'
+                : ''}{/if}
+          </div>
+        {/if}
+        <ActionMenuButton
+          buttonClass="btn btn-slate"
+          buttonTitle="Adjust weights for how slices are ranked"
           disabled={retrievingSlices}
-          >{retrievingSlices ? 'Loading...' : 'Find Slices'}</button
+          menuWidth={400}
+          singleClick={false}
         >
-      {/if}
-      <ActionMenuButton
-        buttonClass="btn btn-slate ml-1"
-        buttonTitle="Add a filter option"
-        disabled={retrievingSlices}
-      >
-        <span slot="button-content"
-          ><Fa icon={faSearch} class="inline mr-1" />
-          Refine Search</span
-        >
-        <div slot="options">
-          {#each Object.values(SliceSearchControl) as control}
-            {#if !enabledSliceControls[control]}
-              <a
-                href="#"
-                tabindex="0"
-                role="menuitem"
-                on:click={() => toggleSliceControl(control)}
-                >{SliceControlStrings[control]} Slice</a
-              >
-            {/if}
-          {/each}
-        </div>
-      </ActionMenuButton>
-      <ActionMenuButton
-        buttonClass="btn btn-slate ml-1"
-        buttonTitle="Adjust weights for how slices are ranked"
-        disabled={retrievingSlices}
-        menuWidth={400}
-        singleClick={false}
-      >
-        <span slot="button-content"
-          ><Fa icon={faScaleBalanced} class="inline mr-1" />
-          Sort</span
-        >
-        <div
-          slot="options"
-          let:dismiss
-          class="p-4 overflow-scroll relative"
-          style="max-height: 400px;"
-        >
-          <ScoreWeightMenu
-            collapsible={false}
-            showApplyButton
-            weights={scoreWeights}
-            {scoreNames}
-            on:apply={(e) => {
-              scoreWeights = e.detail;
-              dismiss();
-            }}
-            on:cancel={dismiss}
-          />
-        </div>
-      </ActionMenuButton>
-      <button
-        disabled={retrievingSlices}
-        class="btn btn-slate ml-1"
-        on:click={() => (specEditorVisible = true)}
-        ><Fa icon={faWrench} class="inline mr-1" /> Configure Slicing</button
-      >
+          <span slot="button-content"
+            ><Fa icon={faScaleBalanced} class="inline mr-1" />
+            Sort</span
+          >
+          <div
+            slot="options"
+            let:dismiss
+            class="p-4 overflow-scroll relative"
+            style="max-height: 400px;"
+          >
+            <ScoreWeightMenu
+              collapsible={false}
+              showApplyButton
+              weights={scoreWeights}
+              {scoreNames}
+              on:apply={(e) => {
+                scoreWeights = e.detail;
+                dismiss();
+              }}
+              on:cancel={dismiss}
+            />
+          </div>
+        </ActionMenuButton>
+      </div>
       {#if runningSampler}
         {#if samplerRunProgress == null}
-          <div role="status" class="w-8 h-8 grow-0 shrink-0 mr-2">
+          <div role="status" class="ml-3 w-8 h-8 grow-0 shrink-0 self-center">
             <svg
               aria-hidden="true"
               class="text-gray-200 animate-spin stroke-blue-600 w-8 h-8 align-middle"
@@ -406,7 +402,7 @@
             </svg>
           </div>
         {/if}
-        <div class="flex-auto">
+        <div class="ml-3 flex-auto whitespace-nowrap self-center">
           <div class="text-sm">
             {samplerProgressMessage ?? 'Loading slices...'}
           </div>
@@ -420,6 +416,40 @@
               />
             </div>
           {/if}
+        </div>
+      {:else}
+        <div class="p-3 border-r border-slate-200">
+          <div class="h-full flex items-center gap-2">
+            <ActionMenuButton
+              buttonClass="btn px-1 py-0.5 hover:bg-slate-200 text-xs text-slate-600 font-bold"
+              buttonTitle="Add a filter option"
+              disabled={retrievingSlices}
+            >
+              <span slot="button-content"
+                ><Fa icon={faSearch} class="inline mr-1" />
+                Refine Search</span
+              >
+              <div slot="options">
+                {#each Object.values(SliceSearchControl) as control}
+                  {#if !enabledSliceControls[control]}
+                    <a
+                      href="#"
+                      tabindex="0"
+                      role="menuitem"
+                      on:click={() => toggleSliceControl(control)}
+                      >{SliceControlStrings[control]} Slice</a
+                    >
+                  {/if}
+                {/each}
+              </div>
+            </ActionMenuButton>
+            <button
+              disabled={retrievingSlices}
+              class="btn px-1 py-0.5 hover:bg-slate-200 text-xs text-slate-600 font-bold"
+              on:click={() => (specEditorVisible = true)}
+              ><Fa icon={faWrench} class="inline mr-1" /> Configure Slicing</button
+            >
+          </div>
         </div>
       {/if}
     </div>

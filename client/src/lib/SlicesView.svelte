@@ -55,6 +55,22 @@
   let loadingSliceStatus = false;
   let retrievingSlices = false;
 
+  let samplingStatusOverview: string | null = null;
+  $: if (!!searchStatus && !!modelName && (slices?.length ?? 0) > 0) {
+    if (searchStatus.models.includes(modelName))
+      samplingStatusOverview = `Showing ${slices?.length ?? 0} of ${
+        searchStatus.n_results
+      } slices from ${searchStatus.n_runs} sampled timesteps`;
+    else
+      samplingStatusOverview = `Showing ${slices?.length ?? 0} of ${
+        searchStatus.n_results
+      } slices from ${
+        searchStatus.n_runs
+      } timesteps (sampled from other models)`;
+  } else {
+    samplingStatusOverview = null;
+  }
+
   let slices: Slice[] | null = null;
   let baseSlice: Slice | null = null;
   // the slice controls used to generate the results that are displayed
@@ -102,7 +118,6 @@
       else sliceSearchError = null;
 
       if (searchStatus.status?.state == 'none') {
-        searchStatus = null;
         if (wasSearching && !sliceSearchError) {
           wasSearching = false;
           getSlicesIfAvailable();
@@ -273,6 +288,14 @@
       </div>
     </div>
   {/if}
+  <div class="px-4 text-lg font-bold mb-3 w-full flex items-center gap-2">
+    <div>
+      Slices for <span class="font-mono">{modelName}</span
+      >{#if modelsToShow.length > 1}&nbsp; vs. <span class="font-mono"
+          >{modelsToShow.filter((m) => m != modelName).join(', ')}</span
+        >{/if}
+    </div>
+  </div>
   <div class="px-4 flex-auto h-0 overflow-auto" style="width: 100% !important;">
     <SliceSearchView
       modelNames={modelsToShow}
@@ -288,6 +311,7 @@
         : []}
       {baseSlice}
       {timestepDefinition}
+      {samplingStatusOverview}
       savedSlices={savedSlices[sliceSpec] ?? []}
       bind:scoreWeights
       bind:selectedSlices
@@ -298,7 +322,8 @@
       bind:similarToSlice
       bind:subsliceOfSlice
       {valueNames}
-      runningSampler={!!searchStatus || loadingSliceStatus}
+      runningSampler={(!!searchStatus && searchStatus.status.state != 'none') ||
+        loadingSliceStatus}
       {retrievingSlices}
       samplerProgressMessage={!!searchStatus && !!searchStatus.status
         ? searchStatus.status.message

@@ -50,6 +50,13 @@ export type ModelMetrics = {
   };
 };
 
+export function metricsHaveWarnings(metrics: ModelMetrics): boolean {
+  return (
+    !!metrics.trivial_solution_warning ||
+    Object.keys(metrics.class_not_predicted_warnings ?? {}).length > 0
+  );
+}
+
 export const decimalMetrics = ['R^2', 'MSE', 'Macro F1', 'Micro F1', 'F1'];
 
 export enum ModelType {
@@ -69,6 +76,8 @@ export type ModelSummary = {
   model_type?: ModelType;
   likely_trivial?: boolean;
   metrics?: ModelMetrics;
+  cohort: string;
+  variables: { [key: string]: VariableDefinition };
   training?: boolean;
   timestep_definition: string;
   status?: { state: string; message: string };

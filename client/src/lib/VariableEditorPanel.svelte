@@ -183,12 +183,14 @@
         on:click={() => (showRaw = false)}
         disabled={!showRaw}
         class="btn {!showRaw ? 'bg-slate-400' : 'hover:bg-slate-200'} rounded"
+        title="Use the graphical interface to enter and update variables"
         ><Fa icon={faListDots} class="inline mr-2" />Structured</button
       >
       <button
         on:click={() => (showRaw = true)}
         disabled={showRaw}
         class="btn {showRaw ? 'bg-slate-400' : 'hover:bg-slate-200'} rounded"
+        title="Use a text editor to enter and update variables"
         ><Fa icon={faCode} class="inline mr-2" />Raw</button
       >
     </div>

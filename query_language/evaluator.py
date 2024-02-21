@@ -322,7 +322,6 @@ class EvaluateQuery(lark.visitors.Interpreter):
         self.attributes = attributes
         self.events = events
         self.intervals = intervals
-        self.time_index_tree = None
         self.cache_dir = cache_dir
         self.eventtype_macros = eventtype_macros if eventtype_macros is not None else {}
         self.verbose = verbose
@@ -330,10 +329,12 @@ class EvaluateQuery(lark.visitors.Interpreter):
         self._in_memory_cache = {} # for items to be stored in memory instead of loaded from disk every time
         self.use_cache = True
         self.load_cache()
-        self.evaluator = EvaluateExpression(self.attributes, self.events, self.intervals, self.eventtype_macros)
         
+    def get_evaluator(self):
+        return EvaluateExpression(self.attributes, self.events, self.intervals, self.eventtype_macros)
+    
     def get_all_ids(self):
-        return self.evaluator.get_all_ids()
+        return self.get_evaluator().get_all_ids()
     
     def load_cache(self):
         if not self.cache_dir: return
@@ -401,18 +402,20 @@ class EvaluateQuery(lark.visitors.Interpreter):
             raise ValueError(f"Cannot convert {type(idx)} object to TimeIndex")
 
     def periodic_time_index(self, tree):
-        duration = self.evaluator.transform(tree.children[0])
+        evaluator = self.get_evaluator()
+        duration = evaluator.transform(tree.children[0])
                 
-        start_time = self._make_time_index(self.evaluator.transform(tree.children[1].children[0]))
-        end_time = self._make_time_index(self.evaluator.transform(tree.children[1].children[1]))
+        start_time = self._make_time_index(evaluator.transform(tree.children[1].children[0]))
+        end_time = self._make_time_index(evaluator.transform(tree.children[1].children[1]))
         
         return TimeIndex.range(start_time, end_time, duration)
         
     def event_time_index(self, tree):
-        events = self.evaluator.transform(tree.children[0])
+        evaluator = self.get_evaluator()
+        events = evaluator.transform(tree.children[0])
 
-        start_time = self.evaluator.transform(tree.children[-1].children[0])
-        end_time = self.evaluator.transform(tree.children[-1].children[1])
+        start_time = evaluator.transform(tree.children[-1].children[0])
+        end_time = evaluator.transform(tree.children[-1].children[1])
         if isinstance(start_time, Attributes) and isinstance(end_time, Attributes):
             pass
         elif isinstance(start_time, Attributes) and not isinstance(end_time, Attributes):
@@ -440,10 +443,10 @@ class EvaluateQuery(lark.visitors.Interpreter):
         return TimeIndex.from_events(events, starts=start_time, ends=end_time)
         
     def array_time_index(self, tree):
-        times = [self.evaluator.transform(c) for c in tree.children]
+        times = [self.get_evaluator().transform(c) for c in tree.children]
         return TimeIndex.from_times(times)
         
-    def _parse_variable_expr(self, tree, cache_only=False):            
+    def _parse_variable_expr(self, tree, evaluator, time_index_tree=None, cache_only=False):            
         # Parse where clauses first (these require top-down processing in case of a value placeholder)
         tree_desc = str(tree.children[1])
         options_desc = str(tree.children[2]) if len(tree.children) > 2 else ''
@@ -452,18 +455,18 @@ class EvaluateQuery(lark.visitors.Interpreter):
         if isinstance(tree.children[1], (TimeSeries, TimeSeriesSet)):
             var_exp = tree.children[1]
         else:
-            var_exp = self.cache_lookup((tree_desc, options_desc), time_index_tree=self.time_index_tree)
+            var_exp = self.cache_lookup((tree_desc, options_desc), time_index_tree=time_index_tree)
         if cache_only and var_exp is None: return tree
         elif var_exp is not None:
             if var_name is not None:
                 var_exp = var_exp.rename(var_name)
             return var_exp.compress()
 
-        self._preprocess_nested_aggregations(tree)
+        self._preprocess_nested_aggregations(tree, evaluator)
             
         for node in tree.iter_subtrees():
             if node is None: continue
-            node.children = [lark.Tree('atom', [self._parse_where_clause(n)]) if isinstance(n, lark.Tree) and n.data == "where_clause" else n for n in node.children]
+            node.children = [lark.Tree('atom', [self._parse_where_clause(n, evaluator)]) if isinstance(n, lark.Tree) and n.data == "where_clause" else n for n in node.children]
             
         set_variables = set()
         for node in tree.iter_subtrees():
@@ -472,7 +475,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
             for n in node.children:
                 if isinstance(n, lark.Tree) and n.data == "with_clause":
                     # Defining a temporary variable
-                    base_expr, with_var_name = self._parse_with_clause(n)
+                    base_expr, with_var_name = self._parse_with_clause(n, evaluator)
                     set_variables.add(with_var_name)
                     new_children.append(base_expr)
                 else:
@@ -483,11 +486,11 @@ class EvaluateQuery(lark.visitors.Interpreter):
             # We only cache the main expression, so variable names and options can be adjusted later without recomputing
             # expensive aggregations
             if var_exp is None:
-                var_exp = self.evaluator.transform(tree.children[1])
-                if self.evaluator.time_index is not None:
+                var_exp = evaluator.transform(tree.children[1])
+                if evaluator.time_index is not None:
                     if isinstance(var_exp, Attributes):
                         # Cast the attributes over the time index
-                        var_exp = TimeSeries(self.evaluator.time_index, make_aligned_value_series(self.evaluator.time_index, var_exp))
+                        var_exp = TimeSeries(evaluator.time_index, make_aligned_value_series(evaluator.time_index, var_exp))
                     elif isinstance(var_exp, TimeIndex):
                         # Use the times as the time series values
                         var_exp = TimeSeries(var_exp, var_exp.get_times())
@@ -499,26 +502,25 @@ class EvaluateQuery(lark.visitors.Interpreter):
             raise ValueError(f"Exception occurred when processing variable '{var_name}': {e}")
         else:
             var_exp = var_exp.compress()
-            self.save_to_cache((tree_desc, options_desc), var_exp, time_index_tree=self.time_index_tree)
+            self.save_to_cache((tree_desc, options_desc), var_exp, time_index_tree=time_index_tree)
             return var_exp
         
-    def _parse_time_series(self, tree):
-        self.time_index_tree = tree.children[-1] if len(tree.children) > 1 else None
+    def _parse_time_series(self, tree, evaluator):
+        time_index_tree = tree.children[-1] if len(tree.children) > 1 else None
         time_index = self.visit(tree.children[-1]) if len(tree.children) > 1 else None
-        self.evaluator.time_index = time_index
+        evaluator.time_index = time_index
         pbar = tqdm.tqdm(tree.children[0].children) if self.verbose else tree.children[0].children
-        variable_definitions = [self._parse_variable_expr(child) for child in pbar]
-        self.evaluator.time_index = None
+        variable_definitions = [self._parse_variable_expr(child, evaluator, time_index_tree=time_index_tree) for child in pbar]
+        evaluator.time_index = None
 
         if time_index is not None and not all(isinstance(v, TimeSeries) for v in variable_definitions):
             raise ValueError(f"All variables must evaluate to a TimeSeries when a time index is provided")
-        self.time_index_tree = None
         if len(variable_definitions) == 1:
             return variable_definitions[0]
         else:
             return TimeSeriesSet.from_series(variable_definitions)
         
-    def _preprocess_nested_aggregations(self, tree):
+    def _preprocess_nested_aggregations(self, tree, evaluator):
         for node in tree.iter_subtrees_topdown():
             if node is None: continue
             if not (isinstance(node, lark.Tree) and node.data == "agg_expr"): continue
@@ -528,14 +530,14 @@ class EvaluateQuery(lark.visitors.Interpreter):
             
             for desc in node.iter_subtrees():
                 if desc is None or desc == node: continue
-                desc.children = [Compilable(self.evaluator.transform(n)) if isinstance(n, lark.Tree) and n.data == "agg_expr" else n for n in desc.children]
+                desc.children = [Compilable(evaluator.transform(n)) if isinstance(n, lark.Tree) and n.data == "agg_expr" else n for n in desc.children]
                 
         
-    def _parse_where_clause(self, tree):
-        base = self.evaluator.transform(tree.children[0])
-        self.evaluator.value_placeholder = base
-        where = self.evaluator.transform(tree.children[1])
-        self.evaluator.value_placeholder = None
+    def _parse_where_clause(self, tree, evaluator):
+        base = evaluator.transform(tree.children[0])
+        evaluator.value_placeholder = base
+        where = evaluator.transform(tree.children[1])
+        evaluator.value_placeholder = None
         if isinstance(where, Compilable):
             return Compilable(base).filter(where)
         elif isinstance(base, (Events, Intervals, EventSet, IntervalSet, Compilable)):
@@ -543,35 +545,36 @@ class EvaluateQuery(lark.visitors.Interpreter):
         else:
             return base.where(where, pd.NA)
         
-    def _parse_with_clause(self, tree):
+    def _parse_with_clause(self, tree, evaluator):
         var_name = tree.children[1].value
-        var_value = self.evaluator.transform(tree.children[-1])
-        self.evaluator.variables[var_name] = var_value
+        var_value = evaluator.transform(tree.children[-1])
+        evaluator.variables[var_name] = var_value
         return tree.children[0], var_name
         
     def start(self, tree):
         # First replace all time series
+        evaluator = self.get_evaluator()
         if isinstance(tree.children[0], lark.Tree) and tree.children[0].data == "time_series":
-            return self._parse_time_series(tree.children[0])
+            return self._parse_time_series(tree.children[0], evaluator)
 
         if self.use_cache:
             # First parse cached expressions
             for node in tree.iter_subtrees():
                 if node is None: continue
-                node.children = [self._parse_variable_expr(n, cache_only=True) if isinstance(n, lark.Tree) and n.data == "variable_expr" else n for n in node.children]
+                node.children = [self._parse_variable_expr(n, evaluator, cache_only=True) if isinstance(n, lark.Tree) and n.data == "variable_expr" else n for n in node.children]
         
         # Parse time series first
         for node in tree.iter_subtrees():
             if node is None: continue
-            node.children = [self._parse_time_series(n) if isinstance(n, lark.Tree) and n.data == "time_series" else n for n in node.children]
+            node.children = [self._parse_time_series(n, evaluator) if isinstance(n, lark.Tree) and n.data == "time_series" else n for n in node.children]
 
         # Then parse detached variable expressions
         for node in tree.iter_subtrees():
             if node is None: continue
-            node.children = [self._parse_variable_expr(n) if isinstance(n, lark.Tree) and n.data == "variable_expr" else n for n in node.children]
+            node.children = [self._parse_variable_expr(n, evaluator) if isinstance(n, lark.Tree) and n.data == "variable_expr" else n for n in node.children]
             
         if isinstance(tree.children[0], lark.Tree): 
-            return self.evaluator.transform(tree.children[0])
+            return evaluator.transform(tree.children[0])
         return tree.children[0]
     
 GRAMMAR = """

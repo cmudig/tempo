@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { type ModelSummary, decimalMetrics } from './model';
+  import {
+    type ModelSummary,
+    decimalMetrics,
+    metricsHaveWarnings,
+  } from './model';
   import * as d3 from 'd3';
   import { SidebarTableWidths } from './utils/sidebarwidths';
   import Checkbox from './utils/Checkbox.svelte';
@@ -23,6 +27,7 @@
     undefined;
   export let showCheckbox: boolean = true;
   export let allowCheck: boolean = true;
+  export let differences: string[] = [];
 
   export let metricScales: { [key: string]: (v: number) => number } = {};
 
@@ -122,10 +127,20 @@
         </svg>
       </div>
     {/if}
-    {#if !!model && !!model.metrics && (!!model.metrics.trivial_solution_warning || (!!model.metrics.class_not_predicted_warnings && model.metrics.class_not_predicted_warnings.length > 0))}
-      <Fa class="text-orange-300 mr-2" icon={faWarning} />
-    {/if}
-    <div class="flex-auto whitespace-nowrap truncate">{modelName}</div>
+    <div class="flex-auto min-w-0">
+      <div class="whitespace-nowrap truncate">
+        {#if !!model && !!model.metrics && metricsHaveWarnings(model.metrics)}
+          <Fa class="text-orange-300 inline" icon={faWarning} />
+        {/if}
+        {modelName}
+      </div>
+      {#if differences.length > 0}
+        <div class="text-xs text-slate-500 font-sans">
+          <strong>&Delta;:</strong>
+          {differences.join(', ')}
+        </div>
+      {/if}
+    </div>
   </div>
   {#if !!metricValues}
     <div

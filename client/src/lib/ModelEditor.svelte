@@ -13,6 +13,7 @@
   import ModelTrainingView from './ModelTrainingView.svelte';
   import { checkTrainingStatus } from './training';
   import VariableEditorPanel from './VariableEditorPanel.svelte';
+  import Tooltip from './utils/Tooltip.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -115,6 +116,24 @@
     dispatch('train', newModelName);
   }
 
+  async function saveAsNewModel() {
+    let newName = prompt('Choose a new model name.');
+    if (newName == null) return;
+    if (!newName) {
+      saveError = 'The model name cannot be empty.';
+      return;
+    }
+    try {
+      let result = await fetch(`/models/${newName}/metrics`);
+      if (result.status == 200) {
+        saveError = 'A model with that name already exists.';
+        return;
+      }
+    } catch (e) {}
+    newModelName = newName!;
+    await trainModel();
+  }
+
   let dataFields: string[] = [];
   onMount(
     async () =>
@@ -122,7 +141,7 @@
   );
 </script>
 
-<div class="w-full py-2 px-4">
+<div class="w-full py-4 px-4">
   {#if isTraining && !!modelName}
     <ModelTrainingView {modelName} on:finish />
   {/if}
@@ -141,13 +160,23 @@
       bind:value={newModelName}
     />
   </div>
-  <h3 class="font-bold mt-3 mb-1">Timestep Definition</h3>
+  <h3 class="font-bold mt-3 mb-1">
+    Timestep Definition &nbsp;<Tooltip
+      title="Defines the points in time within each trajectory at which the model will be run."
+      position="right"
+    />
+  </h3>
   <textarea
     class="w-full font-mono flat-text-input"
     bind:value={timestepDefinition}
   />
 
-  <h3 class="font-bold mt-2 mb-1">Input Variables</h3>
+  <h3 class="font-bold mt-2 mb-1">
+    Input Variables &nbsp;<Tooltip
+      title="Variables that are computed at each timestep defined by the Timestep Definition, to be used as inputs to the model."
+      position="right"
+    />
+  </h3>
   <div class="w-full" style="height: 368px;">
     <VariableEditorPanel
       {timestepDefinition}
@@ -155,7 +184,12 @@
       bind:inputVariables
     />
   </div>
-  <h3 class="font-bold mt-3 mb-1">Outcome Variable</h3>
+  <h3 class="font-bold mt-3 mb-1">
+    Target Variable &nbsp;<Tooltip
+      title="The variable that the model will attempt to predict at each timestep defined by the Timestep Definition."
+      position="right"
+    />
+  </h3>
   <VariableEditor
     varName="outcome"
     varInfo={{ query: outcomeVariable, category: '', enabled: true }}
@@ -172,7 +206,12 @@
     class="flat-text-input w-full font-mono"
     bind:value={outcomeVariable}
   /> -->
-  <h3 class="font-bold mt-3 mb-1">Timestep Filter</h3>
+  <h3 class="font-bold mt-3 mb-1">
+    Timestep Filter &nbsp;<Tooltip
+      title="A predicate that returns true for any timestep that should be evaluated by the model."
+      position="right"
+    />
+  </h3>
   <VariableEditor
     varName="cohort"
     varInfo={{ query: patientCohort, category: '', enabled: true }}
@@ -192,6 +231,9 @@
   <div class="mt-2 flex gap-2">
     <button class="my-1 btn btn-blue" on:click={trainModel}>
       Save and Train
+    </button>
+    <button class="my-1 btn btn-slate" on:click={saveAsNewModel}>
+      Save As...
     </button>
     <button class="my-1 btn btn-slate" on:click={reset}> Reset </button>
     <button

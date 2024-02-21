@@ -25,6 +25,7 @@
       if (query.length > 0)
         evaluationTimer = setTimeout(liveEvaluateQuery, 2000);
     } else if (query.length > 0) {
+      summaryIsStale = true;
       liveEvaluateQuery(query);
     }
   }
@@ -62,7 +63,7 @@
       !!evaluationSummary.occurrences || !!evaluationSummary.durations;
 </script>
 
-<div class="text-sm w-full">
+<div class="text-sm w-full" class:opacity-50={summaryIsStale}>
   {#if loadingSummary}
     <div class="mb-1 text-slate-500 text-xs">Loading...</div>
   {:else if !!evaluationError}

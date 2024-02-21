@@ -65,13 +65,14 @@
   </button>
   {#if visible}
     <div
-      class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-10"
+      class="fixed top-0 left-0 right-0 bottom-0 w-full h-full"
+      style="z-index: 999;"
       on:click={hideOptionsMenu}
       on:keydown={(e) => {}}
     />
     <div
-      class="absolute left-0 z-20 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none transition-opacity duration-200"
-      style="opacity: {optionsMenuOpacity}; width: {menuWidth}px;"
+      class="absolute left-0 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none transition-opacity duration-200"
+      style="opacity: {optionsMenuOpacity}; width: {menuWidth}px; z-index: 1000;"
       role="menu"
       aria-orientation="vertical"
       aria-labelledby="menu-button"
