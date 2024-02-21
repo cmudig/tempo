@@ -7,6 +7,7 @@ export function getAutocompleteOptions(
 ): { value: string; type: string }[] {
   if (dataFields.length == 0) return [];
   let result = fullPrefix.match(/\{[^}]*$/i);
+  console.log(fullPrefix, result, dataFields);
   if (!!result) {
     return dataFields
       .filter((v) =>

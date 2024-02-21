@@ -83,7 +83,7 @@
     div.textContent = element.value.substring(0, position);
 
     const span = document.createElement('span');
-    span.textContent = element.value.substring(position) || '.';
+    span.textContent = element.value.substring(position, 1) || '.';
     div.appendChild(span);
 
     const coordinates = {
@@ -203,6 +203,10 @@
         case 'ArrowUp':
           active = Math.max(active - 1, 0);
           keyCaught = true;
+          break;
+        case 'Escape':
+          closeMenu();
+          ev.preventDefault();
           break;
         case 'Enter':
         case 'Tab':

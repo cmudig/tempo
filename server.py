@@ -1,10 +1,11 @@
 from flask import Flask, send_from_directory, request, jsonify, send_file
 from dataset_manager import DatasetManager
 from model_training import make_modeling_variables
-from model_slice_finding import describe_slice_change_differences, describe_slice_differences
+from model_slice_finding import make_slicing_variables, describe_slice_change_differences, describe_slice_differences
 from utils import make_series_summary, make_query_result_summary
 import slice_finding as sf
 import json
+import lark
 import os
 import sys
 import pickle
@@ -268,6 +269,34 @@ if __name__ == '__main__':
             import traceback
             print(traceback.format_exc())
             return jsonify({"error": str(e)})
+        
+    @app.post("/data/validate_syntax")
+    def validate_syntax():
+        body = request.json
+        if "query" not in body: return "validate_syntax request body must include a query", 400
+        try:
+            query = body.get("query")
+            result = sample_dataset.parser.parse(query)
+            
+            unnamed_index = 0
+            parsed_variables = {}
+            print(result.pretty())
+            for var_exp in result.find_data("variable_expr"):
+                if len(list(var_exp.find_data("variable_expr"))) > 1: continue
+                var_name_node = next(var_exp.find_data("named_variable"), None)
+                if var_name_node: var_name = var_name_node.children[0].value
+                else: 
+                    var_name = "Unnamed " + (str(unnamed_index) if unnamed_index > 0 else "")
+                    unnamed_index += 1
+                min_pos = min(token.start_pos for token in var_exp.children[-1].scan_values(lambda x: isinstance(x, lark.Token)))
+                max_pos = max(token.end_pos for token in var_exp.children[-1].scan_values(lambda x: isinstance(x, lark.Token)))
+                print(var_name, query[min_pos:max_pos])
+                parsed_variables[var_name] = {"query": query[min_pos:max_pos], "enabled": True}
+            return jsonify({"success": True, "variables": parsed_variables})
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            return jsonify({"success": False, "error": str(e)})
         
         
     @app.route("/models/status/<model_name>")
@@ -584,6 +613,13 @@ if __name__ == '__main__':
         body = request.json
         if "variables" not in body or "slice_filter" not in body:
             return "Slice spec must contain 'variables' and 'slice_filter' keys", 400
+        
+        dataset = evaluator.get_raw_slicing_dataset()
+        for var_name, var in body["variables"].items():
+            try:
+                dataset.parser.parse(var['query'])
+            except Exception as e:
+                return f"Error parsing variable {var_name}: {e}", 400
         
         spec_path = os.path.join(slice_spec_dir, f"{spec_name}.json")
         if os.path.exists(spec_path):

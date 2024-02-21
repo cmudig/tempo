@@ -40,6 +40,8 @@
     newVariableName = null;
     newVariableQuery = null;
   }
+
+  let evaluationError: string | null = null;
 </script>
 
 {#if !!varInfo && !!varName}
@@ -67,6 +69,7 @@
           <div class="text-sm w-48 self-stretch bg-slate-200 rounded mr-2 p-2">
             <QueryResultView
               delayEvaluation
+              bind:evaluationError
               query={!!newVariableQuery
                 ? `${newVariableQuery} ${timestepDefinition}`
                 : ''}
@@ -106,18 +109,23 @@
             {#if showButtons}
               <div class="mt-2 flex gap-1">
                 <button
-                  class="my-1 py-1 text-sm px-3 rounded text-slate-800 bg-slate-200 hover:bg-slate-300 font-bold"
-                  on:click={() => dispatch('cancel')}>Cancel</button
-                >
-                <button
-                  class="my-1 py-1 text-sm px-3 rounded text-slate-800 bg-slate-200 hover:bg-slate-300 font-bold"
+                  class="my-1 py-1 btn btn-blue text-sm"
                   class:opacity-30={newVariableQuery == varInfo.query}
-                  disabled={newVariableQuery == varInfo.query}
+                  disabled={newVariableQuery == varInfo.query ||
+                    !!evaluationError}
                   on:click={() =>
                     dispatch('save', {
                       name: newVariableName,
                       query: newVariableQuery,
                     })}>Save</button
+                >
+                <button
+                  class="my-1 py-1 btn btn-slate text-sm"
+                  on:click={() => dispatch('cancel')}>Cancel</button
+                >
+                <button
+                  class="my-1 py-1 btn text-sm text-slate-800 bg-red-200 hover:bg-red-300"
+                  on:click={() => dispatch('delete')}>Delete</button
                 >
               </div>
             {/if}

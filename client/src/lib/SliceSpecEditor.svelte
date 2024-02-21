@@ -69,7 +69,7 @@
     savingSpecs = true;
 
     try {
-      fetch(`/slices/specs/${newSpecName}`, {
+      let status = await fetch(`/slices/specs/${newSpecName}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -77,7 +77,10 @@
         body: JSON.stringify(newSpec),
       });
       savingSpecs = false;
-      dispatch('dismiss', newSpecName);
+      if (status.status == 200) dispatch('dismiss', newSpecName);
+      else {
+        saveError = await status.text();
+      }
     } catch (e) {
       saveError = `${e}`;
       savingSpecs = false;
@@ -97,7 +100,7 @@
 
 {#if loadingSpecs || savingSpecs}
   <div class="w-full h-full flex flex-col items-center justify-center">
-    <div class="text-center mt-4">
+    <div class="text-center mb-4">
       {#if loadingSpecs}Loading slice specifications{:else if savingSpecs}Saving
         specification{/if}
     </div>
@@ -140,6 +143,11 @@
         {/if}
       </div>
     </div>
+    {#if !!saveError}
+      <div class="rounded mx-4 my-2 p-3 text-red-500 bg-red-50">
+        Error: <span class="font-mono">{saveError}</span>
+      </div>
+    {/if}
     <h3 class="px-4 font-bold mt-2 mb-1">Slicing Variables</h3>
     <div class="w-full flex-auto min-h-0 px-4">
       {#if !!specVariables}

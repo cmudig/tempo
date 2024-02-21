@@ -31,7 +31,7 @@
   export let metricWidth = 176;
 
   export let evaluationSummary: QueryResult | null = null;
-  let evaluationError: string | null = null;
+  export let evaluationError: string | null = null;
   let loadingSummary: boolean = false;
   let summaryIsStale: boolean = false;
 

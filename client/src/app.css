@@ -156,10 +156,15 @@ input[type='search'].flat-text-input {
   print-color-adjust: exact;
 }
 
+.flat-text-input-large {
+  @apply bg-slate-200 appearance-none border-2 border-slate-200 rounded text-slate-700 font-mono text-sm p-2;
+}
+
 .flat-text-input {
   @apply bg-slate-200 appearance-none border-2 border-slate-200 rounded text-slate-700 font-mono text-xs p-2 leading-tight;
 }
 
-.flat-text-input:focus {
+.flat-text-input:focus,
+.flat-text-input-large:focus {
   @apply outline-none border-blue-600 bg-white;
 }

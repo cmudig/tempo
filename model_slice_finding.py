@@ -181,9 +181,13 @@ class SliceHelper:
             pass
         return {"searching": False, "status": {"state": "none", "message": "Not currently finding slices"}, "n_results": 0, "n_runs": 0, "models": []}
         
+    def get_raw_slicing_dataset(self):
+        dataset, _ = self.manager.load_data(cache_dir=os.path.join(self.results_dir, "slicing_variables"), val_only=True)
+        return dataset
+        
     def get_slicing_data(self, slice_spec_name, timestep_def, evaluation=False):
         if (slice_spec_name, timestep_def, evaluation) not in self.discrete_dfs:
-            dataset, _ = self.manager.load_data(cache_dir=os.path.join(self.results_dir, "slicing_variables"), val_only=True)
+            dataset = self.get_raw_slicing_dataset()
             
             with open(os.path.join(self.results_dir, "specifications", slice_spec_name + ".json"), "r") as file:
                 slicing_metadata = json.load(file)
@@ -554,8 +558,9 @@ class SliceDiscoveryHelper(SliceHelper):
             self.write_status(False, error_model=model_name, error_message=str(e))
             
 class SliceEvaluationHelper(SliceHelper):
-    def __init__(self, manager, model_dir, results_dir, **slice_finding_kwargs):
+    def __init__(self, manager, model_dir, results_dir, min_items_fraction=0.01, **slice_finding_kwargs):
         super().__init__(manager, model_dir, results_dir)
+        self.min_items_fraction = min_items_fraction
         self.slice_finding_kwargs = slice_finding_kwargs
         self.slice_finding_status = None
         self.slice_scores = {}
@@ -874,7 +879,8 @@ class SliceEvaluationHelper(SliceHelper):
         metrics = self.get_eval_metrics(model_names, eval_mask)
         all_outcomes = np.vstack([self.get_model_labels(model_name)[eval_mask]
                                   for model_name in model_names])
-        scored_slices = [s for s in scored_slices if np.any(~np.isnan(all_outcomes[:,s.make_mask(valid_df.df)]), axis=0).sum() > 0]
+        min_items_per_model = self.min_items_fraction * (~np.isnan(all_outcomes)).sum(axis=1) 
+        scored_slices = [s for s in scored_slices if np.any((~np.isnan(all_outcomes[:,s.make_mask(valid_df.df)])).sum() > min_items_per_model, axis=0)]
 
         filters = []
         for i, model_name in enumerate(model_names):

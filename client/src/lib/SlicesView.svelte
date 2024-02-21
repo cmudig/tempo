@@ -103,7 +103,7 @@
 
       if (searchStatus.status?.state == 'none') {
         searchStatus = null;
-        if (wasSearching) {
+        if (wasSearching && !sliceSearchError) {
           wasSearching = false;
           getSlicesIfAvailable();
         }
