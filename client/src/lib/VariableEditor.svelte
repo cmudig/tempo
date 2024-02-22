@@ -66,15 +66,19 @@
           />
         {/if}
         <div class="flex flex-auto w-full">
-          <div class="text-sm w-48 self-stretch bg-slate-200 rounded mr-2 p-2">
-            <QueryResultView
-              delayEvaluation
-              bind:evaluationError
-              query={!!newVariableQuery
-                ? `${newVariableQuery} ${timestepDefinition}`
-                : ''}
-            />
-          </div>
+          {#if !!timestepDefinition}
+            <div
+              class="text-sm w-48 self-stretch bg-slate-200 rounded mr-2 p-2"
+            >
+              <QueryResultView
+                delayEvaluation
+                bind:evaluationError
+                query={!!newVariableQuery
+                  ? `${newVariableQuery} ${timestepDefinition}`
+                  : ''}
+              />
+            </div>
+          {/if}
           <div class="flex-auto">
             {#if showName}
               <div class="mb-1 text-slate-500 text-xs w-32">Query</div>

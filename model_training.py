@@ -336,7 +336,7 @@ class ModelTrainer:
         if save_name is not None:
             # Save out the metadata
             with open(os.path.join(self.model_dir, f"spec_{save_name}.json"), "w") as file:
-                json.dump(model_meta, file, indent=2)
+                json.dump(sf.utils.convert_to_native_types(model_meta), file, indent=2)
             
             # Save out the metrics    
             with open(os.path.join(self.model_dir, f"metrics_{save_name}.json"), "w") as file:

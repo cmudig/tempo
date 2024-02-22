@@ -55,7 +55,7 @@
 
     /* Position the tooltip text - see examples below! */
     position: absolute;
-    z-index: 50;
+    z-index: 999;
 
     width: max-content;
     max-width: 400px;

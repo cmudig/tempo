@@ -114,7 +114,7 @@
         on:new={(e) => createModel(e.detail)}
       />
     </ResizablePanel>
-    <div class="flex-auto h-full flex flex-col w-0">
+    <div class="flex-auto h-full flex flex-col w-0" style="z-index: 1;">
       <div
         class="w-full px-4 py-2 flex gap-3 bg-slate-300 border-b border-slate-400"
       >
@@ -124,7 +124,7 @@
               ? 'bg-blue-600 text-white font-bold hover:bg-blue-700'
               : 'text-slate-700 hover:bg-slate-200'}"
             on:click={() => (currentView = view)}
-            >{#if view == View.results && !!currentModel && !!models && !!models[currentModel].metrics && metricsHaveWarnings(models[currentModel].metrics)}<Fa
+            >{#if view == View.results && !!currentModel && !!models && !!models[currentModel]?.metrics && metricsHaveWarnings(models[currentModel].metrics)}<Fa
                 icon={faWarning}
                 class="inline mr-1"
               />{/if}
@@ -137,10 +137,9 @@
         class:overflow-y-auto={currentView != View.slices}
       >
         {#if currentView == View.results}
-          <ModelResultsView
-            modelName={currentModel}
-            modelSummary={models[currentModel ?? '']}
-          />
+          {#each !!currentModel ? Array.from(new Set( [currentModel, ...selectedModels] )) : [] as model}
+            <ModelResultsView modelName={model} modelSummary={models[model]} />
+          {/each}
         {:else if currentView == View.slices}
           <SlicesView
             bind:selectedSlice
@@ -157,6 +156,7 @@
         {:else if currentView == View.editor}
           <ModelEditor
             modelName={currentModel}
+            otherModels={selectedModels.filter((m) => m != currentModel)}
             on:viewmodel={(e) => {
               currentView = View.results;
               currentModel = e.detail;
@@ -164,6 +164,7 @@
             on:train={async (e) => {
               await refreshModels();
               currentModel = e.detail;
+              selectedModels = [];
             }}
             on:delete={async () => {
               await refreshModels();

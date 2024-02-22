@@ -25,7 +25,7 @@ def make_series_summary(values, value_type=None):
     
     summary["type"] = value_type
     if value_type == "binary":
-        summary["mean"] = values.mean().astype(float)
+        summary["mean"] = values.astype(int).mean().astype(float)
     elif value_type == "categorical":
         uniques, counts = np.unique(values, return_counts=True)
         uniques_to_show = np.argsort(uniques)

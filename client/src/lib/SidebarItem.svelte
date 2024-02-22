@@ -15,6 +15,7 @@
   import { MetricColors } from './colors';
   import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
   import SliceMetricCategoryBar from './slices/metric_charts/SliceMetricCategoryBar.svelte';
+  import Tooltip from './utils/Tooltip.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -27,6 +28,7 @@
     undefined;
   export let showCheckbox: boolean = true;
   export let allowCheck: boolean = true;
+  export let checkDisabledReason: string | null = null;
   export let differences: string[] = [];
 
   export let metricScales: { [key: string]: (v: number) => number } = {};
@@ -86,11 +88,17 @@
       class="grow-0 shrink-0"
       style="width: {SidebarTableWidths.Checkbox}px;"
     >
-      <Checkbox
-        disabled={isActive || !allowCheck}
-        checked={isChecked}
-        on:change={(e) => dispatch('toggle')}
-      />
+      {#if !allowCheck && !!checkDisabledReason}
+        <Tooltip title={checkDisabledReason} position="right">
+          <Checkbox disabled={isActive || !allowCheck} checked={isChecked} />
+        </Tooltip>
+      {:else}
+        <Checkbox
+          disabled={isActive || !allowCheck}
+          checked={isChecked}
+          on:change={(e) => dispatch('toggle')}
+        />
+      {/if}
     </div>
   {/if}
   <div
@@ -178,7 +186,9 @@
       class="p-2 grow-0 shrink-0"
       style="width: {SidebarTableWidths.Metric}px;"
     >
-      {#if !!metricValues[metricToShow]}
+      {#if !metricValues[metricToShow] && !metricValues.Predictions}
+        <Tooltip title="Not enough data"><span>&mdash;</span></Tooltip>
+      {:else if !!metricValues[metricToShow]}
         {@const metric = metricValues[metricToShow]}
         <SliceMetricBar
           value={metric?.value ?? 0}

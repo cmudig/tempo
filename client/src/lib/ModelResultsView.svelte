@@ -84,7 +84,7 @@
   }
 </script>
 
-<div class="w-full py-4 px-4 h-full flex flex-col">
+<div class="w-full pt-4 px-4 flex flex-col">
   {#if isTraining && !!modelName}
     <ModelTrainingView {modelName} on:finish={loadModelResults} />
   {:else if !!metrics}

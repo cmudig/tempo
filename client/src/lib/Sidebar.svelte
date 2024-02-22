@@ -215,34 +215,54 @@
     otherModel: ModelSummary
   ): string[] {
     let results: string[] = [];
-    if (baseModel.timestep_definition != otherModel.timestep_definition)
+    if (
+      (baseModel.timestep_definition ?? '') !=
+      (otherModel.timestep_definition ?? '')
+    )
       results.push('timestep definition');
 
-    if (baseModel.model_type != otherModel.model_type)
+    if (
+      !!baseModel.model_type &&
+      !!otherModel.model_type &&
+      baseModel.model_type != otherModel.model_type
+    )
       results.push('model type');
-    if (baseModel.outcome != otherModel.outcome) results.push('target');
+    if ((baseModel.outcome ?? '') != (otherModel.outcome ?? ''))
+      results.push('target');
 
-    if (!areObjectsEqual(baseModel.variables, otherModel.variables)) {
+    if (
+      !!baseModel.variables &&
+      !!otherModel.variables &&
+      !areObjectsEqual(baseModel.variables, otherModel.variables)
+    ) {
       let numDifferences =
         Object.keys(baseModel.variables).filter(
           (name) =>
             !otherModel.variables[name] ||
-            baseModel.variables[name].query != otherModel.variables[name].query
+            baseModel.variables[name].query !=
+              otherModel.variables[name].query ||
+            baseModel.variables[name].enabled !=
+              otherModel.variables[name].enabled
         ).length +
         Object.keys(otherModel.variables).filter(
           (name) => !baseModel.variables[name]
         ).length;
-      results.push(`${numDifferences} input${numDifferences != 1 ? 's' : ''}`);
+      if (numDifferences > 0)
+        results.push(
+          `${numDifferences} input${numDifferences != 1 ? 's' : ''}`
+        );
+      else results.push(`some inputs`);
     }
 
-    if (baseModel.cohort != otherModel.cohort) results.push('filter');
+    if ((baseModel.cohort ?? '') != (otherModel.cohort ?? ''))
+      results.push('filter');
 
     return results;
   }
 </script>
 
 <div class="flex flex-col w-full h-full">
-  <div class="my-2 px-4 flex items-center grow-0 shrink-0 overflow-hidden">
+  <div class="my-2 px-4 flex items-center grow-0 shrink-0">
     <div class="text-lg font-bold whitespace-nowrap shrink-1 overflow-hidden">
       Models
     </div>
@@ -350,14 +370,18 @@
           {metricScales}
           differences={activeModel !== null && activeModel === modelName
             ? []
-            : compareModels(models[activeModel], model)}
+            : !!models[activeModel]
+              ? compareModels(models[activeModel], model)
+              : []}
           customMetrics={sliceMetrics?.[modelName] ?? undefined}
           isActive={activeModel === modelName}
           isChecked={selectedModels.includes(modelName) ||
             activeModel === modelName}
-          allowCheck={!activeModel ||
-            hasSameTimestepDefinition(modelName, activeModel)}
-          on:click={() => (activeModel = modelName)}
+          allowCheck={activeModel != modelName}
+          on:click={() => {
+            activeModel = modelName;
+            selectedModels = [];
+          }}
           on:toggle={(e) => {
             let idx = selectedModels.indexOf(modelName);
             if (idx >= 0)
@@ -369,6 +393,9 @@
           }}
         />
       {/each}
+      <div class="p-4 text-center text-xs text-slate-500">
+        Use checkboxes to select additional models for comparison.
+      </div>
     </div>
   {/if}
 </div>

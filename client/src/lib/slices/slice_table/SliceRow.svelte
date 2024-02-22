@@ -28,6 +28,7 @@
   import { featureToString, parseFeature } from '../utils/slice_parsing';
   import Checkbox from '../utils/Checkbox.svelte';
   import { interpolateViridis } from 'd3';
+  import Tooltip from '../../utils/Tooltip.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -373,7 +374,7 @@
               ? TableWidths.Metric
               : TableWidths.CollapsedMetric}px;"
           >
-            &mdash;
+            <Tooltip title="Not enough data"><span>&mdash;</span></Tooltip>
           </div>
         {:else}
           <div

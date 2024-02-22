@@ -1,23 +1,20 @@
 from flask import Flask, send_from_directory, request, jsonify, send_file
 from dataset_manager import DatasetManager
 from model_training import make_modeling_variables
-from model_slice_finding import make_slicing_variables, describe_slice_change_differences, describe_slice_differences
-from utils import make_series_summary, make_query_result_summary
+from model_slice_finding import describe_slice_change_differences, describe_slice_differences
+from utils import make_query_result_summary
+from threading import Lock
 import slice_finding as sf
 import json
 import lark
 import os
 import sys
-import pickle
 import signal
-import pandas as pd
 import numpy as np
-from shutil import rmtree
-from functools import partial
 import re
-import time
 import multiprocessing as mp
 import atexit
+from werkzeug.middleware.profiler import ProfilerMiddleware
 
 SAMPLE_MODEL_TRAINING_DATA = False
 
@@ -83,11 +80,13 @@ if __name__ == '__main__':
     queue = mp.Queue()
     model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue))
     model_worker.start()
+    model_worker_comm_lock = Lock() # make sure we are not issuing simultaneous commands to the model worker
     
     sample_dataset, _ = dataset_manager.load_data(sample=SAMPLE_MODEL_TRAINING_DATA, 
                                                   cache_dir=os.path.join(dataset_manager.base_path, "data/sample" if SAMPLE_MODEL_TRAINING_DATA else "slices/slicing_variables"), 
                                                   val_only=True)
     evaluator = dataset_manager.make_slice_evaluation_helper()
+    evaluator_lock = Lock() # make sure we are not requesting slices simultaneously from different requests
 
     def _get_model_training_status(model_name):
         if os.path.exists(dataset_manager.model_spec_path(model_name)):
@@ -179,9 +178,10 @@ if __name__ == '__main__':
         if os.path.exists(dataset_manager.model_weights_path(model_name)):
             os.remove(dataset_manager.model_weights_path(model_name))
             
-        if evaluator is not None:
-            # Mark that the model's metrics have changed
-            evaluator.rescore_model(model_name, model_spec["timestep_definition"])
+        with evaluator_lock:
+            if evaluator is not None:
+                # Mark that the model's metrics have changed
+                evaluator.rescore_model(model_name, model_spec["timestep_definition"])
         return "Success"
 
     @app.route("/models/<model_name>/metrics")
@@ -211,22 +211,25 @@ if __name__ == '__main__':
         if not meta.get("outcome", None):
             return "Outcome is required", 400
         
-        if _is_model_training():
-            with open(dataset_manager.model_spec_path(model_name), "w") as file:
-                json.dump({**meta, "training": True, "status": { 
-                    "state": "waiting", 
-                    "message": "Waiting for other training jobs to complete"
-                }}, file)
-        else:
-            with open(dataset_manager.model_spec_path(model_name), "w") as file:
-                json.dump({**meta, "training": True, "status": { 
-                    "state": "loading", 
-                    "message": "Starting"
-                }}, file)
-        queue.put(("train_model", model_name, meta))
-        if evaluator is not None:
-            # Mark that the model's metrics have changed
-            evaluator.rescore_model(model_name, meta["timestep_definition"])
+        with model_worker_comm_lock:
+            if _is_model_training():
+                with open(dataset_manager.model_spec_path(model_name), "w") as file:
+                    json.dump({**meta, "training": True, "status": { 
+                        "state": "waiting", 
+                        "message": "Waiting for other training jobs to complete"
+                    }}, file)
+            else:
+                with open(dataset_manager.model_spec_path(model_name), "w") as file:
+                    json.dump({**meta, "training": True, "status": { 
+                        "state": "loading", 
+                        "message": "Starting"
+                    }}, file)
+            queue.put(("train_model", model_name, meta))
+            
+        with evaluator_lock:
+            if evaluator is not None:
+                # Mark that the model's metrics have changed
+                evaluator.rescore_model(model_name, meta["timestep_definition"])
         return f"Started training model '{model_name}'", 200
         
     data_summary = None
@@ -309,12 +312,13 @@ if __name__ == '__main__':
         global model_worker
         state = _get_model_training_status(model_name)["state"]
         if state == "loading":
-            os.kill(model_worker.pid, signal.SIGINT)
-            model_worker.join()
-            print("Restarting model worker")
-            queue = mp.Queue()
-            model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue,))
-            model_worker.start()
+            with model_worker_comm_lock:
+                os.kill(model_worker.pid, signal.SIGINT)
+                model_worker.join()
+                print("Restarting model worker")
+                queue = mp.Queue()
+                model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue,))
+                model_worker.start()
         elif state in ("waiting", "error"):
             with open(dataset_manager.model_spec_path(model_name), "r") as file:
                 meta = json.load(file)
@@ -353,21 +357,23 @@ if __name__ == '__main__':
             controls["slice_spec_name"] = "default"
         
         # Start searching
-        queue.put(("find_slices", model_name, controls))
-        search_status = {"state": "loading", "message": "Starting", "model_name": model_name}
-        finder = dataset_manager.make_slice_discovery_helper()
-        finder.write_status(True, search_status=search_status)
+        with model_worker_comm_lock:
+            queue.put(("find_slices", model_name, controls))
+            search_status = {"state": "loading", "message": "Starting", "model_name": model_name}
+            finder = dataset_manager.make_slice_discovery_helper()
+            finder.write_status(True, search_status=search_status)
         return jsonify(finder.get_status())
     
     @app.route("/slices/stop_finding", methods=["POST"])
     def stop_slice_finding():
         global model_worker
-        os.kill(model_worker.pid, signal.SIGINT)
-        model_worker.join()
-        print("Restarting model worker")
-        queue = mp.Queue()
-        model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue))
-        model_worker.start()
+        with model_worker_comm_lock:
+            os.kill(model_worker.pid, signal.SIGINT)
+            model_worker.join()
+            print("Restarting model worker")
+            queue = mp.Queue()
+            model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue))
+            model_worker.start()
       
     @app.route("/slices/status")
     def get_slice_status():
@@ -391,24 +397,25 @@ if __name__ == '__main__':
                 return "Cannot get slices for models with multiple timestep definitions", 400
             timestep_def = spec["timestep_definition"]
             
-        weights = evaluator.get_default_evaluation_weights(model_names)
-        controls = {}
+        with evaluator_lock:
+            weights = evaluator.get_default_evaluation_weights(model_names)
+            controls = {}
 
-        try:        
-            body = request.json
-        except:
-            pass
-        if body and "controls" in body:
-            controls = body["controls"]
-            # get weights for additional score functions used by controls
-            weights = evaluator.get_default_evaluation_weights(model_names, controls=controls)
-        if "slice_spec_name" not in controls:
-            controls["slice_spec_name"] = "default"
-        if body and "score_weights" in body:
-            new_weights = evaluator.weights_for_evaluation(body["score_weights"])
-            weights = {k: new_weights.get(k, 0) for k in weights}
+            try:        
+                body = request.json
+            except:
+                pass
+            if body and "controls" in body:
+                controls = body["controls"]
+                # get weights for additional score functions used by controls
+                weights = evaluator.get_default_evaluation_weights(model_names, controls=controls)
+            if "slice_spec_name" not in controls:
+                controls["slice_spec_name"] = "default"
+            if body and "score_weights" in body:
+                new_weights = evaluator.weights_for_evaluation(body["score_weights"])
+                weights = {k: new_weights.get(k, 0) for k in weights}
 
-        result = evaluator.get_results(timestep_def, controls, model_names)
+            result = evaluator.get_results(timestep_def, controls, model_names)
         if result is None:
             return jsonify({"results": {}, "controls": controls})
         
@@ -625,8 +632,10 @@ if __name__ == '__main__':
         spec_path = os.path.join(slice_spec_dir, f"{spec_name}.json")
         if os.path.exists(spec_path):
             print(f"Invalidating existing slices with spec {spec_name}")
-            queue.put(("invalidate_slice_spec", spec_name))
-            evaluator.invalidate_slice_spec(spec_name)
+            with model_worker_comm_lock:
+                queue.put(("invalidate_slice_spec", spec_name))
+            with evaluator_lock:
+                evaluator.invalidate_slice_spec(spec_name)
             
         with open(spec_path, "w") as file:
             json.dump(body, file)
@@ -651,4 +660,5 @@ if __name__ == '__main__':
         
     atexit.register(close_running_threads)
     
+    # app.wsgi_app = ProfilerMiddleware(app.wsgi_app, sort_by=["cumtime"], restrictions=[100])
     app.run(debug=True, port=4999)

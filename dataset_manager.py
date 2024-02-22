@@ -102,7 +102,7 @@ class DatasetManager:
         dataset = TrajectoryDataset(attributes, 
                                     events, 
                                     intervals, 
-                                    cache_dir=cache_dir or os.path.join(self.data_dir, "variable_cache"), 
+                                    cache_dir=cache_dir or os.path.join(self.cache_dir(), "variable_cache"), 
                                     eventtype_macros=macros)
         
         return dataset, (train_ids, val_ids, test_ids)
@@ -119,6 +119,11 @@ class DatasetManager:
             "cohort": default_info.get("cohort", ""),
             "outcome": default_info.get("outcome", ""),
         }
+        
+    def cache_dir(self):
+        cache_dir = os.path.join(self.base_path, "_cache")
+        if not os.path.exists(cache_dir): os.mkdir(cache_dir)
+        return cache_dir
         
     def model_spec_path(self, model_name):
         return os.path.join(self.model_dir, f"spec_{model_name}.json")

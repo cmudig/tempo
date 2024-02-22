@@ -182,6 +182,7 @@
     } catch (e) {
       console.error('error:', e);
       retrievingSlices = false;
+      resultControls = queryControls;
     }
   }
 

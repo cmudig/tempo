@@ -7,6 +7,102 @@ import json
 import os
 import random
 import tqdm
+import slice_finding as sf
+
+GRAMMAR = """
+start: variable_expr | variable_list
+
+time_index: "EVERY"i atom time_bounds            -> periodic_time_index // periodic time literal
+    | "AT EVERY"i atom time_bounds  -> event_time_index
+    | "AT"i "(" expr ("," expr)* ")"             -> array_time_index
+
+time_bounds: "FROM"i expr "TO"i expr
+
+variable_list: variable_expr
+    | "(" variable_expr ("," variable_expr)* ")"
+variable_expr: [named_variable] expr
+named_variable: (/[A-Za-z][^:]*/i | VAR_NAME) ":"
+
+// Expression Parsing
+ 
+case_when: "WHEN"i expr "THEN"i expr
+
+agg_method: VAR_NAME AGG_TYPE?
+AGG_TYPE: "rate"i|"amount"i|"value"i|"duration"i
+
+?expr: variable_list time_index             -> time_series
+    | expr "WHERE"i expr                    -> where_clause
+    | expr "CARRY"i (time_quantity | step_quantity)  -> carry_clause
+    | expr "IMPUTE"i (VAR_NAME | LITERAL)            -> impute_clause
+    | expr "WITH"i VAR_NAME "AS"i logical   -> with_clause
+    | logical
+    
+?logical: logical "AND"i negation                -> logical_and
+    | logical "OR"i negation                  -> logical_or
+    | negation
+
+?negation: "NOT"i negation                        -> negate
+    | comparison
+
+?comparison: comparison ">=" agg_expr                   -> geq
+    | comparison "<=" agg_expr                   -> leq
+    | comparison ">" agg_expr                    -> gt
+    | comparison "<" agg_expr                    -> lt
+    | comparison "=" agg_expr                    -> eq
+    | comparison ("!="|"<>") agg_expr            -> ne
+    | comparison "IN"i value_list            -> isin
+    | agg_expr
+
+?agg_expr: agg_method expr time_bounds
+    | sum
+
+?sum: sum "+" product                       -> expr_add
+    | sum "-" product                       -> expr_sub
+    | product
+
+?product: product "*" atom                      -> expr_mul
+    | product "/" atom                      -> expr_div
+    | atom
+
+value_list: ("("|"[") LITERAL ("," LITERAL)* (")"|"]")
+
+atom: VAR_NAME "(" expr ("," expr)* ")"                 -> function_call
+    | DATA_NAME                             -> data_element
+    | time_quantity
+    | LITERAL                               -> literal
+    | "#NOW"i                                -> now 
+    | "#VALUE"i                              -> where_value
+    | "#MINTIME"i                              -> min_time
+    | "#MAXTIME"i                              -> max_time
+    | "CASE"i (case_when)+ "ELSE"i expr "END"i -> case_expr     // if/else
+    | "(" expr ")"
+    | VAR_NAME                               -> var_name
+
+time_quantity: LITERAL UNIT
+step_quantity: LITERAL /steps?/i
+UNIT: /hours?|minutes?|seconds?|hrs?|mins?|secs?|[hms]/i
+
+DATA_NAME: /\{[^}]*\}/
+VAR_NAME: /(?!(and|or|not|case|when|else|in|then|every|at|from|to|with|as)\b)[A-Za-z][A-Za-z0-9_]*/ 
+
+LITERAL: SIGNED_NUMBER | QUOTED_STRING
+QUOTED_STRING: /["'`][^"'`]*["'`]/
+
+
+%import common (WORD, WS, SIGNED_NUMBER, LETTER)
+
+%ignore WS
+"""
+
+def get_all_trajectory_ids(attributes, events, intervals):
+    all_ids = []
+    if len(attributes.get_ids()):
+        all_ids.append(attributes.get_ids().values)
+    if len(events.get_ids()):
+        all_ids.append(events.get_ids().unique())
+    elif len(intervals.get_ids()):
+        all_ids.append(intervals.get_ids().unique())
+    return np.unique(np.concatenate(all_ids))
 
 class EvaluateExpression(lark.visitors.Transformer):
     def __init__(self, attributes, events, intervals, eventtype_macros=None):
@@ -22,14 +118,7 @@ class EvaluateExpression(lark.visitors.Transformer):
         
     def get_all_ids(self):
         if self._all_ids is not None: return self._all_ids
-        all_ids = []
-        if len(self.attributes.get_ids()):
-            all_ids.append(self.attributes.get_ids().values)
-        if len(self.events.get_ids()):
-            all_ids.append(self.events.get_ids().unique())
-        elif len(self.intervals.get_ids()):
-            all_ids.append(self.intervals.get_ids().unique())
-        self._all_ids = np.unique(np.concatenate(all_ids))
+        self._all_ids = get_all_trajectory_ids(self.attributes, self.events, self.intervals)
         return self._all_ids
         
     def _get_data_element(self, query):
@@ -317,18 +406,25 @@ class EvaluateExpression(lark.visitors.Transformer):
         raise ValueError("Variable list must contain either all Attributes or all TimeSeries objects")
 
 class EvaluateQuery(lark.visitors.Interpreter):
-    def __init__(self, attributes, events, intervals, eventtype_macros=None, cache_dir=None, verbose=False):
+    def __init__(self, attributes, events, intervals, variable_transform=None, eventtype_macros=None, cache=None, verbose=False):
         super().__init__()
         self.attributes = attributes
         self.events = events
         self.intervals = intervals
-        self.cache_dir = cache_dir
+        self.cache = cache
         self.eventtype_macros = eventtype_macros if eventtype_macros is not None else {}
+        # If provided, this should be a tuple of (description, transform). The
+        # description should be a string uniquely identifying this transform,
+        # and transform should be a function that will be called on any variable 
+        # expressions before returning or saving to cache. The function should
+        # take as input a TimeSeriesQueryable, and it should return a transformed 
+        # instance of the input.
+        if variable_transform is not None:
+            self.variable_transform_desc, self.variable_transform = variable_transform
+        else:
+            self.variable_transform_desc = None
+            self.variable_transform = None
         self.verbose = verbose
-        self._query_cache = {}
-        self._in_memory_cache = {} # for items to be stored in memory instead of loaded from disk every time
-        self.use_cache = True
-        self.load_cache()
         
     def get_evaluator(self):
         return EvaluateExpression(self.attributes, self.events, self.intervals, self.eventtype_macros)
@@ -336,63 +432,6 @@ class EvaluateQuery(lark.visitors.Interpreter):
     def get_all_ids(self):
         return self.get_evaluator().get_all_ids()
     
-    def load_cache(self):
-        if not self.cache_dir: return
-        if not os.path.exists(self.cache_dir): os.mkdir(self.cache_dir)
-        
-        # Load cache information
-        if os.path.exists(os.path.join(self.cache_dir, "query_cache.json")):
-            with open(os.path.join(self.cache_dir, "query_cache.json"), "r") as file:
-                self._query_cache = json.load(file)
-        else:
-            self._query_cache = {}
-    
-    def cache_lookup(self, tree, time_index_tree=None, save_in_memory=False):
-        """Returns the result of a variable parse if it exists in the cache."""
-        if not self.cache_dir or not self.use_cache: return
-        query_cache_key = str(tree) + ("_" + str(time_index_tree) if time_index_tree is not None else "")
-        if query_cache_key in self._in_memory_cache:
-            return self._in_memory_cache[query_cache_key]
-        elif query_cache_key in self._query_cache:
-            result_info = self._query_cache[query_cache_key]
-            if "time_index_tree" in result_info:
-                index = self.cache_lookup("time_index_" + result_info["time_index_tree"], time_index_tree=None, save_in_memory=True)
-            else:
-                index = None
-            fpath = os.path.join(self.cache_dir, result_info["fname"])
-            if not os.path.exists(fpath): return
-            df = pd.read_feather(fpath)
-            result = TimeSeriesQueryable.deserialize(result_info["meta"], df, **({"index": index} if index is not None else {}))
-            if save_in_memory:
-                self._in_memory_cache[query_cache_key] = result
-            return result
-        return None
-        
-    def save_to_cache(self, tree, result, time_index_tree=None):
-        """Saves the given result object to the cache for the given tree description."""
-        if not self.cache_dir or not self.use_cache: return
-        query_cache_name = str(tree) + ("_" + str(time_index_tree) if time_index_tree is not None else "")
-        if query_cache_name in self._query_cache and (time_index_tree is None or "time_index_" + str(time_index_tree) in self._query_cache):
-            return
-        
-        if time_index_tree is not None and isinstance(result, (TimeSeries, TimeSeriesSet)):
-            time_index_key = "time_index_" + str(time_index_tree)
-            if time_index_key not in self._query_cache:
-                self.save_to_cache(time_index_key, result.index)
-            meta, df = result.serialize(include_index=False)
-        else:
-            meta, df = result.serialize()
-            
-        fname = ('%015x' % random.randrange(16**15)) + ".arrow" # 15-character long random hex string
-        self._query_cache[query_cache_name] = {
-            "meta": meta,
-            "fname": fname,
-            **({"time_index_tree": str(time_index_tree)} if time_index_tree is not None else {})
-        }
-        df.to_feather(os.path.join(self.cache_dir, fname))
-        with open(os.path.join(self.cache_dir, "query_cache.json"), "w") as file:
-            json.dump(self._query_cache, file)
-        
     def _make_time_index(self, idx):
         if isinstance(idx, Attributes):
             return TimeIndex.from_attributes(idx)
@@ -454,8 +493,9 @@ class EvaluateQuery(lark.visitors.Interpreter):
         var_name = tree.children[0].children[0].value if tree.children[0] and tree.children[0].children[0].value else None
         if isinstance(tree.children[1], (TimeSeries, TimeSeriesSet)):
             var_exp = tree.children[1]
-        else:
-            var_exp = self.cache_lookup((tree_desc, options_desc), time_index_tree=time_index_tree)
+        elif self.cache is not None:
+            var_exp = self.cache.lookup((tree_desc, options_desc), time_index_tree=time_index_tree, transform_info=self.variable_transform_desc)
+        else: var_exp = None
         if cache_only and var_exp is None: return tree
         elif var_exp is not None:
             if var_name is not None:
@@ -501,8 +541,14 @@ class EvaluateQuery(lark.visitors.Interpreter):
         except Exception as e:
             raise ValueError(f"Exception occurred when processing variable '{var_name}': {e}")
         else:
+            if self.variable_transform is not None:
+                var_exp = self.variable_transform(var_exp)
+                # var_exp = var_exp.with_values(pd.Series(sf.discretization.discretize_column(var_exp.name, var_exp.get_values(), self.discretization_spec)[0], 
+                #                                         name=var_exp.name))
             var_exp = var_exp.compress()
-            self.save_to_cache((tree_desc, options_desc), var_exp, time_index_tree=time_index_tree)
+            
+            if self.cache is not None:
+                self.cache.save((tree_desc, options_desc), var_exp, transform_info=self.variable_transform_desc, time_index_tree=time_index_tree)
             return var_exp
         
     def _parse_time_series(self, tree, evaluator):
@@ -577,91 +623,81 @@ class EvaluateQuery(lark.visitors.Interpreter):
             return evaluator.transform(tree.children[0])
         return tree.children[0]
     
-GRAMMAR = """
-start: variable_expr | variable_list
-
-time_index: "EVERY"i atom time_bounds            -> periodic_time_index // periodic time literal
-    | "AT EVERY"i atom time_bounds  -> event_time_index
-    | "AT"i "(" expr ("," expr)* ")"             -> array_time_index
-
-time_bounds: "FROM"i expr "TO"i expr
-
-variable_list: variable_expr
-    | "(" variable_expr ("," variable_expr)* ")"
-variable_expr: [named_variable] expr
-named_variable: (/[A-Za-z][^:]*/i | VAR_NAME) ":"
-
-// Expression Parsing
- 
-case_when: "WHEN"i expr "THEN"i expr
-
-agg_method: VAR_NAME AGG_TYPE?
-AGG_TYPE: "rate"i|"amount"i|"value"i|"duration"i
-
-?expr: variable_list time_index             -> time_series
-    | expr "WHERE"i expr                    -> where_clause
-    | expr "CARRY"i (time_quantity | step_quantity)  -> carry_clause
-    | expr "IMPUTE"i (VAR_NAME | LITERAL)            -> impute_clause
-    | expr "WITH"i VAR_NAME "AS"i logical   -> with_clause
-    | logical
+class QueryResultCache:
+    """
+    Saves query results (optionally pre-discretized) to a cache directory. Query
+    results can also be saved to an in-memory cache if desired.
+    """
+    def __init__(self, cache_dir):
+        super().__init__()
+        assert cache_dir is not None, "Cache directory must be provided"
+        self.cache_dir = cache_dir
+        self._query_cache = {}
+        self._in_memory_cache = {} # for items to be stored in memory instead of loaded from disk every time
     
-?logical: logical "AND"i negation                -> logical_and
-    | logical "OR"i negation                  -> logical_or
-    | negation
+    def load_cache(self):
+        if not self.cache_dir: return
+        if not os.path.exists(self.cache_dir): os.mkdir(self.cache_dir)
+        
+        # Load cache information
+        if os.path.exists(os.path.join(self.cache_dir, "query_cache.json")):
+            with open(os.path.join(self.cache_dir, "query_cache.json"), "r") as file:
+                self._query_cache = json.load(file)
+        else:
+            self._query_cache = {}
+            
+    def _make_cache_key(self, tree, time_index_tree, transform_info):
+        return (str(tree) + 
+                ("_" + str(time_index_tree) if time_index_tree is not None else "") + 
+                ("_" + str(transform_info) if transform_info is not None else ""))
+    
+    def lookup(self, tree, time_index_tree=None, transform_info=None, save_in_memory=False):
+        """Returns the result of a variable parse if it exists in the cache."""
+        self.load_cache()
+        query_cache_key = self._make_cache_key(tree, time_index_tree, transform_info)
+        
+        if query_cache_key in self._in_memory_cache:
+            return self._in_memory_cache[query_cache_key]
+        elif query_cache_key in self._query_cache:
+            result_info = self._query_cache[query_cache_key]
+            if "time_index_tree" in result_info:
+                index = self.lookup("time_index_" + result_info["time_index_tree"], time_index_tree=None, save_in_memory=True)
+            else:
+                index = None
+            fpath = os.path.join(self.cache_dir, result_info["fname"])
+            if not os.path.exists(fpath): return
+            df = pd.read_feather(fpath)
+            result = TimeSeriesQueryable.deserialize(result_info["meta"], df, **({"index": index} if index is not None else {}))
+            if save_in_memory:
+                self._in_memory_cache[query_cache_key] = result
+            return result
+        return None
+        
+    def save(self, tree, result, time_index_tree=None, transform_info=None):
+        """Saves the given result object to the cache for the given tree description."""
+        query_cache_name = self._make_cache_key(tree, time_index_tree, transform_info)
+        if query_cache_name in self._query_cache and (time_index_tree is None or "time_index_" + str(time_index_tree) in self._query_cache):
+            return
+        
+        if time_index_tree is not None and isinstance(result, (TimeSeries, TimeSeriesSet)):
+            time_index_key = "time_index_" + str(time_index_tree)
+            if time_index_key not in self._query_cache:
+                self.save(time_index_key, result.index)
+            meta, df = result.serialize(include_index=False)
+        else:
+            meta, df = result.serialize()
+            
+        fname = ('%015x' % random.randrange(16**15)) + ".arrow" # 15-character long random hex string
+        self._query_cache[query_cache_name] = {
+            "meta": meta,
+            "fname": fname,
+            **({"time_index_tree": str(time_index_tree)} if time_index_tree is not None else {})
+        }
+        df.to_feather(os.path.join(self.cache_dir, fname))
+        with open(os.path.join(self.cache_dir, "query_cache.json"), "w") as file:
+            json.dump(self._query_cache, file)
 
-?negation: "NOT"i negation                        -> negate
-    | comparison
-
-?comparison: comparison ">=" agg_expr                   -> geq
-    | comparison "<=" agg_expr                   -> leq
-    | comparison ">" agg_expr                    -> gt
-    | comparison "<" agg_expr                    -> lt
-    | comparison "=" agg_expr                    -> eq
-    | comparison ("!="|"<>") agg_expr            -> ne
-    | comparison "IN"i value_list            -> isin
-    | agg_expr
-
-?agg_expr: agg_method expr time_bounds
-    | sum
-
-?sum: sum "+" product                       -> expr_add
-    | sum "-" product                       -> expr_sub
-    | product
-
-?product: product "*" atom                      -> expr_mul
-    | product "/" atom                      -> expr_div
-    | atom
-
-value_list: ("("|"[") LITERAL ("," LITERAL)* (")"|"]")
-
-atom: VAR_NAME "(" expr ("," expr)* ")"                 -> function_call
-    | DATA_NAME                             -> data_element
-    | time_quantity
-    | LITERAL                               -> literal
-    | "#NOW"i                                -> now 
-    | "#VALUE"i                              -> where_value
-    | "#MINTIME"i                              -> min_time
-    | "#MAXTIME"i                              -> max_time
-    | "CASE"i (case_when)+ "ELSE"i expr "END"i -> case_expr     // if/else
-    | "(" expr ")"
-    | VAR_NAME                               -> var_name
-
-time_quantity: LITERAL UNIT
-step_quantity: LITERAL /steps?/i
-UNIT: /hours?|minutes?|seconds?|hrs?|mins?|secs?|[hms]/i
-
-DATA_NAME: /\{[^}]*\}/
-VAR_NAME: /(?!(and|or|not|case|when|else|in|then|every|at|from|to|with|as)\b)[A-Za-z][A-Za-z0-9_]*/ 
-
-LITERAL: SIGNED_NUMBER | QUOTED_STRING
-QUOTED_STRING: /["'`][^"'`]*["'`]/
-
-
-%import common (WORD, WS, SIGNED_NUMBER, LETTER)
-
-%ignore WS
-"""
-
+    
 class TrajectoryDataset:
     def __init__(self, attributes, events, intervals, eventtype_macros=None, cache_dir=None):
         self.attributes = attributes if attributes is not None else AttributeSet(pd.DataFrame([]))
@@ -679,20 +715,27 @@ class TrajectoryDataset:
             "value": []
         }))
         self.parser = lark.Lark(GRAMMAR, parser="earley")
-        self.query_evaluator = EvaluateQuery(self.attributes, self.events, self.intervals, eventtype_macros=eventtype_macros, cache_dir=cache_dir, verbose=True)
+        self.eventtype_macros = eventtype_macros
+        if cache_dir is not None: self.cache = QueryResultCache(cache_dir)
+        else: self.cache = None
         
     def get_ids(self):
-        return self.query_evaluator.get_all_ids()
+        return get_all_trajectory_ids(self.attributes, self.events, self.intervals)
     
-    def query(self, query_string, use_cache=True):
+    def query(self, query_string, variable_transform=None, use_cache=True):
+        query_evaluator = EvaluateQuery(self.attributes, 
+                                        self.events, 
+                                        self.intervals, 
+                                        eventtype_macros=self.eventtype_macros, 
+                                        variable_transform=variable_transform,
+                                        cache=self.cache if use_cache else None, 
+                                        verbose=True)
         tree = self.parser.parse(query_string)
-        self.query_evaluator.use_cache = use_cache
-        result = self.query_evaluator.visit(tree)
-        self.query_evaluator.use_cache = True
+        result = query_evaluator.visit(tree)
         return result
     
     def set_macros(self, macros):
-        self.query_evaluator.eventtype_macros = macros
+        self.eventtype_macros = macros
         
 if __name__ == '__main__':
     ids = [100, 101, 102]

@@ -305,6 +305,16 @@
   }
 
   let specEditorVisible: boolean = false;
+
+  let showDetailLoadingMessage: boolean = false;
+  let showDetailLoadingTimeout: NodeJS.Timeout | null = null;
+  $: if (retrievingSlices) {
+    if (!showDetailLoadingTimeout)
+      showDetailLoadingTimeout = setTimeout(() => {
+        showDetailLoadingMessage = true;
+        showDetailLoadingTimeout = null;
+      }, 10000);
+  } else showDetailLoadingMessage = false;
 </script>
 
 <div class="w-full h-full flex flex-col">
@@ -664,7 +674,12 @@
         class="absolute top-0 left-0 bg-white/80 w-full h-full flex flex-col items-center justify-center z-20"
       >
         <div>Retrieving slices...</div>
-        <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-2">
+        {#if showDetailLoadingMessage}
+          <div class="mt-2 text-sm text-slate-500">
+            It may take up to a minute to rank slices on your first visit.
+          </div>
+        {/if}
+        <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-4">
           <svg
             aria-hidden="true"
             class="text-gray-200 animate-spin stroke-gray-600 w-8 h-8 align-middle"

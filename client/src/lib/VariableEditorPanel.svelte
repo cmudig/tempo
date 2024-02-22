@@ -163,7 +163,7 @@
 <div class="w-full rounded bg-slate-100 flex gap-1" class:h-full={fillHeight}>
   <div
     class="w-1/5 pt-2 px-3 h-full flex flex-col shrink-0"
-    style="min-width: 200px; max-width: 400px;"
+    style="min-width: 280px; max-width: 400px;"
   >
     <div class="flex-auto min-h-0 overflow-auto">
       {#each allCategories as cat}

@@ -14,16 +14,58 @@ import slice_finding as sf
 
 MODEL_CACHE_UPDATE_TIME = 300 # 5 minutes
 
-def make_slicing_variables(dataset, variable_definitions, timestep_definition):
+def make_slicing_variables(manager, dataset, variable_definitions, timestep_definition):
     """Creates the slicing variables dataframe."""
     query = make_query(variable_definitions, timestep_definition)
     print(query)
-    variable_df = dataset.query(query)
+    # Save the discretization mapping to a cache file so we can recover it later
+    discretization_results = {}
+    def get_unique_values(var_exp):
+        value_indexes, col_spec = sf.discretization.discretize_column(var_exp.name, 
+                                                                      var_exp.get_values(), 
+                                                                      {"method": "unique"})
+        if var_exp.name:
+            discretization_results[var_exp.name] = col_spec
+        return var_exp.with_values(pd.Series(value_indexes, name=var_exp.name))
+        
+    variable_df = dataset.query(query, variable_transform=("unique_values", get_unique_values))
     
-    discrete_df = sf.discretization.discretize_data(variable_df.values, {
-        col: { "method": "unique" }
-        for col in variable_df.values.columns
-    })
+    # Save the value name dictionary to a cache file
+    discretization_path = os.path.join(manager.cache_dir(), "slice_discretizations", f"{timestep_definition}.pkl")
+    if not os.path.exists(os.path.dirname(discretization_path)):
+        os.mkdir(os.path.dirname(discretization_path))
+        
+    discrete_df = None
+    if not discretization_results:
+        try:
+            with open(discretization_path, "rb") as file:
+                discretization_results = pickle.load(file)
+        except:
+            print("Re-discretizing data because value names were not found")
+            discrete_df = sf.discretization.discretize_data(variable_df.values, {
+                col: { "method": "keep" }
+                for col in variable_df.values.columns
+            })
+    else:
+        with open(discretization_path, "wb") as file:
+            pickle.dump(discretization_results, file)
+    
+    if discrete_df is None:
+        dataframe = variable_df.values
+        value_names = {i: discretization_results[col] 
+                       for i, col in enumerate(dataframe.columns)
+                       if col in discretization_results}
+        # Find any keys that might not have been cached and re-discretize them
+        missing_keys = [c for c in dataframe.columns if c not in discretization_results]
+        if missing_keys:
+            processed_missing_df = sf.discretization.discretize_data(dataframe[missing_keys], {
+                col: { "method": "unique"} for col in missing_keys
+            })
+            reverse_index = {c: i for i, c in enumerate(dataframe.columns)}
+            value_names.update({reverse_index[missing_keys[i]]: v for i, v in  processed_missing_df.value_names.items()})
+            dataframe = dataframe.assign(**{c: processed_missing_df.df[:,i] for i, c in enumerate(missing_keys)})
+        discrete_df = sf.discretization.DiscretizedData(dataframe.values.astype(np.uint8), value_names)
+        
     return discrete_df, variable_df.index.get_ids()
 
 HOLDOUT_FRACTION = 0.5
@@ -163,7 +205,7 @@ class SliceHelper:
     def __init__(self, manager, model_dir, results_dir):
         self.manager = manager
         self.model_dir = model_dir
-        self.results_dir = results_dir     
+        self.results_dir = results_dir
         self.discrete_dfs = {}
         
         self.last_cache_time = None
@@ -178,11 +220,13 @@ class SliceHelper:
                 with open(status_path, "r") as file:
                     return json.load(file)
         except:
+            # Some race condition is happening here?
+            print("EXCEPTION GETTING STATUS")
             pass
         return {"searching": False, "status": {"state": "none", "message": "Not currently finding slices"}, "n_results": 0, "n_runs": 0, "models": []}
         
     def get_raw_slicing_dataset(self):
-        dataset, _ = self.manager.load_data(cache_dir=os.path.join(self.results_dir, "slicing_variables"), val_only=True)
+        dataset, _ = self.manager.load_data(cache_dir=os.path.join(self.manager.cache_dir(), "slicing_variables"), val_only=True)
         return dataset
         
     def get_slicing_data(self, slice_spec_name, timestep_def, evaluation=False):
@@ -191,7 +235,7 @@ class SliceHelper:
             
             with open(os.path.join(self.results_dir, "specifications", slice_spec_name + ".json"), "r") as file:
                 slicing_metadata = json.load(file)
-                discrete_df, ids = make_slicing_variables(dataset, slicing_metadata["variables"], timestep_def) 
+                discrete_df, ids = make_slicing_variables(self.manager, dataset, slicing_metadata["variables"], timestep_def) 
                 row_mask = get_slicing_split(self.results_dir, dataset, timestep_def)[1 if evaluation else 0]
                 valid_df = discrete_df.filter(row_mask)
                 ids = ids.values[row_mask]
@@ -312,8 +356,10 @@ class SliceHelper:
                 valid_diff = np.where(np.isnan(valid_outcomes), np.nan, np.abs(valid_outcomes - valid_preds))
                 score_fns.update({
                     f"{model_name}_diff_mean": sf.scores.MeanDifferenceScore(valid_diff),
-                    f"{model_name}_true_mean": sf.scores.MeanDifferenceScore(valid_outcomes),
-                    f"{model_name}_pred_mean": sf.scores.MeanDifferenceScore(valid_preds)
+                    f"{model_name}_true_above": sf.scores.OutcomeRateScore(valid_outcomes > np.nanmean(valid_outcomes)),
+                    f"{model_name}_true_below": sf.scores.OutcomeRateScore(valid_outcomes < np.nanmean(valid_outcomes)),
+                    f"{model_name}_pred_above": sf.scores.OutcomeRateScore(valid_preds > np.nanmean(valid_preds)),
+                    f"{model_name}_pred_below": sf.scores.OutcomeRateScore(valid_preds < np.nanmean(valid_preds))
                 })
                             
         if controls is not None:
@@ -595,9 +641,11 @@ class SliceEvaluationHelper(SliceHelper):
                     eval_weights[f"{model_name}_=_{val}_pred"] = 0.0
                     eval_weights[f"{model_name}_=_{val}_pred_low"] = 0.0
             else:
-                eval_weights[f"{model_name}_diff_mean"] = 1.0
-                eval_weights[f"{model_name}_true_mean"] = 1.0
-                eval_weights[f"{model_name}_pred_mean"] = 1.0
+                eval_weights[f"{model_name}_true_above"] = 1.0
+                eval_weights[f"{model_name}_pred_above"] = 1.0
+                eval_weights[f"{model_name}_true_below"] = 0.0
+                eval_weights[f"{model_name}_pred_below"] = 0.0
+                eval_weights[f"{model_name}_diff_mean"] = 0.0
         return eval_weights
         
     def weights_for_evaluation(self, display_weights):
@@ -639,12 +687,18 @@ class SliceEvaluationHelper(SliceHelper):
             elif (match := re.match(r'^Difference (.*)$', wname)) is not None:
                 model_name = match.group(1)
                 new_weights[f"{model_name}_diff_mean"] = w
-            elif (match := re.match(r'^True Mean (.*)$', wname)) is not None:
+            elif (match := re.match(r'^High Label (.*)$', wname)) is not None:
                 model_name = match.group(1)
-                new_weights[f"{model_name}_true_mean"] = w
-            elif (match := re.match(r'^Predicted Mean (.*)$', wname)) is not None:
+                new_weights[f"{model_name}_true_above"] = w
+            elif (match := re.match(r'^High Prediction (.*)$', wname)) is not None:
                 model_name = match.group(1)
-                new_weights[f"{model_name}_pred_mean"] = w
+                new_weights[f"{model_name}_pred_above"] = w
+            elif (match := re.match(r'^Low Label (.*)$', wname)) is not None:
+                model_name = match.group(1)
+                new_weights[f"{model_name}_true_below"] = w
+            elif (match := re.match(r'^Low Prediction (.*)$', wname)) is not None:
+                model_name = match.group(1)
+                new_weights[f"{model_name}_pred_below"] = w
             elif (match := re.match(r'^Accuracy (.*)$', wname)) is not None:
                 model_name = match.group(1)
                 new_weights[f"{model_name}_err_low"] = w
@@ -678,10 +732,14 @@ class SliceEvaluationHelper(SliceHelper):
                 display_key = f"Negative Prediction {match.group(1)}"
             elif (match := re.match(r'^(.*)_pred(_xf)?$', wname)) is not None:
                 display_key = f"Positive Prediction {match.group(1)}"
-            elif (match := re.match(r'^(.*)_true_mean$', wname)) is not None:
-                display_key = f"True Mean {match.group(1)}"
-            elif (match := re.match(r'^(.*)_pred_mean$', wname)) is not None:
-                display_key = f"Predicted Mean {match.group(1)}"
+            elif (match := re.match(r'^(.*)_true_above$', wname)) is not None:
+                display_key = f"High Label {match.group(1)}"
+            elif (match := re.match(r'^(.*)_true_below$', wname)) is not None:
+                display_key = f"Low Label {match.group(1)}"
+            elif (match := re.match(r'^(.*)_pred_above$', wname)) is not None:
+                display_key = f"High Prediction {match.group(1)}"
+            elif (match := re.match(r'^(.*)_pred_below$', wname)) is not None:
+                display_key = f"Low Prediction {match.group(1)}"
             elif (match := re.match(r'^(.*)_err_low$', wname)) is not None:
                 display_key = f"Accuracy {match.group(1)}"
             elif (match := re.match(r'^(.*)_err(_xf)?$', wname)) is not None:
