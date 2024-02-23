@@ -125,6 +125,8 @@
   $: if (!!ref) {
     ref.addEventListener('input', onInput);
     ref.addEventListener('keydown', onKeyDown);
+    ref.addEventListener('blur', closeMenu);
+    document.addEventListener('selectionchange', onSelectionChange);
   }
 
   async function makeOptions(query, fullPrefix) {
@@ -138,6 +140,7 @@
 
   function closeMenu() {
     setTimeout(() => {
+      lastSuffix = null;
       options = [];
       left = undefined;
       top = undefined;
@@ -148,18 +151,28 @@
   function selectItem(active) {
     return () => {
       const preMention = ref.value.substr(0, triggerIdx);
-      const option = options[active];
-      const mention = replaceFn(option, ref.value[triggerIdx], preMention);
       const postMention = ref.value.substr(ref.selectionStart);
-      const newValue = `${preMention}${mention}${postMention}`;
-      ref.value = newValue;
-      const caretPosition = ref.value.length - postMention.length;
-      ref.setSelectionRange(caretPosition, caretPosition);
+      const option = options[active];
+      const mention = replaceFn(
+        option,
+        ref.value[triggerIdx],
+        preMention,
+        postMention
+      );
+      ref.setSelectionRange(triggerIdx, ref.selectionStart);
+      document.execCommand('insertText', false, mention);
+      // const newValue = `${preMention}${mention}${postMention}`;
+      // ref.value = newValue;
+      // const caretPosition = ref.value.length - postMention.length;
+      // ref.setSelectionRange(caretPosition, caretPosition);
       closeMenu();
       ref.focus();
       setTimeout(() => dispatch('replace', ref.value), 100);
     };
   }
+
+  // store what comes after the cursor, if this changes then we know the selection has changed without typing
+  let lastSuffix = null;
 
   function onInput(ev) {
     const positionIndex = ref.selectionStart;
@@ -171,6 +184,7 @@
       : -1;
     const maybeTrigger = textBeforeCaret[newTriggerIdx];
     const keystrokeTriggered = triggers.includes(maybeTrigger);
+    lastSuffix = ref.value.slice(positionIndex);
 
     if (!keystrokeTriggered) {
       closeMenu();
@@ -190,6 +204,15 @@
         window.scrollY + coords.top + newTop + coords.height - ref.scrollTop;
       triggerIdx = newTriggerIdx;
     }, 0);
+  }
+
+  function onSelectionChange(ev) {
+    const activeElement = document.activeElement;
+    // Only hide the menu, don't attempt to show it when the selection changes
+    if (top === undefined || activeElement !== ref) return;
+
+    const positionIndex = ref.selectionStart;
+    if (ref.value.slice(positionIndex) != lastSuffix) closeMenu();
   }
 
   function onKeyDown(ev) {

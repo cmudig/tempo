@@ -7,7 +7,6 @@ export function getAutocompleteOptions(
 ): { value: string; type: string }[] {
   if (dataFields.length == 0) return [];
   let result = fullPrefix.match(/\{[^}]*$/i);
-  console.log(fullPrefix, result, dataFields);
   if (!!result) {
     return dataFields
       .filter((v) =>
@@ -31,8 +30,17 @@ export function getAutocompleteOptions(
 export function performAutocomplete(
   item: { value: string; type: string },
   trigger: string,
-  fullPrefix: string
+  fullPrefix: string,
+  fullSuffix: string
 ): string {
-  if (item.type == 'data_item') return `{${item.value}} `;
-  return `#${item.value} `;
+  if (item.type == 'data_item') {
+    let closingBrace = fullSuffix.match(/^\}/)
+      ? ''
+      : fullSuffix.match(/^\s/)
+      ? '}'
+      : '} ';
+    return `{${item.value}${closingBrace}`;
+  }
+  let closingSpace = fullSuffix.match(/^\s/) ? '' : ' ';
+  return `#${item.value}${closingSpace}`;
 }

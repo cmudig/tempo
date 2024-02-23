@@ -1118,7 +1118,7 @@ class TimeIndex(TimeSeriesQueryable):
     def from_attributes(attributes, id_field="id"):
         """Creates a time index from the timesteps and IDs represented in the given
         Attributes object (one per ID)"""
-        attribute_df = pd.DataFrame({id_field: attributes.series.index, attributes.name: attributes.series})
+        attribute_df = pd.DataFrame({id_field: attributes.series.index, attributes.name: attributes.series.reset_index(drop=True)})
         return TimeIndex(attribute_df, 
                          id_field=id_field, 
                          time_field=attributes.name)
@@ -1152,6 +1152,8 @@ class TimeIndex(TimeSeriesQueryable):
             raise ValueError(f"Starts and ends must match IDs exactly")
         
         combined = pd.DataFrame({starts.id_field: starts.get_ids(), "start": starts.get_times(), "end": ends.get_times()})
+        # remove nan times
+        combined = combined.dropna(axis=0)
         start_df = (combined
             .apply(lambda row: pd.Series({starts.id_field: row["id"], starts.time_field: np.arange(row["start"], row["end"], interval.value())}), axis=1)
             .explode(starts.time_field)
