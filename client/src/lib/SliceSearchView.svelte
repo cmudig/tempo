@@ -644,15 +644,6 @@
               }}
               on:saveslice
             />
-
-            {#if slices.length > 0}
-              <div class="mt-2">
-                <button
-                  class="btn btn-blue disabled:opacity-50"
-                  on:click={() => dispatch('loadmore')}>Load More</button
-                >
-              </div>
-            {/if}
           </div>
         {:else}
           <div

@@ -393,9 +393,11 @@
           }}
         />
       {/each}
-      <div class="p-4 text-center text-xs text-slate-500">
-        Use checkboxes to select additional models for comparison.
-      </div>
+      {#if modelOrder.length > 1}
+        <div class="p-4 text-center text-xs text-slate-500">
+          Use checkboxes to select additional models for comparison.
+        </div>
+      {/if}
     </div>
   {/if}
 </div>

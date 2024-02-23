@@ -89,11 +89,14 @@
   let similarToSlice: any = {};
   let subsliceOfSlice: any = {};
   let queryControls: Controls = { slice_spec_name: sliceSpec };
+  let numSlicesToLoad: number = 20;
 
   let oldModels: string[] = [];
   $: if (oldModels !== modelsToShow) {
     searchStatus = null;
     scoreWeights = null;
+    numSlicesToLoad = 20;
+    oldNumSlices = 20;
     if (modelsToShow.length > 0) {
       getSlicesIfAvailable(modelsToShow);
       pollSliceStatus();
@@ -145,6 +148,7 @@
         body: JSON.stringify({
           ...(!!scoreWeights ? { score_weights: scoreWeights } : {}),
           controls: queryControls,
+          num_slices: numSlicesToLoad,
         }),
       });
       if (response.status == 400) {
@@ -249,18 +253,22 @@
     if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
   });
 
+  let oldNumSlices: number = numSlicesToLoad;
   $: if (
     ((retrievedScoreWeights != null &&
       !areObjectsEqual(retrievedScoreWeights, scoreWeights)) ||
-      !areObjectsEqual(resultControls, queryControls)) &&
+      !areObjectsEqual(resultControls, queryControls) ||
+      numSlicesToLoad != oldNumSlices) &&
     !retrievingSlices
   ) {
     console.log(
       'changing bc parameters changed',
       resultControls,
-      queryControls
+      queryControls,
+      numSlicesToLoad
     );
     getSlicesIfAvailable(modelsToShow);
+    oldNumSlices = numSlicesToLoad;
   }
 
   $: {
@@ -334,6 +342,7 @@
         ? searchStatus.status.progress
         : null}
       on:load={loadSlices}
+      on:loadmore={() => (numSlicesToLoad += 20)}
       on:cancel={stopFindingSlices}
       on:saveslice={(e) => saveSlice(e.detail)}
     />

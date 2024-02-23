@@ -432,7 +432,7 @@ if __name__ == '__main__':
             return jsonify({"results": {}, "controls": controls})
         
         rank_list, metrics, ids, df = result
-        ranked = rank_list.rank(weights, n_slices=20)
+        ranked = rank_list.rank(weights, n_slices=body.get("num_slices", 20))
         print(ranked)
         results_json = [
             evaluator.describe_slice(rank_list,
