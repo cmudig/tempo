@@ -85,6 +85,7 @@
         await fetch(`/models/new/${reference}`, { method: 'POST' })
       ).json();
       currentModel = newModel.name;
+      selectedModels = [];
       currentView = View.editor;
     } catch (e) {
       console.error('error creating new model:', e);

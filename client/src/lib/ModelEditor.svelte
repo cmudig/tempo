@@ -392,7 +392,7 @@
     bind:value={patientCohort}
   /> -->
     <div class="mt-2 flex gap-2">
-      <button class="my-1 btn btn-blue" on:click={trainModel}>
+      <button class="my-1 btn btn-blue" on:click={() => trainModel(false)}>
         {#if otherModels.length > 0}Save All{:else}Save and Train{/if}
       </button>
       {#if otherModels.length == 0}

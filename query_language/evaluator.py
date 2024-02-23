@@ -244,9 +244,7 @@ class EvaluateExpression(lark.visitors.Transformer):
     def value_list(self, args): return [self._parse_literal(v) for v in args]
         
     def expr_add(self, args): return args[0] + args[1]
-    def expr_sub(self, args): 
-        print("SUB", args, args[0] - args[1])
-        return args[0] - args[1]
+    def expr_sub(self, args): return args[0] - args[1]
     def expr_mul(self, args): return args[0] * args[1]
     def expr_div(self, args): return args[0] / args[1]
     def gt(self, args): return args[0] > args[1]
@@ -536,7 +534,6 @@ class EvaluateQuery(lark.visitors.Interpreter):
             # expensive aggregations
             if var_exp is None:
                 var_exp = evaluator.transform(tree.children[1])
-                print("After parsng:", var_exp)
                 if isinstance(var_exp, Compilable): var_exp = var_exp.execute()
                 if evaluator.time_index is not None:
                     if isinstance(var_exp, Attributes):
@@ -544,7 +541,6 @@ class EvaluateQuery(lark.visitors.Interpreter):
                         var_exp = TimeSeries(evaluator.time_index, make_aligned_value_series(evaluator.time_index, var_exp))
                     elif isinstance(var_exp, TimeIndex):
                         # Use the times as the time series values
-                        print("Converting index to series", var_exp, var_exp.get_times())
                         var_exp = TimeSeries(var_exp, var_exp.get_times())
                         
             if var_name is not None:
@@ -608,7 +604,6 @@ class EvaluateQuery(lark.visitors.Interpreter):
         var_name = tree.children[1].value
         var_value = evaluator.transform(tree.children[-1])
         if isinstance(var_value, Compilable): var_value = var_value.execute()
-        print("variable", var_name, var_value)
         evaluator.variables[var_name] = var_value
         return tree.children[0], var_name
         
