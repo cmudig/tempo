@@ -713,6 +713,8 @@ class SliceEvaluationHelper(SliceHelper):
                 model_name = match.group(1)
                 new_weights[f"{model_name}_err"] = w
                 # new_weights[f"{model_name}_err_xf"] = w
+            elif wname == "complexity": new_weights["Simple Rule"] = w
+            elif wname == "size": new_weights["Large Slice"] = w
             else:
                 new_weights[wname] = w
         return new_weights
@@ -752,6 +754,8 @@ class SliceEvaluationHelper(SliceHelper):
                 display_key = f"Error {match.group(1)}"
             elif (match := re.match(r'^(.*)_diff_mean$', wname)) is not None:
                 display_key = f"Difference {match.group(1)}"
+            elif wname == "complexity": display_key = "Simple Rule"
+            elif wname == "size": display_key = "Large Slice"
             new_weights[display_key] = new_weights.get(display_key, 0) + w
         return new_weights
         

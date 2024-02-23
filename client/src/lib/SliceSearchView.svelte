@@ -22,6 +22,7 @@
     areObjectsEqual,
     areSetsEqual,
     sortMetrics,
+    sortScoreNames,
   } from './slices/utils/utils';
   import { TableWidths } from './slices/slice_table/tablewidths';
   import SliceTable from './slices/slice_table/SliceTable.svelte';
@@ -169,8 +170,9 @@
   }
 
   function updateMetricInfo(testSlice: Slice, showingMetrics: string[] | null) {
-    if (!!scoreWeights) scoreNames = Object.keys(scoreWeights).sort();
-    else scoreNames = Object.keys(testSlice.scoreValues).sort();
+    if (!!scoreWeights)
+      scoreNames = Object.keys(scoreWeights).sort(sortScoreNames);
+    else scoreNames = Object.keys(testSlice.scoreValues).sort(sortScoreNames);
 
     // tabulate metric names and normalize
     if (!!testSlice.metrics) {

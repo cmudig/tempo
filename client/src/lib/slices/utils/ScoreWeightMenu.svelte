@@ -71,22 +71,9 @@
 
   function initializeWeight(name: string) {
     let newScoreWeights = Object.assign({}, weights);
-    if (totalWeight == 0.0) {
-      newScoreWeights[name] = 1.0;
-      weights = newScoreWeights;
-      return;
-    }
-    let averageWeight =
-      totalWeight / Object.values(weights).filter((w) => w > 0.0).length;
-    let newTotalWeight = totalWeight + averageWeight;
-
-    Object.keys(newScoreWeights).forEach(
-      (n) =>
-        (newScoreWeights[n] =
-          (newScoreWeights[n] * totalWeight) / newTotalWeight)
-    );
-    newScoreWeights[name] = (averageWeight * totalWeight) / newTotalWeight;
+    newScoreWeights[name] = 1.0;
     weights = newScoreWeights;
+    return;
   }
 
   // updates all weights within the same set of

@@ -193,6 +193,16 @@ export function sortMetrics(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
+const scoresAtEnd = ['simple rule', 'large slice'];
+
+export function sortScoreNames(a: string, b: string): number {
+  if (scoresAtEnd.includes(a.toLocaleLowerCase())) {
+    if (scoresAtEnd.includes(b.toLocaleLowerCase())) return a.localeCompare(b);
+    else return 1;
+  } else if (scoresAtEnd.includes(b.toLocaleLowerCase())) return -1;
+  return a.localeCompare(b);
+}
+
 /**
  * Uses canvas.measureText to compute and return the width of the given text of given font in pixels.
  *
