@@ -334,6 +334,7 @@ if __name__ == '__main__':
                 meta = json.load(file)
             with open(dataset_manager.model_spec_path(model_name), "w") as file:
                 json.dump({k: v for k, v in meta.items() if k not in ("training", "status")}, file)
+        return "Success"
         
     @app.route("/slices/<model_name>/start", methods=["POST"])
     def start_slice_finding(model_name):
@@ -384,6 +385,7 @@ if __name__ == '__main__':
             queue = mp.Queue()
             model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue))
             model_worker.start()
+        return "Success"
       
     @app.route("/slices/status")
     def get_slice_status():
