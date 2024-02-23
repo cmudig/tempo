@@ -166,7 +166,7 @@ class EvaluateExpression(lark.visitors.Transformer):
         
     def var_name(self, args):
         if args[0] in self.variables:
-            return Compilable(self.variables[args[0]])
+            return self.variables[args[0]]
         raise KeyError(f"No variable named {args[0]}")
         
     def time_quantity(self, args):
@@ -217,11 +217,11 @@ class EvaluateExpression(lark.visitors.Transformer):
     def where_value(self, args):
         if self.value_placeholder is None:
             raise ValueError(f"'value' keyword can only be used within a where clause to refer to the data being filtered.")
-        return Compilable(self.value_placeholder)
+        return self.value_placeholder
     def index_value(self, args):
         if self.index_value_placeholder is None:
             raise ValueError(f"'indexvalue' keyword can only be used within a time series defined with 'at every' event or interval.")
-        return Compilable(self.index_value_placeholder)
+        return self.index_value_placeholder
     def atom(self, args): return args[0]
     
     def min_time(self, args):
@@ -244,7 +244,9 @@ class EvaluateExpression(lark.visitors.Transformer):
     def value_list(self, args): return [self._parse_literal(v) for v in args]
         
     def expr_add(self, args): return args[0] + args[1]
-    def expr_sub(self, args): return args[0] - args[1]
+    def expr_sub(self, args): 
+        print("SUB", args, args[0] - args[1])
+        return args[0] - args[1]
     def expr_mul(self, args): return args[0] * args[1]
     def expr_div(self, args): return args[0] / args[1]
     def gt(self, args): return args[0] > args[1]
@@ -524,7 +526,6 @@ class EvaluateQuery(lark.visitors.Interpreter):
                 else:
                     new_children.append(n)
             node.children = new_children
-        print(tree.pretty(), set_variables)
         
         for node in tree.iter_subtrees():
             if node is None: continue
@@ -535,15 +536,15 @@ class EvaluateQuery(lark.visitors.Interpreter):
             # expensive aggregations
             if var_exp is None:
                 var_exp = evaluator.transform(tree.children[1])
-                print(var_exp)
+                print("After parsng:", var_exp)
                 if isinstance(var_exp, Compilable): var_exp = var_exp.execute()
-                print('after transform:', var_exp)
                 if evaluator.time_index is not None:
                     if isinstance(var_exp, Attributes):
                         # Cast the attributes over the time index
                         var_exp = TimeSeries(evaluator.time_index, make_aligned_value_series(evaluator.time_index, var_exp))
                     elif isinstance(var_exp, TimeIndex):
                         # Use the times as the time series values
+                        print("Converting index to series", var_exp, var_exp.get_times())
                         var_exp = TimeSeries(var_exp, var_exp.get_times())
                         
             if var_name is not None:
@@ -556,7 +557,6 @@ class EvaluateQuery(lark.visitors.Interpreter):
                 var_exp = self.variable_transform(var_exp)
                 # var_exp = var_exp.with_values(pd.Series(sf.discretization.discretize_column(var_exp.name, var_exp.get_values(), self.discretization_spec)[0], 
                 #                                         name=var_exp.name))
-            print("before compress:", var_exp)
             var_exp = var_exp.compress()
             
             if self.cache is not None:
@@ -608,6 +608,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
         var_name = tree.children[1].value
         var_value = evaluator.transform(tree.children[-1])
         if isinstance(var_value, Compilable): var_value = var_value.execute()
+        print("variable", var_name, var_value)
         evaluator.variables[var_name] = var_value
         return tree.children[0], var_name
         

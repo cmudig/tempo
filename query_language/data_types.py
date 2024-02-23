@@ -1161,7 +1161,7 @@ class TimeIndex(TimeSeriesQueryable):
         start_df[starts.time_field] = start_df[starts.time_field].astype(np.int64)
         return TimeIndex(start_df, id_field=starts.id_field, time_field=starts.time_field)
         
-    def add(self, duration):
+    def add(self, duration, invert_self=False):
         """duration: either a Duration or an Attributes containing durations in
             seconds"""
         if isinstance(duration, Duration):
@@ -1175,7 +1175,7 @@ class TimeIndex(TimeSeriesQueryable):
                              time_field=self.time_field)
         elif hasattr(duration, "get_values"):
             # Create a TimeSeries containing the result of subtracting the given value from the times
-            return TimeSeries(self, self.timesteps[self.time_field] + duration.get_values())
+            return TimeSeries(self, (-1 if invert_self else 1) * self.timesteps[self.time_field] + duration.get_values())
         else:
             return NotImplemented
     
@@ -1233,7 +1233,7 @@ class TimeIndex(TimeSeriesQueryable):
     def __sub__(self, other): return self.subtract(other)
 
     def __radd__(self, other): return self.add(other)
-    def __rsub__(self, other): return (-self).add(other)
+    def __rsub__(self, other): return self.add(other, invert_self=True)
 
     def _handle_binary_op(self, opname, other):
         if isinstance(other, Compilable): return NotImplemented

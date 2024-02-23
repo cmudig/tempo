@@ -126,14 +126,14 @@
     }
   }
 
-  async function trainModel() {
+  async function trainModel(saveAsNew: boolean = false) {
     if (otherModels.length == 0) {
       if (!newModelName || newModelName.length == 0) {
         saveError = 'Model must have a name.';
         return;
       }
       saveError = null;
-      if (newModelName != modelName) {
+      if (newModelName != modelName && !saveAsNew) {
         // Delete the old version of the model
         await deleteModel();
       }
@@ -189,7 +189,7 @@
       }
     } catch (e) {}
     newModelName = newName!;
-    await trainModel();
+    await trainModel(true);
   }
 
   let dataFields: string[] = [];
