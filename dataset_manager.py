@@ -120,6 +120,14 @@ class DatasetManager:
             "outcome": default_info.get("outcome", ""),
         }
         
+    def get_default_slice_spec(self):
+        model_info = self.config.get("slices", {})
+        default_info = model_info.get("default_spec", {})
+        return {
+            "variables": default_info.get("variables", {}),
+            **({"slice_filter": default_info["slice_filter"]} if "slice_filter" in default_info else {})
+        }
+        
     def cache_dir(self):
         cache_dir = os.path.join(self.base_path, "_cache")
         if not os.path.exists(cache_dir): os.mkdir(cache_dir)

@@ -95,7 +95,7 @@
     searchStatus = null;
     scoreWeights = null;
     if (modelsToShow.length > 0) {
-      getSlicesIfAvailable();
+      getSlicesIfAvailable(modelsToShow);
       pollSliceStatus();
     }
     oldModels = modelsToShow;
@@ -120,7 +120,7 @@
       if (searchStatus.status?.state == 'none') {
         if (wasSearching && !sliceSearchError) {
           wasSearching = false;
-          getSlicesIfAvailable();
+          getSlicesIfAvailable(modelsToShow);
         }
       } else {
         wasSearching = true;
@@ -131,13 +131,13 @@
     }
   }
 
-  async function getSlicesIfAvailable() {
+  async function getSlicesIfAvailable(models: string[]) {
     try {
       console.log('Fetching slices', slices);
       retrievingSlices = true;
       retrievedScoreWeights = null;
       resultControls = {};
-      let response = await fetch(`/slices/${modelsToShow.join(',')}`, {
+      let response = await fetch(`/slices/${models.join(',')}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -156,7 +156,7 @@
       let result = await response.json();
       resultControls = result.controls;
       retrievingSlices = false;
-      if (!!result.results.slices) {
+      if (!!result.results.slices && areObjectsEqual(models, modelsToShow)) {
         sliceSearchError = null;
         slices = result.results.slices;
         baseSlice = result.results.base_slice;
@@ -171,6 +171,7 @@
             )
         );
       } else {
+        baseSlice = null;
         slices = null;
         selectedSlice = null;
         scoreWeights = null;
@@ -259,7 +260,7 @@
       resultControls,
       queryControls
     );
-    getSlicesIfAvailable();
+    getSlicesIfAvailable(modelsToShow);
   }
 
   $: {

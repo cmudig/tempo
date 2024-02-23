@@ -17,7 +17,7 @@ MODEL_CACHE_UPDATE_TIME = 300 # 5 minutes
 def make_slicing_variables(manager, dataset, variable_definitions, timestep_definition):
     """Creates the slicing variables dataframe."""
     query = make_query(variable_definitions, timestep_definition)
-    print(query)
+    print("Generated query")
     # Save the discretization mapping to a cache file so we can recover it later
     discretization_results = {}
     def get_unique_values(var_exp):
@@ -66,6 +66,7 @@ def make_slicing_variables(manager, dataset, variable_definitions, timestep_defi
             dataframe = dataframe.assign(**{c: processed_missing_df.df[:,i] for i, c in enumerate(missing_keys)})
         discrete_df = sf.discretization.DiscretizedData(dataframe.values.astype(np.uint8), value_names)
         
+    print("Completed discretization")
     return discrete_df, variable_df.index.get_ids()
 
 HOLDOUT_FRACTION = 0.5
@@ -233,17 +234,22 @@ class SliceHelper:
         if (slice_spec_name, timestep_def, evaluation) not in self.discrete_dfs:
             dataset = self.get_raw_slicing_dataset()
             
-            with open(os.path.join(self.results_dir, "specifications", slice_spec_name + ".json"), "r") as file:
-                slicing_metadata = json.load(file)
-                discrete_df, ids = make_slicing_variables(self.manager, dataset, slicing_metadata["variables"], timestep_def) 
-                row_mask = get_slicing_split(self.results_dir, dataset, timestep_def)[1 if evaluation else 0]
-                valid_df = discrete_df.filter(row_mask)
-                ids = ids.values[row_mask]
-                if "slice_filter" in slicing_metadata:
-                    slice_filter = valid_df.encode_filter(sf.filters.SliceFilterBase.from_dict(slicing_metadata["slice_filter"]))
-                else:
-                    slice_filter = sf.filters.SliceFilterBase()
-                self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)] = (valid_df, row_mask, ids, slice_filter)
+            if slice_spec_name == "default":
+                slicing_metadata = self.manager.get_default_slice_spec()
+            else:
+                with open(os.path.join(self.results_dir, "specifications", slice_spec_name + ".json"), "r") as file:
+                    slicing_metadata = json.load(file)
+                
+            discrete_df, ids = make_slicing_variables(self.manager, dataset, slicing_metadata["variables"], timestep_def) 
+            row_mask = get_slicing_split(self.results_dir, dataset, timestep_def)[1 if evaluation else 0]
+            valid_df = discrete_df.filter(row_mask)
+            ids = ids.values[row_mask]
+            if "slice_filter" in slicing_metadata:
+                slice_filter = valid_df.encode_filter(sf.filters.SliceFilterBase.from_dict(slicing_metadata["slice_filter"]))
+                print(slice_filter)
+            else:
+                slice_filter = sf.filters.SliceFilterBase()
+            self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)] = (valid_df, row_mask, ids, slice_filter)
         return self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)]
         
     def invalidate_slice_spec(self, slice_spec_name):

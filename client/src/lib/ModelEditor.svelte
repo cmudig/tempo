@@ -315,7 +315,7 @@
         position="right"
       />
     </h3>
-    {#if !!outcomeVariable}
+    {#if outcomeVariable !== null}
       <VariableEditor
         varName="outcome"
         varInfo={{ query: outcomeVariable, category: '', enabled: true }}
@@ -356,7 +356,7 @@
         position="right"
       />
     </h3>
-    {#if !!patientCohort}
+    {#if patientCohort !== null}
       <VariableEditor
         varName="cohort"
         varInfo={{ query: patientCohort, category: '', enabled: true }}

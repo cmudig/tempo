@@ -106,6 +106,13 @@ class Compilable:
             self.name = name
             self.leaves = {name: self}
             
+    @staticmethod
+    def wrap(data):
+        if isinstance(data, str):
+            # Make sure this gets inserted as a string LITERAL, not a variable
+            return Compilable(repr(data))
+        return Compilable(data)
+        
     def function_string(self):
         if self.data is not None: return self.name if self.name is not None else self.data
         else: return self.fn
@@ -150,6 +157,12 @@ class Compilable:
         ends = np.array(end_times.get_times(), dtype=np.int64)
         assert (starts <= ends).all(), "Start times must be <= end times"
         
+        # TODO: This method of combining inputs in matrices only works when all
+        # inputs are numerical. If a preaggregated input is a string, the line
+        # marked below will crash; if a different input is a string, it will be
+        # silently converted to a number and carried through to numba as a number,
+        # meaning that if different columns are converted to numbers differently,
+        # equality operations between them may not be correct.
         preaggregated_input_names = []
         preaggregated_inputs = []
         series_input_names = []
@@ -160,7 +173,10 @@ class Compilable:
             value = value.data
             if isinstance(value, TimeSeries):
                 assert value.index == index, "TimeSeries inside aggregation expression does not match current aggregation index"
+                if pd.api.types.is_object_dtype(value.get_values().values.dtype) or pd.api.types.is_string_dtype(value.get_values().values.dtype):
+                    raise NotImplementedError("Nested aggregations currently only work on numerical values")
                 preaggregated_input_names.append(name)
+                # This line crashes when the preaggregated series values are strings
                 preaggregated_inputs.append(value.get_values().values.astype(np.float64).reshape(-1, 1))
             else:
                 series_input_names.append(name)
@@ -174,6 +190,9 @@ class Compilable:
                     series_type = "intervals"
                 else:
                     raise ValueError(f"Unsupported aggregation expression type {str(type(value))}")
+                
+                if pd.api.types.is_object_dtype(value.get_values().values.dtype) or pd.api.types.is_string_dtype(value.get_values().values.dtype):
+                    raise NotImplementedError("Nested aggregations currently only work on numerical values")
                 
                 if series_inputs is None:
                     series_inputs = value.prepare_aggregation_inputs(agg_func)
@@ -231,16 +250,16 @@ class Compilable:
         
     def where(self, condition, other):
         if not isinstance(other, Compilable):
-            other = Compilable(other)
+            other = Compilable.wrap(other)
         if not isinstance(condition, Compilable):
-            condition = Compilable(condition)
+            condition = Compilable.wrap(condition)
             
         return Compilable(f"np.where({condition.function_string()}, {self.function_string()}, {other.function_string()})",
                           leaves={**self.leaves, **condition.leaves, **other.leaves})
     
     def filter(self, condition):
         if not isinstance(condition, Compilable):
-            condition = Compilable(condition)
+            condition = Compilable.wrap(condition)
             
         return Compilable(f"({self.function_string()})[{condition.function_string()}]",
                           leaves={**self.leaves, **condition.leaves})
@@ -257,7 +276,7 @@ class Compilable:
     
     def _handle_binary_op(self, opname, other, reverse=False):
         if not isinstance(other, Compilable):
-            other = Compilable(other)
+            other = Compilable.wrap(other)
             
         fn_strings = (self.function_string(), other.function_string())
         if reverse: fn_strings = fn_strings[1], fn_strings[0]
@@ -1078,7 +1097,7 @@ class TimeIndex(TimeSeriesQueryable):
         }))
         
     @staticmethod
-    def from_events(events, starts=None, ends=None):
+    def from_events(events, starts=None, ends=None, return_filtered_events=False):
         """Creates a time index from the timesteps and IDs represented in the given
         Events object"""
         event_times = events.df[[events.id_field, events.time_field]]
@@ -1087,9 +1106,13 @@ class TimeIndex(TimeSeriesQueryable):
             mask &= event_times[events.time_field] >= make_aligned_value_series(events, starts)
         if ends is not None:
             mask &= event_times[events.time_field] < make_aligned_value_series(events, ends)
-        return TimeIndex(event_times[mask].drop_duplicates([events.id_field, events.time_field]).reset_index(drop=True), 
+        mask &= ~event_times.duplicated([events.id_field, events.time_field])
+        result = TimeIndex(event_times[mask].reset_index(drop=True), 
                          id_field=events.id_field, 
                          time_field=events.time_field)
+        if return_filtered_events:
+            return result, events.filter(mask)
+        return result
         
     @staticmethod
     def from_attributes(attributes, id_field="id"):
@@ -1276,6 +1299,13 @@ class TimeSeries(TimeSeriesQueryable):
         """Returns a new TimeSeries with values compressed to the minimum size
         needed to represent them."""
         return self.with_values(compress_series(self.get_values()))
+        
+    def to_events(self):
+        return Events(self.index.timesteps.reset_index(drop=True).assign(
+            eventtype=self.name or "timeseries_event", 
+            value=self.series.reset_index(drop=True)),
+                      time_field=self.index.time_field,
+                      id_field=self.index.id_field)
         
     def get_ids(self):
         return self.index.get_ids()

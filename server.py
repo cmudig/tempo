@@ -14,6 +14,7 @@ import numpy as np
 import re
 import multiprocessing as mp
 import atexit
+import argparse
 from werkzeug.middleware.profiler import ProfilerMiddleware
 
 SAMPLE_MODEL_TRAINING_DATA = False
@@ -72,9 +73,20 @@ def _background_model_generation(base_path, queue):
             finder.invalidate_slice_spec(spec_name)
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+                prog='TimeseriesModelExplorer',
+                description='Start a Flask server to create, interpret, and compare time-series prediction model formulations.')
+
+    parser.add_argument('base_path', type=str)
+    parser.add_argument('--port', type=int, default=4999, help='Port to run the server on')
+    parser.add_argument('--public', action='store_true', default=False, help='Open the server to public network traffic')
+    parser.add_argument('--profile', action='store_true', default=False, help='Print cProfile performance logs for each API call')
+    
+    args = parser.parse_args()
+
     app = Flask(__name__)
     
-    base_path = sys.argv[1]
+    base_path = args.base_path
     dataset_manager = DatasetManager(base_path)
     MODEL_DIR = dataset_manager.model_dir
     queue = mp.Queue()
@@ -284,7 +296,6 @@ if __name__ == '__main__':
             
             unnamed_index = 0
             parsed_variables = {}
-            print(result.pretty())
             for var_exp in result.find_data("variable_expr"):
                 if len(list(var_exp.find_data("variable_expr"))) > 1: continue
                 var_name_node = next(var_exp.find_data("named_variable"), None)
@@ -294,7 +305,6 @@ if __name__ == '__main__':
                     unnamed_index += 1
                 min_pos = min(token.start_pos for token in var_exp.children[-1].scan_values(lambda x: isinstance(x, lark.Token)))
                 max_pos = max(token.end_pos for token in var_exp.children[-1].scan_values(lambda x: isinstance(x, lark.Token)))
-                print(var_name, query[min_pos:max_pos])
                 parsed_variables[var_name] = {"query": query[min_pos:max_pos], "enabled": True}
             return jsonify({"success": True, "variables": parsed_variables})
         except Exception as e:
@@ -608,16 +618,20 @@ if __name__ == '__main__':
     def get_slice_specs():
         slice_spec_dir = os.path.join(dataset_manager.slices_dir, "specifications")
         results = {}
-        for path in os.listdir(slice_spec_dir):
-            if not path.endswith(".json"): continue
-            spec_name = os.path.splitext(path)[0]
-            with open(os.path.join(slice_spec_dir, path), "r") as file:
-                results[spec_name] = json.load(file)
+        if os.path.exists(slice_spec_dir):
+            for path in os.listdir(slice_spec_dir):
+                if not path.endswith(".json"): continue
+                spec_name = os.path.splitext(path)[0]
+                with open(os.path.join(slice_spec_dir, path), "r") as file:
+                    results[spec_name] = json.load(file)
+        results["default"] = dataset_manager.get_default_slice_spec()
         return jsonify(results)
     
     @app.route("/slices/specs/<spec_name>", methods=["POST"])
     def edit_slice_spec(spec_name):
         slice_spec_dir = os.path.join(dataset_manager.slices_dir, "specifications")
+        if not os.path.exists(slice_spec_dir):
+            os.mkdir(slice_spec_dir)
         body = request.json
         if "variables" not in body or "slice_filter" not in body:
             return "Slice spec must contain 'variables' and 'slice_filter' keys", 400
@@ -660,5 +674,6 @@ if __name__ == '__main__':
         
     atexit.register(close_running_threads)
     
-    # app.wsgi_app = ProfilerMiddleware(app.wsgi_app, sort_by=["cumtime"], restrictions=[100])
-    app.run(debug=True, port=4999)
+    if args.profile:
+        app.wsgi_app = ProfilerMiddleware(app.wsgi_app, sort_by=["cumtime"], restrictions=[100])
+    app.run(debug=not args.public, port=args.port, host='0.0.0.0' if args.public else '127.0.0.1')

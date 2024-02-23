@@ -158,7 +158,7 @@
       {/if}
     </div>
     <div class="mt-2 flex gap-2 justify-end items-center mb-4 mx-4">
-      {#if specChanged}
+      {#if specChanged && sliceSpec != 'default'}
         <div class="text-slate-500 text-xs mr-2">
           Overwriting a specification will clear slices found using that
           specification.
@@ -171,9 +171,11 @@
         Cancel
       </button>
       {#if specChanged}
-        <button class="my-1 btn btn-blue" on:click={() => saveSpec(true)}>
-          Overwrite
-        </button>
+        {#if sliceSpec != 'default'}
+          <button class="my-1 btn btn-blue" on:click={() => saveSpec(true)}>
+            Overwrite
+          </button>
+        {/if}
         <button class="my-1 btn btn-blue" on:click={() => saveSpec(false)}>
           Save as New Specification...
         </button>
