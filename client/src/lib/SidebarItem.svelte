@@ -56,11 +56,11 @@
     metricValues = {
       Timesteps: {
         type: 'binary',
-        mean: model.metrics?.n_slice_eval.instances ?? 0,
+        mean: model.metrics?.n_test.instances ?? 0,
       },
       Trajectories: {
         type: 'binary',
-        mean: model.metrics?.n_slice_eval.trajectories ?? 0,
+        mean: model.metrics?.n_test.trajectories ?? 0,
       },
       [metricToShow]:
         model.metrics?.performance[metricToShow] !== undefined

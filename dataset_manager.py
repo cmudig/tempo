@@ -8,6 +8,8 @@ from sklearn.model_selection import train_test_split
 from model_training import ModelTrainer
 from model_slice_finding import SliceDiscoveryHelper, SliceEvaluationHelper
 
+DEFAULT_SPLIT = {"train": 0.5, "val": 0.25, "test": 0.25}
+
 class DatasetManager:
     def __init__(self, base_path):
         """
@@ -26,7 +28,7 @@ class DatasetManager:
         self.slices_dir = os.path.join(self.base_path, "slices")
         if not os.path.exists(self.slices_dir): os.mkdir(self.slices_dir)
         
-    def load_data(self, sample=False, cache_dir=None, val_only=False):
+    def load_data(self, sample=False, cache_dir=None, split=None):
         data_config = self.config.get("data", {})
         attrib_config = data_config.get("attributes", {})
         if "path" in attrib_config:
@@ -73,22 +75,35 @@ class DatasetManager:
         if intervals is not None:
             intervals = intervals.filter(intervals.get_ids().isin(valid_ids))
         
-        if not os.path.exists(f"{self.data_dir}/train_test_split.pkl"):
-            train_ids, val_ids = train_test_split(valid_ids, train_size=0.333)
-            val_ids, test_ids = train_test_split(val_ids, test_size=0.5)
-            with open(f"{self.data_dir}/train_test_split.pkl", "wb") as file:
+        if not os.path.exists(f"{self.cache_dir()}/train_test_split.pkl"):
+            train_split_config = {**data_config.get("split", DEFAULT_SPLIT)}
+            assert len(set(train_split_config.keys()) - {"train", "val", "test"}) == 0, "train_split_config must contain only 'train', 'val', and 'test' keys"
+            if len(train_split_config) == 3:
+                assert abs(sum(train_split_config.values()) - 1.0) <= 1e-3, "Training, val, and test fractions must sum to 1"
+            else: 
+                while len(train_split_config) < 2:
+                    missing_key = next(k for k in DEFAULT_SPLIT if k not in train_split_config)
+                    train_split_config[missing_key] = DEFAULT_SPLIT[missing_key]
+                missing_key = list({"train", "val", "test"} - set(train_split_config.keys()))[0]
+                train_split_config[missing_key] = 1.0 - sum(train_split_config.values())
+                
+            print(f"Setting up train-val-test split: {train_split_config}")
+            train_ids, val_ids = train_test_split(valid_ids, train_size=train_split_config["train"])
+            val_ids, test_ids = train_test_split(val_ids, test_size=train_split_config["test"] / (train_split_config["val"] + train_split_config["test"]))
+            with open(f"{self.cache_dir()}/train_test_split.pkl", "wb") as file:
                 pickle.dump((train_ids, val_ids, test_ids), file)
         else:
-            with open(f"{self.data_dir}/train_test_split.pkl", "rb") as file:
+            with open(f"{self.cache_dir()}/train_test_split.pkl", "rb") as file:
                 train_ids, val_ids, test_ids = pickle.load(file)
 
-        if val_only:
+        if split is not None:
+            split_ids = {"train": train_ids, "val": val_ids, "test": test_ids}[split]
             if attributes is not None:
-                attributes = attributes.filter(attributes.get_ids().isin(val_ids))
+                attributes = attributes.filter(attributes.get_ids().isin(split_ids))
             if events is not None:
-                events = events.filter(events.get_ids().isin(val_ids))
+                events = events.filter(events.get_ids().isin(split_ids))
             if intervals is not None:
-                intervals = intervals.filter(intervals.get_ids().isin(val_ids))
+                intervals = intervals.filter(intervals.get_ids().isin(split_ids))
 
         if "macros" in data_config:
             macro_path = (os.path.join(self.base_path, data_config["macros"]["path"])

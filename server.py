@@ -35,13 +35,13 @@ def _background_model_generation(base_path, queue):
                 with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Loading data"}}, file)
                 if dataset is None:
-                    dataset, (train_patients, val_patients, _) = dataset_manager.load_data(sample=SAMPLE_MODEL_TRAINING_DATA)
+                    dataset, (train_ids, val_ids, test_ids) = dataset_manager.load_data(sample=SAMPLE_MODEL_TRAINING_DATA)
                 with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Loading variables"}}, file)
                 modeling_df = make_modeling_variables(dataset, meta["variables"], meta["timestep_definition"])
                 with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump({**meta, "training": True, "status": {"state": "loading", "message": "Building model"}}, file)
-                trainer.make_model(dataset, meta, train_patients, val_patients, save_name=model_name, modeling_df=modeling_df)
+                trainer.make_model(dataset, meta, train_ids, val_ids, test_ids, save_name=model_name, modeling_df=modeling_df)
                 
                 if finder is None:
                     finder = make_finder()
@@ -96,7 +96,7 @@ if __name__ == '__main__':
     
     sample_dataset, _ = dataset_manager.load_data(sample=SAMPLE_MODEL_TRAINING_DATA, 
                                                   cache_dir=os.path.join(dataset_manager.base_path, "data/sample" if SAMPLE_MODEL_TRAINING_DATA else "slices/slicing_variables"), 
-                                                  val_only=True)
+                                                  split='test')
     evaluator = dataset_manager.make_slice_evaluation_helper()
     evaluator_lock = Lock() # make sure we are not requesting slices simultaneously from different requests
 

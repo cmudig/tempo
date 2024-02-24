@@ -17,7 +17,7 @@ export type ModelMetrics = {
   predictions: SliceMetric;
   n_train: { instances: number; trajectories: number };
   n_val: { instances: number; trajectories: number };
-  n_slice_eval: { instances: number; trajectories: number };
+  n_test: { instances: number; trajectories: number };
   trivial_solution_warning?: {
     variables: string[];
     metric: number;

@@ -66,19 +66,24 @@
   $: if (sortField != 'name' && !availableMetrics.includes(sortField))
     sortField = 'name';
 
+  const metricDescriptions: { [key: string]: string } = {
+    Timesteps: 'Number of timesteps in the slice evaluation set',
+    Trajectories: 'Number of unique trajectories in the slice evaluation set',
+    Labels: 'True values for the target variable',
+    Predictions: 'Predicted values for the target variable',
+  };
+
   $: {
     let maxInstances = Object.values(models)
       .filter((m) => !!m.metrics)
       .reduce(
-        (prev, curr) =>
-          Math.max(prev, curr.metrics?.n_slice_eval.instances ?? 0),
+        (prev, curr) => Math.max(prev, curr.metrics?.n_test.instances ?? 0),
         0
       );
     let maxTrajectories = Object.values(models)
       .filter((m) => !!m.metrics)
       .reduce(
-        (prev, curr) =>
-          Math.max(prev, curr.metrics?.n_slice_eval.trajectories ?? 0),
+        (prev, curr) => Math.max(prev, curr.metrics?.n_test.trajectories ?? 0),
         0
       );
     let maxMetricValue = Object.values(models)
@@ -188,8 +193,8 @@
           Object.entries(models).map(([modelName, model]) => [
             modelName,
             {
-              Timesteps: model.metrics?.n_slice_eval.instances ?? 0,
-              Trajectories: model.metrics?.n_slice_eval.trajectories ?? 0,
+              Timesteps: model.metrics?.n_test.instances ?? 0,
+              Trajectories: model.metrics?.n_test.trajectories ?? 0,
               [metricToShow]: model.metrics?.performance[metricToShow] ?? 0,
               Labels:
                 model.metrics?.labels?.value ??
@@ -335,6 +340,10 @@
           class="p-2 text-left grow-0 shrink-0 hover:bg-slate-200 whitespace-nowrap"
           on:click={() => setSort('name')}
           class:font-bold={sortField == 'name'}
+          title={'Model name' +
+            (sortField == 'name'
+              ? ', sorted ' + (sortDescending ? 'descending' : 'ascending')
+              : '')}
           style="width: {SidebarTableWidths.ModelName}px;"
         >
           Model {#if sortField == 'name'}
@@ -348,6 +357,12 @@
           <button
             class="p-2 rounded text-left grow-0 shrink-0 hover:bg-slate-200 whitespace-nowrap"
             class:font-bold={sortField == fieldName}
+            title={(fieldName == metricToShow
+              ? 'Selected performance metric'
+              : metricDescriptions[fieldName] ?? '') +
+              (sortField == fieldName
+                ? ', sorted ' + (sortDescending ? 'descending' : 'ascending')
+                : '')}
             on:click={() => setSort(fieldName)}
             style="width: {SidebarTableWidths.Metric}px;"
           >

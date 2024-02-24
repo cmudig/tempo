@@ -8,8 +8,8 @@ import pickle
 import datetime
 import time
 from query_language.data_types import *
-from model_training import make_query
 from sklearn.metrics import roc_curve, roc_auc_score, confusion_matrix, r2_score, f1_score
+from utils import make_query
 import slice_finding as sf
 
 MODEL_CACHE_UPDATE_TIME = 300 # 5 minutes
@@ -70,24 +70,6 @@ def make_slicing_variables(manager, dataset, variable_definitions, timestep_defi
     return discrete_df, variable_df.index.get_ids()
 
 HOLDOUT_FRACTION = 0.5
-
-def get_slicing_split(slices_dir, dataset, timestep_definition):
-    split_path = os.path.join(slices_dir, "slicing_split.pkl")
-    if os.path.exists(split_path):
-        with open(split_path, "rb") as file:
-            splits = pickle.load(file)
-    else:
-        splits = {}
-        
-    if timestep_definition not in splits:
-        dataset_size = dataset.df.shape[0] if isinstance(dataset, sf.slices.DiscretizedData) else len(dataset)
-        discovery_mask = (np.random.uniform(size=dataset_size) >= HOLDOUT_FRACTION)
-        eval_mask = ~discovery_mask
-        splits[timestep_definition] = (discovery_mask, eval_mask)
-        with open(os.path.join(slices_dir, "slicing_split.pkl"), "wb") as file:
-            pickle.dump(splits, file)
-    
-    return splits[timestep_definition]
 
 def parse_controls(discrete_df, controls, source_mask=None):
     new_score_fns = {}
@@ -203,11 +185,12 @@ def find_slices(discrete_df, score_fns, controls=None, progress_fn=None, n_sampl
     return results.results
 
 class SliceHelper:
-    def __init__(self, manager, model_dir, results_dir):
+    def __init__(self, manager, model_dir, results_dir, evaluation=False):
         self.manager = manager
         self.model_dir = model_dir
         self.results_dir = results_dir
         self.discrete_dfs = {}
+        self.evaluation = evaluation # determines whether to use validation or test set
         
         self.last_cache_time = None
         self.model_spec_cache = {}
@@ -226,13 +209,17 @@ class SliceHelper:
             pass
         return {"searching": False, "status": {"state": "none", "message": "Not currently finding slices"}, "n_results": 0, "n_runs": 0, "models": []}
         
-    def get_raw_slicing_dataset(self):
-        dataset, _ = self.manager.load_data(cache_dir=os.path.join(self.manager.cache_dir(), "slicing_variables"), val_only=True)
+    def get_raw_slicing_dataset(self, evaluation=None):
+        if evaluation is None: evaluation = self.evaluation
+        dataset, _ = self.manager.load_data(cache_dir=os.path.join(self.manager.cache_dir(), "slice_eval" if evaluation else "slice_discovery"), 
+                                            split="test" if evaluation else "val")
         return dataset
         
-    def get_slicing_data(self, slice_spec_name, timestep_def, evaluation=False):
+    def get_slicing_data(self, slice_spec_name, timestep_def, evaluation=None):
+        if evaluation is None: evaluation = self.evaluation
+        
         if (slice_spec_name, timestep_def, evaluation) not in self.discrete_dfs:
-            dataset = self.get_raw_slicing_dataset()
+            dataset = self.get_raw_slicing_dataset(evaluation=evaluation)
             
             if slice_spec_name == "default":
                 slicing_metadata = self.manager.get_default_slice_spec()
@@ -241,15 +228,12 @@ class SliceHelper:
                     slicing_metadata = json.load(file)
                 
             discrete_df, ids = make_slicing_variables(self.manager, dataset, slicing_metadata["variables"], timestep_def) 
-            row_mask = get_slicing_split(self.results_dir, dataset, timestep_def)[1 if evaluation else 0]
-            valid_df = discrete_df.filter(row_mask)
-            ids = ids.values[row_mask]
             if "slice_filter" in slicing_metadata:
-                slice_filter = valid_df.encode_filter(sf.filters.SliceFilterBase.from_dict(slicing_metadata["slice_filter"]))
+                slice_filter = discrete_df.encode_filter(sf.filters.SliceFilterBase.from_dict(slicing_metadata["slice_filter"]))
                 print(slice_filter)
             else:
                 slice_filter = sf.filters.SliceFilterBase()
-            self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)] = (valid_df, row_mask, ids, slice_filter)
+            self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)] = (discrete_df, ids, slice_filter)
         return self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)]
         
     def invalidate_slice_spec(self, slice_spec_name):
@@ -281,7 +265,9 @@ class SliceHelper:
         if model_name not in self.model_preds_cache:
             with open(self.manager.model_preds_path(model_name), "rb") as file:
                 self.model_preds_cache[model_name] = tuple((x.astype(np.float64) for x in pickle.load(file)))
-        return self.model_preds_cache[model_name]
+        if self.evaluation:
+            return self.model_preds_cache[model_name][2:]
+        return self.model_preds_cache[model_name][:2]
     
     def get_model_opt_threshold(self, model_name):
         if self.last_cache_time is None or time.time() - self.last_cache_time >= MODEL_CACHE_UPDATE_TIME:
@@ -293,12 +279,15 @@ class SliceHelper:
         return self.model_threshold_cache[model_name]        
         
     def get_valid_model_mask(self, model_name):
-        return ~np.isnan(self.get_model_preds(model_name)[0])
+        if self.evaluation:
+            outcomes = self.model_preds_cache[model_name][2]
+        outcomes = self.model_preds_cache[model_name][0]
+        return ~np.isnan(outcomes)
     
     def get_model_labels(self, model_name):
         return self.get_model_preds(model_name)[0]
             
-    def get_score_functions(self, discrete_df, valid_mask, timestep_def, include_model_names=None, exclude_model_names=None, controls=None):
+    def get_score_functions(self, discrete_df, timestep_def, include_model_names=None, exclude_model_names=None, controls=None):
         score_fns = {
             "size": sf.scores.SliceSizeScore(0.2, 0.05),
             "complexity": sf.scores.NumFeaturesScore()
@@ -316,13 +305,14 @@ class SliceHelper:
             model_names.append(model_name)
             
             outcomes, preds = self.get_model_preds(model_name)
-            valid_outcomes = outcomes[valid_mask].astype(np.float64)
+            valid_outcomes = outcomes.astype(np.float64)
+            print(outcomes.shape, preds.shape)
             
             if spec["model_type"] == "binary_classification":
                 threshold = self.get_model_opt_threshold(model_name)
                 preds = np.where(np.isnan(preds), np.nan, preds >= threshold)
                 
-                valid_preds = preds[valid_mask]
+                valid_preds = preds
                 valid_true = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes > 0)
                 
                 valid_acc = np.where(np.isnan(valid_outcomes), np.nan, (valid_outcomes > 0) == valid_preds)
@@ -336,7 +326,7 @@ class SliceHelper:
                 })
 
             elif spec["model_type"] == "multiclass_classification":
-                valid_preds = np.where(np.isnan(preds).max(axis=1), np.nan, np.argmax(preds, axis=1))[valid_mask]
+                valid_preds = np.where(np.isnan(preds).max(axis=1), np.nan, np.argmax(preds, axis=1))
                 
                 valid_acc = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes == valid_preds)
                 score_fns.update({
@@ -356,16 +346,14 @@ class SliceHelper:
                             f"{model_name}_=_{output_value}_pred_low": sf.scores.OutcomeRateScore(valid_pred_value, inverse=True),
                             # f"{model_name}_{output_value}_pred_xf": sf.scores.InteractionEffectScore(valid_pred_value),
                         })
-            elif spec["model_type"] == "regression":
-                valid_preds = preds[valid_mask]
-                
-                valid_diff = np.where(np.isnan(valid_outcomes), np.nan, np.abs(valid_outcomes - valid_preds))
+            elif spec["model_type"] == "regression":                
+                valid_diff = np.where(np.isnan(valid_outcomes), np.nan, np.abs(valid_outcomes - preds))
                 score_fns.update({
                     f"{model_name}_diff_mean": sf.scores.MeanDifferenceScore(valid_diff),
                     f"{model_name}_true_above": sf.scores.OutcomeRateScore(valid_outcomes > np.nanmean(valid_outcomes)),
                     f"{model_name}_true_below": sf.scores.OutcomeRateScore(valid_outcomes < np.nanmean(valid_outcomes)),
-                    f"{model_name}_pred_above": sf.scores.OutcomeRateScore(valid_preds > np.nanmean(valid_preds)),
-                    f"{model_name}_pred_below": sf.scores.OutcomeRateScore(valid_preds < np.nanmean(valid_preds))
+                    f"{model_name}_pred_above": sf.scores.OutcomeRateScore(preds > np.nanmean(preds)),
+                    f"{model_name}_pred_below": sf.scores.OutcomeRateScore(preds < np.nanmean(preds))
                 })
                             
         if controls is not None:
@@ -468,10 +456,10 @@ class SliceDiscoveryHelper(SliceHelper):
             return
         
         for control_set, control_results in self.slice_scores[timestep_def].items():
-            valid_df, discovery_mask, _, _ = self.get_slicing_data(self.result_key_to_controls(control_set)["slice_spec_name"], 
-                                                                   timestep_def)
+            valid_df, _, _ = self.get_slicing_data(self.result_key_to_controls(control_set)["slice_spec_name"], 
+                                                   timestep_def)
             
-            other_score_fns, scored_model_names = self.get_score_functions(valid_df, discovery_mask, timestep_def, include_model_names=[model_name])
+            other_score_fns, scored_model_names = self.get_score_functions(valid_df, timestep_def, include_model_names=[model_name])
             results = list(control_results.keys())
             min_items = self.min_items_fraction * len(valid_df.df)
             print(len(results), "results to rescore")
@@ -514,7 +502,7 @@ class SliceDiscoveryHelper(SliceHelper):
             timestep_def = spec["timestep_definition"]
             self.load_timestep_slice_results(timestep_def)
             self.write_status(True, search_status={"state": "loading", "message": "Loading variables", "model_name": model_name})
-            valid_df, discovery_mask, _, slice_filter = self.get_slicing_data(controls["slice_spec_name"], timestep_def)
+            valid_df, _, slice_filter = self.get_slicing_data(controls["slice_spec_name"], timestep_def)
                  
             self.write_status(True, search_status={"state": "loading", "message": f"Finding slices for {model_name}", "model_name": model_name})
             
@@ -522,16 +510,16 @@ class SliceDiscoveryHelper(SliceHelper):
                 
             # don't add control-related score functions here as they will be added
             # in find_slices
-            discovery_score_fns, _ = self.get_score_functions(valid_df, discovery_mask, timestep_def, include_model_names=[model_name])
+            discovery_score_fns, _ = self.get_score_functions(valid_df, timestep_def, include_model_names=[model_name])
             
             result_key = self.controls_to_result_key(controls)
             print('result key:', result_key)
             
             # Save time by only finding slices on the rows where the outcome exists
-            outcome_exists = ~np.isnan(outcomes[discovery_mask])
+            outcome_exists = ~np.isnan(outcomes)
             discovery_df = valid_df.filter(outcome_exists)
             discovery_score_fns = {k: fn.subslice(outcome_exists) for k, fn in discovery_score_fns.items()}
-            discovery_outcomes = outcomes[discovery_mask][outcome_exists]
+            discovery_outcomes = outcomes[outcome_exists]
             
             last_progress = 0
             
@@ -547,10 +535,10 @@ class SliceDiscoveryHelper(SliceHelper):
             # Add filters
             if additional_filter is not None: 
                 if callable(additional_filter):
-                    slice_filter = sf.filters.ExcludeIfAny([slice_filter, additional_filter(valid_df, outcomes[discovery_mask])])
+                    slice_filter = sf.filters.ExcludeIfAny([slice_filter, additional_filter(valid_df, outcomes)])
                 else:
                     slice_filter = sf.filters.ExcludeIfAny([slice_filter, additional_filter])
-            single_value_filter = filter_single_values(valid_df, outcomes[discovery_mask])
+            single_value_filter = filter_single_values(valid_df, outcomes)
             if single_value_filter is not None:
                 slice_filter = sf.filters.ExcludeIfAny([slice_filter, single_value_filter])
                 
@@ -584,7 +572,7 @@ class SliceDiscoveryHelper(SliceHelper):
                                     **self.slice_finding_kwargs)
 
             # Add scores for all the other models
-            other_score_fns, scored_model_names = self.get_score_functions(valid_df, discovery_mask, timestep_def)
+            other_score_fns, scored_model_names = self.get_score_functions(valid_df, timestep_def)
             new_results = [r for r in results if r not in command_results]
             rescored_results = sf.slices.score_slices_batch(new_results, 
                                                             valid_df.df, 
@@ -610,7 +598,7 @@ class SliceDiscoveryHelper(SliceHelper):
             
 class SliceEvaluationHelper(SliceHelper):
     def __init__(self, manager, model_dir, results_dir, min_items_fraction=0.01, **slice_finding_kwargs):
-        super().__init__(manager, model_dir, results_dir)
+        super().__init__(manager, model_dir, results_dir, evaluation=True)
         self.min_items_fraction = min_items_fraction
         self.slice_finding_kwargs = slice_finding_kwargs
         self.slice_finding_status = None
@@ -874,7 +862,7 @@ class SliceEvaluationHelper(SliceHelper):
         if timestep_def is None: timestep_def = self.get_model_timestep_def(model_name)
         self.eval_score_caches[timestep_def] = {}
         
-    def get_eval_metrics(self, model_names, eval_mask):
+    def get_eval_metrics(self, model_names):
         metrics = {}
         for model_name in model_names:
             if model_name not in self.metrics:
@@ -883,8 +871,8 @@ class SliceEvaluationHelper(SliceHelper):
                 model_metrics = {}
                 outcomes, preds = self.get_model_preds(model_name)
             
-                valid_outcomes = outcomes[eval_mask].astype(np.float64)
-                valid_preds = preds[eval_mask]
+                valid_outcomes = outcomes.astype(np.float64)
+                valid_preds = preds
                 if len(valid_preds.shape) > 1: valid_preds = np.argmax(valid_preds, axis=1)
 
                 if spec["model_type"] == "multiclass_classification":
@@ -911,11 +899,11 @@ class SliceEvaluationHelper(SliceHelper):
         score custom slices without going through the slice search ranking process."""
         result_key = self.controls_to_result_key(controls)
         
-        valid_df, eval_mask, ids, _ = self.get_slicing_data(controls["slice_spec_name"], timestep_def, True)
+        valid_df, ids, _ = self.get_slicing_data(controls["slice_spec_name"], timestep_def)
             
-        score_fns, _ = self.get_score_functions(valid_df, eval_mask, timestep_def, controls=controls)
+        score_fns, _ = self.get_score_functions(valid_df, timestep_def, controls=controls)
                 
-        metrics = self.get_eval_metrics(model_names, eval_mask)
+        metrics = self.get_eval_metrics(model_names)
         
         rank_list = sf.slices.RankedSliceList([], 
                                               valid_df, 
@@ -943,12 +931,12 @@ class SliceEvaluationHelper(SliceHelper):
         else:
             scored_slices = list(self.slice_scores[timestep_def][result_key].keys())
         
-        valid_df, eval_mask, ids, _ = self.get_slicing_data(controls["slice_spec_name"], timestep_def, True)
+        valid_df, ids, _ = self.get_slicing_data(controls["slice_spec_name"], timestep_def)
             
-        score_fns, _ = self.get_score_functions(valid_df, eval_mask, timestep_def, controls=controls)
+        score_fns, _ = self.get_score_functions(valid_df, timestep_def, controls=controls)
                 
-        metrics = self.get_eval_metrics(model_names, eval_mask)
-        all_outcomes = np.vstack([self.get_model_labels(model_name)[eval_mask]
+        metrics = self.get_eval_metrics(model_names)
+        all_outcomes = np.vstack([self.get_model_labels(model_name)
                                   for model_name in model_names])
         min_items_per_model = self.min_items_fraction * (~np.isnan(all_outcomes)).sum(axis=1) 
         scored_slices = [s for s in scored_slices if np.any((~np.isnan(all_outcomes[:,s.make_mask(valid_df.df)])).sum(axis=1) >= min_items_per_model, axis=0)]

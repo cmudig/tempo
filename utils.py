@@ -70,3 +70,20 @@ def make_query_result_summary(dataset, query_result):
         base["values"] = make_series_summary(query_result.get_values())
         
     return base
+
+def make_query(variable_definitions, timestep_definition):
+    """
+    Constructs a query. variable_definitions should be a dictionary mapping
+    variable names to dictionaries containing a "query" key. patient_cohort
+    and timestep_definition should be strings.
+    """
+    variable_queries = ',\n\t'.join(f"{name}: {info['query']}" 
+                                    for name, info in variable_definitions.items() 
+                                    if info.get("enabled", True))
+    return f"""
+    (
+        {variable_queries}
+    )
+    {timestep_definition}
+    """
+    

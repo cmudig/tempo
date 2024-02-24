@@ -18,6 +18,7 @@
   import ModelDataSummaryElement from './ModelDataSummaryElement.svelte';
   import { MetricColors } from './colors';
   import Histogram2D from './slices/charts/Histogram2D.svelte';
+  import Tooltip from './utils/Tooltip.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -179,7 +180,12 @@
         {/if}
         <div class="flex flex-wrap gap-8 mb-4">
           <div class="w-64">
-            <div class="font-bold text-slate-600 text-sm mb-2">Training</div>
+            <div class="font-bold text-slate-600 text-sm mb-2">
+              Training <Tooltip
+                position="right"
+                title="Trajectories used as input during model training only."
+              />
+            </div>
             <div class="font-mono text-base mb-2">
               {nFormat(metrics.n_train.instances)}
               <span class="text-xs font-sans">instances</span>
@@ -190,7 +196,12 @@
             </div>
           </div>
           <div class="w-64">
-            <div class="font-bold text-slate-600 text-sm mb-2">Validation</div>
+            <div class="font-bold text-slate-600 text-sm mb-2">
+              Validation <Tooltip
+                position="right"
+                title="Trajectories used to determine when to stop training the model, and to discover slices."
+              />
+            </div>
             <div class="font-mono text-base mb-2">
               {nFormat(metrics.n_val.instances)}
               <span class="text-xs font-sans">instances</span>
@@ -202,14 +213,17 @@
           </div>
           <div class="w-64">
             <div class="font-bold text-slate-600 text-sm mb-2">
-              Slice Evaluation (from validation set)
+              Testing <Tooltip
+                position="right"
+                title="Trajectories used to score and rank slices and calculate metrics."
+              />
             </div>
             <div class="font-mono text-base mb-2">
-              {nFormat(metrics.n_slice_eval.instances)}
+              {nFormat(metrics.n_test.instances)}
               <span class="text-xs font-sans">instances</span>
             </div>
             <div class="font-mono text-base mb-2">
-              {nFormat(metrics.n_slice_eval.trajectories)}
+              {nFormat(metrics.n_test.trajectories)}
               <span class="text-xs font-sans">trajectories</span>
             </div>
           </div>

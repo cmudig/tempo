@@ -4,27 +4,11 @@ import json
 import re
 import pickle
 from query_language.data_types import *
-from utils import make_series_summary
+from utils import make_series_summary, make_query
 import xgboost
 from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve, f1_score
 import slice_finding as sf
 
-def make_query(variable_definitions, timestep_definition):
-    """
-    Constructs a query. variable_definitions should be a dictionary mapping
-    variable names to dictionaries containing a "query" key. patient_cohort
-    and timestep_definition should be strings.
-    """
-    variable_queries = ',\n\t'.join(f"{name}: {info['query']}" 
-                                    for name, info in variable_definitions.items() 
-                                    if info.get("enabled", True))
-    return f"""
-    (
-        {variable_queries}
-    )
-    {timestep_definition}
-    """
-    
 def make_modeling_variables(dataset, variable_definitions, timestep_definition):
     """Creates the variables dataframe."""
     query = make_query(variable_definitions, timestep_definition)
@@ -90,7 +74,21 @@ class ModelTrainer:
         self.model_dir = model_dir
         self.slices_dir = slices_dir
         
-    def _train_model(self, model_meta, variables, outcomes, ids, train_mask, val_mask, model_type="binary_classification", columns_to_drop=None, columns_to_add=None, row_mask=None, full_metrics=True, **model_params):
+    def _get_predictions(self, model, model_type, X):
+        if model_type == "regression":
+            return model.predict(X)
+        elif model_type == "multiclass_classification":
+            return model.predict_proba(X)
+        else:
+            return model.predict_proba(X)[:,1]
+
+    def _get_dataset_aligned_predictions(self, all_outcomes, preds, apply_mask):
+        result = np.empty((len(all_outcomes), preds.shape[1])) if len(preds.shape) > 1 else np.empty(len(all_outcomes))
+        result.fill(np.nan)
+        result[apply_mask] = preds
+        return result
+        
+    def _train_model(self, model_meta, variables, outcomes, ids, train_mask, val_mask, test_mask, model_type="binary_classification", columns_to_drop=None, columns_to_add=None, row_mask=None, full_metrics=True, **model_params):
         """
         variables: a dataframe containing variables for all patients
         """
@@ -103,12 +101,17 @@ class ModelTrainer:
         val_X = variables[val_mask & row_mask].values
         val_y = outcomes[val_mask & row_mask]
         val_ids = ids[val_mask & row_mask]
+        test_X = variables[test_mask & row_mask].values
+        test_y = outcomes[test_mask & row_mask]
+        test_ids = ids[test_mask & row_mask]
         if model_type.endswith("classification"):
             train_y = train_y.astype(int)
             val_y = val_y.astype(int)
+            test_y = test_y.astype(int)
         if columns_to_add is not None:
             train_X = np.hstack([train_X, columns_to_add[train_mask & row_mask].values])
             val_X = np.hstack([val_X, columns_to_add[val_mask & row_mask].values])
+            test_X = np.hstack([test_X, columns_to_add[test_mask & row_mask].values])
         val_sample = np.random.uniform(size=len(val_X)) < 0.1
         
         print("Training", train_X.shape)
@@ -120,60 +123,56 @@ class ModelTrainer:
         model.fit(train_X, train_y, eval_set=[(val_X[val_sample], val_y[val_sample])])
         
         print("Evaluating")
-        if model_type == "regression":
-            val_pred = model.predict(val_X)
-        elif model_type == "multiclass_classification":
-            val_pred = model.predict_proba(val_X)
-        else:
-            val_pred = model.predict_proba(val_X)[:,1]
+            
+        test_pred = self._get_predictions(model, model_type, test_X)
         metrics = {}
-        metrics["labels"] = make_series_summary(val_y 
+        metrics["labels"] = make_series_summary(test_y 
                                                      if model_type != 'multiclass_classification' 
-                                                     else pd.Series([model_meta["output_values"][i] for i in val_y]))
+                                                     else pd.Series([model_meta["output_values"][i] for i in test_y]))
         if model_type == "regression":
             metrics["performance"] = {
-                "R^2": float(r2_score(val_y, val_pred)),
-                "MSE": float(np.mean((val_y - val_pred) ** 2))
+                "R^2": float(r2_score(test_y, test_pred)),
+                "MSE": float(np.mean((test_y - test_pred) ** 2))
             }
-            bin_edges = np.histogram_bin_edges(np.concatenate([val_y, val_pred]), bins=10)
+            bin_edges = np.histogram_bin_edges(np.concatenate([test_y, test_pred]), bins=10)
             metrics["hist"] = {
-                "values": np.histogram2d(val_y, val_pred, bins=bin_edges)[0].tolist(),
+                "values": np.histogram2d(test_y, test_pred, bins=bin_edges)[0].tolist(),
                 "bins": bin_edges.tolist()
             }
-            hist, bin_edges = np.histogram((val_pred - val_y), bins=10)
+            hist, bin_edges = np.histogram((test_pred - test_y), bins=10)
             metrics["difference_hist"] = {
                 "values": hist.tolist(),
                 "bins": bin_edges.tolist()
             }
-            metrics["predictions"] = make_series_summary(val_pred)
+            metrics["predictions"] = make_series_summary(test_pred)
 
             submodel_metric = "R^2"
         else:
-            val_y = val_y.astype(np.uint8)
-            if len(np.unique(val_y)) > 1:
+            test_y = test_y.astype(np.uint8)
+            if len(np.unique(test_y)) > 1:
                 if model_type == "binary_classification":
-                    fpr, tpr, thresholds = roc_curve(val_y, val_pred)
+                    fpr, tpr, thresholds = roc_curve(test_y, test_pred)
                     opt_threshold = thresholds[np.argmax(tpr - fpr)]
                     if np.isinf(opt_threshold):
                         # Set to 1 if positive label is never predicted, otherwise 0
-                        if (val_y > 0).mean() < 0.01:
+                        if (test_y > 0).mean() < 0.01:
                             opt_threshold = 1e-6
                         else:
                             opt_threshold = 1 - 1e-6
                         
                     metrics["threshold"] = float(opt_threshold)
                     metrics["performance"] = {
-                        "Accuracy": float((val_y == (val_pred >= opt_threshold)).mean()),
-                        "AUROC": float(roc_auc_score(val_y, val_pred)),
-                        "Micro F1": float(f1_score(val_y, val_pred >= opt_threshold, average="micro")),
-                        "Macro F1": float(f1_score(val_y, val_pred >= opt_threshold, average="macro")),
+                        "Accuracy": float((test_y == (test_pred >= opt_threshold)).mean()),
+                        "AUROC": float(roc_auc_score(test_y, test_pred)),
+                        "Micro F1": float(f1_score(test_y, test_pred >= opt_threshold, average="micro")),
+                        "Macro F1": float(f1_score(test_y, test_pred >= opt_threshold, average="macro")),
                     }
                     metrics["roc"] = {}
                     for t in sorted([*np.arange(0, 0.1, 0.01), 
                                     *np.arange(0.1, 0.9, 0.1), 
                                     *np.arange(0.9, 1, 0.01), 
                                     float(opt_threshold)]):
-                        conf = confusion_matrix(val_y, (val_pred >= t))
+                        conf = confusion_matrix(test_y, (test_pred >= t))
                         tn, fp, fn, tp = conf.ravel()
                         metrics["roc"].setdefault("thresholds", []).append(round(t, 3))
                         metrics["roc"].setdefault("fpr", []).append(fp / (fp + tn))
@@ -189,37 +188,37 @@ class ModelTrainer:
                             "Macro F1": 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0,
                         })
                     
-                    conf = confusion_matrix(val_y, (val_pred >= opt_threshold))
+                    conf = confusion_matrix(test_y, (test_pred >= opt_threshold))
                     metrics["confusion_matrix"] = conf.tolist()
                     tn, fp, fn, tp = conf.ravel()
                     metrics["performance"]["Sensitivity"] = float(tp / (tp + fn))
                     metrics["performance"]["Specificity"] = float(tn / (tn + fp))
                     metrics["performance"]["Precision"] = float(tp / (tp + fp))
-                    metrics["predictions"] = make_series_summary(val_pred)
+                    metrics["predictions"] = make_series_summary(test_pred)
 
                     submodel_metric = "AUROC"
                 elif model_type == "multiclass_classification":
-                    max_predictions = np.argmax(val_pred, axis=1)
+                    max_predictions = np.argmax(test_pred, axis=1)
                     metrics["performance"] = {
-                        "Accuracy": (val_y == max_predictions).mean(),
-                        "Micro F1": float(f1_score(val_y, max_predictions, average="micro")),
-                        "Macro F1": float(f1_score(val_y, max_predictions, average="macro")),
+                        "Accuracy": (test_y == max_predictions).mean(),
+                        "Micro F1": float(f1_score(test_y, max_predictions, average="micro")),
+                        "Macro F1": float(f1_score(test_y, max_predictions, average="macro")),
                     }
-                    conf = confusion_matrix(val_y, max_predictions)
+                    conf = confusion_matrix(test_y, max_predictions)
                     metrics["confusion_matrix"] = conf.tolist()
                     
                     metrics["perclass"] = [{
                         "label": c,
                         "performance": {
-                            "Sensitivity": float(((max_predictions == i) & (val_y == i)).sum() / 
-                                                (((max_predictions == i) & (val_y == i)).sum() + 
-                                                ((max_predictions != i) & (val_y == i)).sum())),
-                            "Specificity": float(((max_predictions != i) & (val_y != i)).sum() / 
-                                                (((max_predictions != i) & (val_y != i)).sum() + 
-                                                ((max_predictions == i) & (val_y != i)).sum())),
-                            "Precision": float(((max_predictions == i) & (val_y == i)).sum() / 
-                                                (((max_predictions == i) & (val_y == i)).sum() + 
-                                                ((max_predictions == i) & (val_y != i)).sum()))
+                            "Sensitivity": float(((max_predictions == i) & (test_y == i)).sum() / 
+                                                (((max_predictions == i) & (test_y == i)).sum() + 
+                                                ((max_predictions != i) & (test_y == i)).sum())),
+                            "Specificity": float(((max_predictions != i) & (test_y != i)).sum() / 
+                                                (((max_predictions != i) & (test_y != i)).sum() + 
+                                                ((max_predictions == i) & (test_y != i)).sum())),
+                            "Precision": float(((max_predictions == i) & (test_y == i)).sum() / 
+                                                (((max_predictions == i) & (test_y == i)).sum() + 
+                                                ((max_predictions == i) & (test_y != i)).sum()))
                         }
                     } for i, c in enumerate(model_meta["output_values"])]
                     metrics["predictions"] = make_series_summary(pd.Series([model_meta["output_values"][i] for i in max_predictions]))
@@ -242,14 +241,7 @@ class ModelTrainer:
                 
         metrics["n_train"] = {"instances": len(train_X), "trajectories": len(np.unique(train_ids))}
         metrics["n_val"] = {"instances": len(val_X), "trajectories": len(np.unique(val_ids))}
-        
-        if full_metrics:
-            from model_slice_finding import get_slicing_split
-            slice_eval_mask = get_slicing_split(self.slices_dir, variables[val_mask], model_meta['timestep_definition'])[1]
-            eval_mask = np.ones(len(ids), dtype=bool)
-            eval_mask[val_mask] = slice_eval_mask
-            eval_ids = ids.values[val_mask & row_mask & eval_mask]
-            metrics["n_slice_eval"] = {"instances": len(eval_ids), "trajectories": len(np.unique(eval_ids))}
+        metrics["n_test"] = {"instances": len(test_X), "trajectories": len(np.unique(test_ids))}
         
         if submodel_metric is not None and full_metrics:
             # Check for trivial solutions
@@ -259,13 +251,14 @@ class ModelTrainer:
             variable_names = []
             for i in reversed(np.argsort(model.feature_importances_)[-max_variables:]):
                 variable_names.append(variables.columns[i])
-                _, sub_metrics, _, _ = self._train_model(
+                _, sub_metrics, _ = self._train_model(
                     model_meta,
                     variables[variable_names],
                     outcomes,
                     ids,
                     train_mask,
                     val_mask,
+                    test_mask,
                     row_mask=row_mask, 
                     model_type=model_type,
                     full_metrics=False,
@@ -280,15 +273,18 @@ class ModelTrainer:
                     }
                     break
         
-        # Return preds and true values in the validation set, putting
+        # Return preds and true values in the validation and test sets, putting
         # nans whenever the row shouldn't be considered part of the
         # cohort for this model
-        preds = np.empty((len(outcomes), val_pred.shape[1])) if model_type == "multiclass_classification" else np.empty(len(outcomes))
-        preds.fill(np.nan)
-        preds[(val_mask & row_mask).values] = val_pred
-        return model, metrics, preds[val_mask], np.where(val_mask & row_mask, outcomes, np.nan)[val_mask]
+        val_pred = self._get_predictions(model, model_type, val_X)
+        return model, metrics, (
+            np.where(val_mask & row_mask, outcomes, np.nan)[val_mask],
+            self._get_dataset_aligned_predictions(outcomes, val_pred, (val_mask & row_mask).values)[val_mask],
+            np.where(test_mask & row_mask, outcomes, np.nan)[test_mask],
+            self._get_dataset_aligned_predictions(outcomes, test_pred, (test_mask & row_mask).values)[test_mask],
+        )
 
-    def make_model(self, dataset, model_meta, train_patients, val_patients, modeling_df=None, save_name=None):
+    def make_model(self, dataset, model_meta, train_ids, val_ids, test_ids, modeling_df=None, save_name=None):
         if modeling_df is None:
             modeling_df = make_modeling_variables(dataset, model_meta["variables"], model_meta["timestep_definition"])
             
@@ -316,16 +312,18 @@ class ModelTrainer:
         else:
             outcome_values = outcome.get_values()
             
-        train_mask = outcome.get_ids().isin(train_patients)
-        val_mask = outcome.get_ids().isin(val_patients)
+        train_mask = outcome.get_ids().isin(train_ids)
+        val_mask = outcome.get_ids().isin(val_ids)
+        test_mask = outcome.get_ids().isin(test_ids)
         
-        model, metrics, val_pred, val_true = self._train_model(
+        model, metrics, predictions = self._train_model(
             model_meta,
             modeling_df,
             outcome_values,
             outcome.get_ids(),
             train_mask,
             val_mask,
+            test_mask,
             row_mask=~pd.isna(outcome_values),
             model_type=model_meta["model_type"],
             early_stopping_rounds=3)
@@ -347,6 +345,6 @@ class ModelTrainer:
             
             # Save out the true values and prediction (probabilities)
             with open(os.path.join(self.model_dir, f"preds_{save_name}.pkl"), "wb") as file:
-                pickle.dump((val_true, val_pred), file)
+                pickle.dump(predictions, file)
             
-        return model, metrics, val_pred, val_true
+        return model, metrics, predictions
