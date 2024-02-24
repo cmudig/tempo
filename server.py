@@ -215,6 +215,21 @@ if __name__ == '__main__':
         if "name" not in body:
             return "Model 'name' key required", 400
         model_name = body["name"]
+        if "draft" in body:
+            with open(dataset_manager.model_spec_path(model_name), "r") as file:
+                meta = json.load(file)
+                
+            # Just save the model spec as a draft
+            with open(dataset_manager.model_spec_path(model_name), "w") as file:
+                if not len(body["draft"]):
+                    # Delete the draft
+                    if "draft" in meta: del meta["draft"]
+                    json.dump(meta, file)
+                else:
+                    json.dump({**meta, "draft": body["draft"]}, file)
+                    
+            return "Draft saved"
+        
         if "meta" not in body:
             return "Model 'meta' key required", 400
         meta = body["meta"]

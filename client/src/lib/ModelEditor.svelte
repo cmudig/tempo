@@ -27,6 +27,9 @@
   export let modelName: string | null = null;
   export let otherModels: string[] = [];
 
+  let baseSpec:
+    | { [key in keyof ModelSummary]?: ModelSummary[key] | null }
+    | null = null; // the reference spec to see if things have changed
   let allSpecs: ModelSummary[] = [];
 
   let saveError: string | null = null;
@@ -40,12 +43,24 @@
     setupModels(modelName, otherModels);
   } else {
     allSpecs = [];
+    baseSpec = null;
   }
 
   function setupModels(active: string, others: string[]) {
     newModelName = active;
     loadAllModelSpecs([active, ...others]);
   }
+
+  function getModelField<
+    T extends 'outcome' | 'timestep_definition' | 'variables' | 'cohort',
+  >(modelSummary: ModelSummary, field: T): ModelSummary[T] {
+    if (!!modelSummary.draft)
+      return modelSummary.draft[field] ?? modelSummary[field];
+    return modelSummary[field];
+  }
+
+  let hasDraft: boolean = false;
+  $: hasDraft = allSpecs.some((s) => !!s.draft);
 
   async function loadAllModelSpecs(allModels: string[]) {
     saveError = null;
@@ -77,25 +92,49 @@
     allSpecs = loadedSpecs as ModelSummary[];
 
     if (
-      allSpecs.every((s) => areObjectsEqual(s.variables, allSpecs[0].variables))
+      allSpecs.every((s) =>
+        areObjectsEqual(
+          getModelField(s, 'variables'),
+          getModelField(allSpecs[0], 'variables')
+        )
+      )
     )
-      inputVariables = allSpecs[0].variables;
+      inputVariables = getModelField(allSpecs[0], 'variables');
     else inputVariables = null;
-    if (allSpecs.every((s) => (s.cohort ?? '') == (allSpecs[0].cohort ?? '')))
-      patientCohort = allSpecs[0].cohort ?? '';
+    if (
+      allSpecs.every(
+        (s) =>
+          (getModelField(s, 'cohort') ?? '') ==
+          (getModelField(allSpecs[0], 'cohort') ?? '')
+      )
+    )
+      patientCohort = getModelField(allSpecs[0], 'cohort') ?? '';
     else patientCohort = null;
     if (
       allSpecs.every(
         (s) =>
-          (s.timestep_definition ?? '') ==
-          (allSpecs[0].timestep_definition ?? '')
+          (getModelField(s, 'timestep_definition') ?? '') ==
+          (getModelField(allSpecs[0], 'timestep_definition') ?? '')
       )
     )
-      timestepDefinition = allSpecs[0].timestep_definition ?? '';
+      timestepDefinition =
+        getModelField(allSpecs[0], 'timestep_definition') ?? '';
     else timestepDefinition = null;
-    if (allSpecs.every((s) => (s.outcome ?? '') == (allSpecs[0].outcome ?? '')))
-      outcomeVariable = allSpecs[0].outcome ?? '';
+    if (
+      allSpecs.every(
+        (s) =>
+          (getModelField(s, 'outcome') ?? '') ==
+          (getModelField(allSpecs[0], 'outcome') ?? '')
+      )
+    )
+      outcomeVariable = getModelField(allSpecs[0], 'outcome') ?? '';
     else outcomeVariable = null;
+    baseSpec = {
+      variables: inputVariables,
+      outcome: outcomeVariable,
+      cohort: patientCohort,
+      timestep_definition: timestepDefinition,
+    };
     console.log(timestepDefinition, outcomeVariable, patientCohort);
   }
 
@@ -112,15 +151,33 @@
     return null;
   }
 
-  function reset() {
+  async function reset() {
     if (!modelName) return;
     newModelName = modelName;
+    await Promise.all(
+      [newModelName, ...otherModels].map((m) =>
+        fetch('/models', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: m,
+            draft: {},
+          }),
+        })
+      )
+    );
     loadAllModelSpecs([modelName, ...otherModels]);
   }
 
-  async function deleteModel() {
+  async function deleteModels() {
     try {
-      await fetch(`/models/${modelName}`, { method: 'DELETE' });
+      await Promise.all(
+        [modelName, ...otherModels].map((m) =>
+          fetch(`/models/${m}`, { method: 'DELETE' })
+        )
+      );
     } catch (e) {
       console.error('error deleting model:', e);
     }
@@ -135,7 +192,7 @@
       saveError = null;
       if (newModelName != modelName && !saveAsNew) {
         // Delete the old version of the model
-        await deleteModel();
+        await deleteModels();
       }
     }
 
@@ -172,6 +229,74 @@
       saveError = `${e}`;
     }
     dispatch('train', newModelName);
+  }
+
+  let saveDraftTimer: NodeJS.Timeout | null = null;
+  let changesSaved: boolean = true;
+  $: if (
+    !!baseSpec &&
+    (!areObjectsEqual(baseSpec.variables, inputVariables) ||
+      baseSpec.outcome != outcomeVariable ||
+      baseSpec.cohort != patientCohort ||
+      baseSpec.timestep_definition != timestepDefinition)
+  ) {
+    console.log('saving draft');
+    changesSaved = false;
+    saveDraft();
+  }
+
+  function saveDraft() {
+    if (!!saveDraftTimer) clearTimeout(saveDraftTimer);
+    saveDraftTimer = setTimeout(async () => {
+      let anyKeepsDraft = false;
+      try {
+        let modelsToSave = [newModelName, ...otherModels];
+        for (let i = 0; i < modelsToSave.length; i++) {
+          let draft: any = {
+            variables: inputVariables ?? allSpecs[i].variables,
+            outcome: outcomeVariable ?? allSpecs[i].outcome,
+            cohort: patientCohort ?? allSpecs[i].cohort,
+            timestep_definition:
+              timestepDefinition ?? allSpecs[i].timestep_definition,
+          };
+          if (
+            Object.keys(draft).every((field) =>
+              areObjectsEqual(draft[field] as any, (allSpecs[i] as any)[field])
+            )
+          ) {
+            draft = {};
+          } else {
+            anyKeepsDraft = true;
+          }
+
+          let result = await fetch('/models', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: modelsToSave[i],
+              draft,
+            }),
+          });
+          if (result.status != 200) {
+            saveError = await result.text();
+            break;
+          }
+        }
+      } catch (e) {
+        console.error('error saving model:', e);
+        saveError = `${e}`;
+      }
+      changesSaved = true;
+      hasDraft = anyKeepsDraft;
+      baseSpec = {
+        variables: inputVariables,
+        outcome: outcomeVariable,
+        cohort: patientCohort,
+        timestep_definition: timestepDefinition,
+      };
+    }, 5000);
   }
 
   async function saveAsNewModel() {
@@ -265,12 +390,20 @@
         class="flat-select font-mono mb-2"
         on:change={(e) => {
           if (!!e.target && e.target.value >= 0)
-            timestepDefinition = allSpecs[e.target.value].timestep_definition;
+            timestepDefinition = getModelField(
+              allSpecs[e.target.value],
+              'timestep_definition'
+            );
         }}
       >
         <option value={-1}></option>
         {#each [modelName, ...otherModels] as model, i}
-          <option value={i}>{model} | {allSpecs[i].timestep_definition}</option>
+          <option value={i}
+            >{model} | {getModelField(
+              allSpecs[i],
+              'timestep_definition'
+            )}</option
+          >
         {/each}
       </select>
     {/if}
@@ -298,13 +431,17 @@
         class="flat-select font-mono mb-2"
         on:change={(e) => {
           if (!!e.target && e.target.value >= 0)
-            inputVariables = allSpecs[e.target.value].variables;
+            inputVariables = getModelField(
+              allSpecs[e.target.value],
+              'variables'
+            );
         }}
       >
         <option value={-1}></option>
         {#each [modelName, ...otherModels] as model, i}
           <option value={i}
-            >{model} | {Object.keys(allSpecs[i].variables).length} variables</option
+            >{model} | {Object.keys(getModelField(allSpecs[i], 'variables'))
+              .length} variables</option
           >
         {/each}
       </select>
@@ -337,12 +474,17 @@
         class="flat-select font-mono mb-2"
         on:change={(e) => {
           if (!!e.target && e.target.value >= 0)
-            outcomeVariable = allSpecs[e.target.value].outcome;
+            outcomeVariable = getModelField(
+              allSpecs[e.target.value],
+              'outcome'
+            );
         }}
       >
         <option value={-1}></option>
         {#each [modelName, ...otherModels] as model, i}
-          <option value={i}>{model} | {allSpecs[i].outcome}</option>
+          <option value={i}
+            >{model} | {getModelField(allSpecs[i], 'outcome')}</option
+          >
         {/each}
       </select>
     {/if}
@@ -378,12 +520,14 @@
         class="flat-select font-mono mb-2"
         on:change={(e) => {
           if (!!e.target && e.target.value >= 0)
-            patientCohort = allSpecs[e.target.value].cohort;
+            patientCohort = getModelField(allSpecs[e.target.value], 'cohort');
         }}
       >
         <option value={-1}></option>
         {#each [modelName, ...otherModels] as model, i}
-          <option value={i}>{model} | {allSpecs[i].cohort}</option>
+          <option value={i}
+            >{model} | {getModelField(allSpecs[i], 'cohort')}</option
+          >
         {/each}
       </select>
     {/if}
@@ -391,6 +535,14 @@
     class="flat-text-input w-full font-mono"
     bind:value={patientCohort}
   /> -->
+    {#if hasDraft || !changesSaved}
+      <div class="text-sm text-slate-500 mt-2">
+        {#if changesSaved}<strong>Draft saved.&nbsp;</strong>{/if}Changes have
+        not yet been reflected in the trained model{otherModels.length > 0
+          ? 's'
+          : ''}.
+      </div>
+    {/if}
     <div class="mt-2 flex gap-2">
       <button class="my-1 btn btn-blue" on:click={() => trainModel(false)}>
         {#if otherModels.length > 0}Save All{:else}Save and Train{/if}
@@ -400,15 +552,15 @@
           Save As...
         </button>
       {/if}
-      <button class="my-1 btn btn-slate" on:click={reset}> Reset </button>
+      <button class="my-1 btn btn-slate" on:click={reset}> Revert </button>
       <button
         class="my-1 btn text-slate-800 bg-red-200 hover:bg-red-300"
         on:click={async () => {
-          await deleteModel();
+          await deleteModels();
           dispatch('delete', modelName);
         }}
       >
-        Delete Model
+        {#if otherModels.length > 0}Delete All{:else}Delete Model{/if}
       </button>
     </div>
   </div>
