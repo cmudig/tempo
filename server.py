@@ -339,12 +339,11 @@ if __name__ == '__main__':
         
     @app.route("/models/stop_training/<model_name>", methods=["POST"])
     def stop_model_training(model_name):
-        global model_worker
+        global model_worker, queue
         state = _get_model_training_status(model_name)["state"]
         if state == "loading":
             with model_worker_comm_lock:
                 os.kill(model_worker.pid, signal.SIGINT)
-                model_worker.join()
                 print("Restarting model worker")
                 queue = mp.Queue()
                 model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue), kwargs={"single_thread": args.single_thread})
@@ -397,10 +396,9 @@ if __name__ == '__main__':
     
     @app.route("/slices/stop_finding", methods=["POST"])
     def stop_slice_finding():
-        global model_worker
+        global model_worker, queue
         with model_worker_comm_lock:
             os.kill(model_worker.pid, signal.SIGINT)
-            model_worker.join()
             print("Restarting model worker")
             queue = mp.Queue()
             model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue), kwargs={"single_thread": args.single_thread})

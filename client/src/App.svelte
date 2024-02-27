@@ -171,9 +171,9 @@
               await refreshModels();
               currentView = View.results;
             }}
-            on:finish={() => {
+            on:finish={(e) => {
               refreshModels();
-              currentView = View.results;
+              if (e.detail.success) currentView = View.results;
             }}
           />
         {/if}

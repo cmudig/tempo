@@ -21,12 +21,25 @@
     let wasTraining = !!trainingStatus;
     trainingStatus = await checkTrainingStatus(modelName);
     if (!!trainingStatus) {
-      if (trainingStatus.state == 'error' && wasTraining) dispatch('finish');
+      if (trainingStatus.state == 'error' && wasTraining)
+        dispatch('finish', { success: false });
       if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
       trainingStatusTimer = setTimeout(pollTrainingStatus, 2000);
     } else {
       trainingStatusTimer = null;
-      if (wasTraining) dispatch('finish');
+      if (wasTraining) dispatch('finish', { success: true });
+    }
+  }
+
+  async function stopTraining() {
+    if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
+    try {
+      let result = await fetch(`/models/stop_training/${modelName}`, {
+        method: 'POST',
+      });
+      if (result.status == 200) dispatch('finish', { success: false });
+    } catch (e) {
+      console.error('error stopping training:', e);
     }
   }
 </script>
@@ -51,6 +64,7 @@
         />
       </svg>
     </div>
-    <div class="text-center mt-4">{trainingStatus.message}</div>
+    <div class="text-center my-4">{trainingStatus.message}</div>
+    <button class="btn btn-blue" on:click={stopTraining}>Stop</button>
   </div>
 {/if}

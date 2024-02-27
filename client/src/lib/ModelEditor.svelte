@@ -349,7 +349,14 @@
 {:else if allSpecs.length > 0}
   <div class="w-full py-4 px-4">
     {#if isTraining && !!modelName}
-      <ModelTrainingView {modelName} on:finish />
+      <ModelTrainingView
+        {modelName}
+        on:finish={(e) => {
+          if (!e.detail.success && modelName != null)
+            setupModels(modelName, otherModels);
+          dispatch('finish', e.detail);
+        }}
+      />
     {/if}
     {#if !!saveError}
       <div class="rounded my-2 p-3 text-red-500 bg-red-50">
