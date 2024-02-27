@@ -1554,3 +1554,15 @@ if __name__ == "__main__":
         "amount",
         "sum"
     ))
+    
+QUERY_RESULT_TYPENAMES = {
+    Attributes: "Attributes",
+    Events: "Events",
+    Intervals: "Intervals",
+    AttributeSet: "Attribute Set",
+    EventSet: "Event Set",
+    IntervalSet: "Interval Set",
+    TimeIndex: "Time Index",
+    TimeSeries: "Time Series",
+    TimeSeriesSet: "Time Series Set"
+}

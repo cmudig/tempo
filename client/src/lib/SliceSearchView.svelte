@@ -370,7 +370,7 @@
           <div
             slot="options"
             let:dismiss
-            class="p-4 overflow-scroll relative"
+            class="overflow-y-auto relative"
             style="max-height: 400px;"
           >
             <ScoreWeightMenu

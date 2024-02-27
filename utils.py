@@ -45,9 +45,10 @@ def make_series_summary(values, value_type=None):
             if data_range / (10 ** bin_scale) < 2.5:
                 bin_scale -= 1 # Make sure there aren't only 2-3 bins
             upper_tol = 2 if (np.ceil(max_val / (10 ** bin_scale))) * (10 ** bin_scale) == max_val else 1
+            subdivide = 2 if data_range / (10 ** bin_scale) < 5 else 1
             hist_bins = np.arange(np.floor(min_val / (10 ** bin_scale)) * (10 ** bin_scale),
                                     (np.ceil(max_val / (10 ** bin_scale)) + upper_tol) * (10 ** bin_scale),
-                                    10 ** bin_scale)
+                                    10 ** bin_scale / subdivide)
         
         summary["hist"] = dict(zip(hist_bins.astype(float).tolist(), np.histogram(values, bins=hist_bins)[0].astype(int).tolist())) 
     return summary

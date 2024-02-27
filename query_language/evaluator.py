@@ -225,18 +225,22 @@ class EvaluateExpression(lark.visitors.Transformer):
     def atom(self, args): return args[0]
     
     def min_time(self, args):
-        min_t = min(self.events.get_times().min(), self.intervals.get_start_times().min())
+        event_mins = self.events.get_times().groupby(self.events.get_ids()).agg("min")
+        interval_mins = self.intervals.get_start_times().groupby(self.intervals.get_ids()).agg("min")
         ids = self.get_all_ids()
-        return Attributes(pd.Series(np.ones(len(ids)) * min_t, index=ids, name='mintime'))
+        all_mins = pd.merge(pd.Series(ids, name="id"), pd.merge(event_mins, interval_mins, how='outer', left_index=True, right_index=True), left_on="id", right_index=True).set_index("id").min(axis=1)
+        return Attributes(all_mins.rename("mintime"))
     def max_time(self, args): 
-        max_t = max(self.events.get_times().max(), self.intervals.get_end_times().max())
-        # Offset the time by 1 so that it includes all events and intervals
-        if isinstance(max_t, (datetime.datetime, np.datetime64)):
-            max_t += datetime.timedelta(seconds=1)
-        else:
-            max_t += 1
+        event_maxes = self.events.get_times().groupby(self.events.get_ids()).agg("max")
+        interval_maxes = self.intervals.get_end_times().groupby(self.intervals.get_ids()).agg("max")
         ids = self.get_all_ids()
-        return Attributes(pd.Series(np.ones(len(ids)) * max_t, index=ids, name='maxtime'))
+        all_maxes = pd.merge(pd.Series(ids, name="id"), pd.merge(event_maxes, interval_maxes, how='outer', left_index=True, right_index=True), left_on="id", right_index=True).set_index("id").max(axis=1)
+        # Offset the time by 1 so that it includes all events and intervals
+        if pd.api.types.is_datetime64_any_dtype(all_maxes.dtype):
+            all_maxes += datetime.timedelta(seconds=1)
+        else:
+            all_maxes += 1
+        return Attributes(all_maxes.rename("maxtime"))
 
     def isin(self, args):
         return args[0].isin(args[1])
@@ -773,11 +777,11 @@ if __name__ == '__main__':
 
     dataset = TrajectoryDataset(attributes, events, intervals)
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
-    # print(dataset.query("min {'e1', e2} from now - 30 seconds to now at every {e1} from {start} to {end}"))
+    print(dataset.query("min {e1} from #now - 30 seconds to #now at every {e1} from #mintime to #maxtime"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))
     # print(dataset.query("(my_age: (last {e1} from #now - 10 sec to #now) impute 'Missing') every 3 sec from #mintime to #maxtime"))
     # print(dataset.query("mean {e1} * 3 from now - 30 s to now"))
     # print(dataset.query("max(mean {e2} from now - 30 seconds to now, mean {e1} from now - 30 seconds to now) at every {e2} from {start} to {end}"))
     print(events.get('e1'))
-    print(dataset.query("mean {e1} where {e1} > (last {e1} from #now - 30 sec to #now) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
-    print(dataset.query("mean (case when {e1} > (last {e2} from #now - 30 sec to #now) then {e1} else 0 end) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
+    # print(dataset.query("mean {e1} where {e1} > (last {e1} from #now - 30 sec to #now) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
+    # print(dataset.query("mean (case when {e1} > (last {e2} from #now - 30 sec to #now) then {e1} else 0 end) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))

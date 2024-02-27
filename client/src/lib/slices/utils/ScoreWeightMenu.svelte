@@ -96,17 +96,23 @@
   }
 </script>
 
-<div class="w-full">
-  <ScoreWeightSlider
-    segments={scoreNames
-      .map((n, i) => ({
-        name: n,
-        color_tailwind: scoreColors[i % scoreColors.length],
-      }))
-      .filter((n) => weights[n.name] > 0.0)}
-    widths={scoreNames.filter((n) => weights[n] > 0.0).map(getWeightFraction)}
-    on:change={(e) => updateWeightSubset(e.detail)}
-  />
+<div class="w-full px-3">
+  <div class="pt-3 bg-white {collapsible ? '' : 'sticky top-0 z-10'}">
+    <div class="mb-1 text-xs text-slate-500 w-full">
+      Adjust the weights for each score function to determine how to rank
+      slices.
+    </div>
+    <ScoreWeightSlider
+      segments={scoreNames
+        .map((n, i) => ({
+          name: n,
+          color_tailwind: scoreColors[i % scoreColors.length],
+        }))
+        .filter((n) => weights[n.name] > 0.0)}
+      widths={scoreNames.filter((n) => weights[n] > 0.0).map(getWeightFraction)}
+      on:change={(e) => updateWeightSubset(e.detail)}
+    />
+  </div>
   {#if expanded || !collapsible}
     <div class="mt-2">
       {#each scoreNames as score, i}
@@ -142,7 +148,9 @@
     </div>
   {/if}
   {#if showApplyButton}
-    <div class="mt-2 flex items-center justify-end gap-3">
+    <div
+      class="py-2 flex items-center justify-end gap-3 sticky bottom-0 bg-white z-10"
+    >
       <button class="btn btn-slate" on:click={() => dispatch('cancel')}>
         Cancel
       </button>

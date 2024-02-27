@@ -33,6 +33,8 @@
 
   export let evaluationSummary: QueryResult | null = null;
   export let evaluationError: string | null = null;
+  let evaluatedLength: number | null = null;
+  let evaluatedType: string | null = null;
   let loadingSummary: boolean = false;
   let summaryIsStale: boolean = false;
 
@@ -43,9 +45,13 @@
       let result = await (await fetch(`/data/query?q=${encodedQuery}`)).json();
       if (result.error) {
         evaluationError = result.error;
+        evaluatedLength = null;
+        evaluatedType = null;
         evaluationSummary = null;
       } else if (result.query == query && !!result.result) {
         evaluationSummary = result.result as QueryResult;
+        evaluatedType = result.result_type;
+        evaluatedLength = result.n_values;
         evaluationError = null;
       }
       loadingSummary = false;
@@ -77,6 +83,12 @@
       </div>
     {:else}
       <div class="mb-1 text-slate-500 text-xs font-bold">Query Result</div>
+    {/if}
+    {#if !!evaluatedType}
+      <div class="mb-2 text-slate-600 text-xs">
+        {evaluatedType}
+        {#if evaluatedLength != null}with {d3.format(',')(evaluatedLength)} values{/if}
+      </div>
     {/if}
     {#if !!evaluationSummary.occurrences}
       {@const values = evaluationSummary.occurrences}

@@ -1,5 +1,6 @@
 from flask import Flask, send_from_directory, request, jsonify, send_file
 from dataset_manager import DatasetManager
+from query_language.data_types import QUERY_RESULT_TYPENAMES
 from model_training import make_modeling_variables
 from model_slice_finding import describe_slice_change_differences, describe_slice_differences
 from utils import make_query_result_summary
@@ -293,6 +294,7 @@ if __name__ == '__main__':
             summary = {
                 "n_values": len(result.get_values()),
                 "n_trajectories": len(set(result.get_ids().values.tolist())),
+                "result_type": QUERY_RESULT_TYPENAMES.get(type(result), "Other"),
                 "query": args.get("q")
             }
             return jsonify({**summary, "result": make_query_result_summary(sample_dataset, result)})
@@ -595,14 +597,14 @@ if __name__ == '__main__':
         if "slice" not in body:
             return "'slice' body argument required", 400
         
-        discrete_df, eval_mask, ids, slice_filter = evaluator.get_slicing_data(body.get("sliceSpec", "default"),
+        discrete_df, ids, slice_filter = evaluator.get_slicing_data(body.get("sliceSpec", "default"),
                                                                  timestep_def,
                                                                  evaluation=True)
         slice_to_eval = discrete_df.encode_slice(body["slice"])
         
         offset = body.get("offset", None)
         
-        valid_mask = np.all(np.vstack([evaluator.get_valid_model_mask(n)[eval_mask] for n in model_names]), axis=0)
+        valid_mask = np.all(np.vstack([evaluator.get_valid_model_mask(n) for n in model_names]), axis=0)
         if offset is not None:
             try:
                 if int(offset) != offset:

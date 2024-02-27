@@ -281,7 +281,8 @@ class SliceHelper:
     def get_valid_model_mask(self, model_name):
         if self.evaluation:
             outcomes = self.model_preds_cache[model_name][2]
-        outcomes = self.model_preds_cache[model_name][0]
+        else:
+            outcomes = self.model_preds_cache[model_name][0]
         return ~np.isnan(outcomes)
     
     def get_model_labels(self, model_name):
@@ -306,7 +307,6 @@ class SliceHelper:
             
             outcomes, preds = self.get_model_preds(model_name)
             valid_outcomes = outcomes.astype(np.float64)
-            print(outcomes.shape, preds.shape)
             
             if spec["model_type"] == "binary_classification":
                 threshold = self.get_model_opt_threshold(model_name)
