@@ -372,7 +372,8 @@ class EvaluateExpression(lark.visitors.Transformer):
             return var_exp.where(nan_mask, numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float)))
         else:
             impute_method = self._parse_literal(args[1].value)
-            return var_exp.where(nan_mask, impute_method)
+            scalar = var_exp.get_values().dtype.type(impute_method)
+            return var_exp.where(nan_mask, scalar)
             
     def function_call(self, args):
         function_name = args[0].value.lower()
