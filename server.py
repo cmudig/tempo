@@ -20,13 +20,15 @@ from werkzeug.middleware.profiler import ProfilerMiddleware
 
 SAMPLE_MODEL_TRAINING_DATA = False
 
-def _background_model_generation(base_path, queue):
+def _background_model_generation(base_path, queue, single_thread=False):
     finder = None
     dataset = None
     dataset_manager = DatasetManager(base_path)
     trainer = dataset_manager.make_trainer()
     def make_finder():
-        return dataset_manager.make_slice_discovery_helper()
+        f = dataset_manager.make_slice_discovery_helper()
+        f.n_workers = 1 if single_thread else None
+        return f
     while True:
         arg = queue.get()
         if arg == "STOP": return
@@ -82,6 +84,7 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=4999, help='Port to run the server on')
     parser.add_argument('--public', action='store_true', default=False, help='Open the server to public network traffic')
     parser.add_argument('--profile', action='store_true', default=False, help='Print cProfile performance logs for each API call')
+    parser.add_argument('--single-thread', action='store_true', default=False, help='Disable multithreading for slice finding')
     
     args = parser.parse_args()
 
@@ -91,7 +94,7 @@ if __name__ == '__main__':
     dataset_manager = DatasetManager(base_path)
     MODEL_DIR = dataset_manager.model_dir
     queue = mp.Queue()
-    model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue))
+    model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue), kwargs={"single_thread": args.single_thread})
     model_worker.start()
     model_worker_comm_lock = Lock() # make sure we are not issuing simultaneous commands to the model worker
     
@@ -344,7 +347,7 @@ if __name__ == '__main__':
                 model_worker.join()
                 print("Restarting model worker")
                 queue = mp.Queue()
-                model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue,))
+                model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue), kwargs={"single_thread": args.single_thread})
                 model_worker.start()
         elif state in ("waiting", "error"):
             with open(dataset_manager.model_spec_path(model_name), "r") as file:
@@ -400,7 +403,7 @@ if __name__ == '__main__':
             model_worker.join()
             print("Restarting model worker")
             queue = mp.Queue()
-            model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue))
+            model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue), kwargs={"single_thread": args.single_thread})
             model_worker.start()
         return "Success"
       

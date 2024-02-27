@@ -397,10 +397,11 @@ class SliceHelper:
                 }
                
 class SliceDiscoveryHelper(SliceHelper):
-    def __init__(self, manager, model_dir, results_dir, samples_per_model=50, min_items_fraction=0.01, **slice_finding_kwargs):
+    def __init__(self, manager, model_dir, results_dir, samples_per_model=50, min_items_fraction=0.01, n_workers=None, **slice_finding_kwargs):
         super().__init__(manager, model_dir, results_dir)
         self.samples_per_model = samples_per_model
         self.min_items_fraction = min_items_fraction
+        self.n_workers = n_workers
         self.slice_finding_kwargs = slice_finding_kwargs
         self.slice_scores = {}
         
@@ -566,7 +567,7 @@ class SliceDiscoveryHelper(SliceHelper):
                                     seen_slices=command_results,
                                     n_samples=self.samples_per_model, 
                                     min_items=min_items,
-                                    n_workers=None,
+                                    n_workers=self.n_workers,
                                     source_mask=source_mask,
                                     group_filter=slice_filter,
                                     **self.slice_finding_kwargs)
