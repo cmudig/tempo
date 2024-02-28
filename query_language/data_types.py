@@ -24,12 +24,12 @@ def make_aligned_value_series(value_set, other):
     return other
 
 def compress_series(v):
-    if pd.api.types.is_object_dtype(v.dtype) or isinstance(v.dtype, pd.CategoricalDtype):
+    if pd.api.types.is_object_dtype(v.dtype) or pd.api.types.is_string_dtype(v.dtype) or isinstance(v.dtype, pd.CategoricalDtype):
         # Convert category types if needed
         if len(v.unique()) < len(v) * 0.5:
             v = v.astype("category")
             
-        if isinstance(v.dtype, pd.CategoricalDtype) and pd.api.types.is_object_dtype(v.dtype.categories.dtype):
+        if isinstance(v.dtype, pd.CategoricalDtype) and (pd.api.types.is_object_dtype(v.dtype.categories.dtype) or pd.api.types.is_string_dtype(v.dtype.categories.dtype)):
             try:
                 v = v.cat.rename_categories(v.dtype.categories.astype(int))
             except ValueError:
@@ -535,7 +535,7 @@ class Events(TimeSeriesQueryable):
         event_ids = self.df[self.id_field]
         event_times = self.df[self.time_field].astype(np.float64)
         event_values = self.df[self.value_field]
-        if isinstance(event_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(event_values.dtype):
+        if isinstance(event_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(event_values.dtype) or pd.api.types.is_string_dtype(event_values.dtype):
             # Convert to numbers before using numba
             if agg_func not in CATEGORICAL_SUPPORT_AGG_FUNCTIONS:
                 raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
@@ -815,7 +815,7 @@ class Intervals(TimeSeriesQueryable):
         interval_ends = self.df[self.end_time_field].astype(np.float64)
         interval_values = self.df[self.value_field]
         
-        if isinstance(interval_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(interval_values.dtype):
+        if isinstance(interval_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(interval_values.dtype) or pd.api.types.is_object_dtype(interval_values.dtype):
             # Convert to numbers before using numba
             if agg_func not in CATEGORICAL_SUPPORT_AGG_FUNCTIONS:
                 raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")

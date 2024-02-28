@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import * as d3 from 'd3';
   import Fa from 'svelte-fa/src/fa.svelte';
   import type { SliceMetric } from './slices/utils/slice.type';
@@ -68,11 +68,39 @@
     }
   }
 
-  onMount(loadDatasetInfo);
-
   let query: string = '';
   let finalQuery: string = '';
   let queryInput: HTMLElement;
+
+  let hints: string[] = [
+    '{field}',
+    '2 * {field} - 30',
+    '{field 1, field 2, field 3}',
+    'case when {field} < 50 then "Low" else "High" end',
+    'case when {field} < 2 then "0-2" when {field} < 4 then "2-4" else "> 4" end',
+    'mean {field} from #now - 1 hour to #now every 4 hours from #mintime to #maxtime',
+    'first {field} from #now to #now + 10 mins every 1 hour from #mintime to #maxtime',
+    'exists {field 1, field 2} from #mintime to #now every 1 hour from #mintime to #maxtime',
+    '{field} impute mean',
+  ];
+  let hintIndex: number = Math.floor(Math.random() * hints.length);
+  let hintTimer: NodeJS.Timeout | null = null;
+
+  onMount(() => {
+    loadDatasetInfo();
+
+    hintTimer = setTimeout(advanceHint, 5000);
+  });
+
+  function advanceHint() {
+    hintIndex = (hintIndex + 1) % hints.length;
+    hintTimer = setTimeout(advanceHint, 5000);
+  }
+
+  onDestroy(() => {
+    if (!!hintTimer) clearTimeout(hintTimer);
+    hintTimer = null;
+  });
 </script>
 
 <div class="flex flex-col w-full h-full">
@@ -115,6 +143,7 @@
             class="flat-text-input w-full h-full font-mono"
             bind:value={query}
             bind:this={queryInput}
+            placeholder={'Enter a query, such as: ' + hints[hintIndex]}
           />
           {#if !!datasetInfo}
             <TextareaAutocomplete
@@ -209,3 +238,9 @@
     </div>
   {/if}
 </div>
+
+<style>
+  textarea::placeholder {
+    @apply text-slate-500;
+  }
+</style>

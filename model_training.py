@@ -19,11 +19,13 @@ def make_modeling_variables(dataset, variable_definitions, timestep_definition):
     print("Before:", modeling_df.shape)
     print([c for c in modeling_df.columns 
                                           if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
+                                          or pd.api.types.is_string_dtype(modeling_df[c].dtype) 
                                           or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)])
     print(modeling_df.dtypes)
     modeling_df = pd.get_dummies(modeling_df, 
                                  columns=[c for c in modeling_df.columns 
                                           if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
+                                          or pd.api.types.is_string_dtype(modeling_df[c].dtype) 
                                           or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)])
     print("After:", modeling_df.shape)
 

@@ -250,7 +250,7 @@
     saveDraftTimer = setTimeout(async () => {
       let anyKeepsDraft = false;
       try {
-        let modelsToSave = [newModelName, ...otherModels];
+        let modelsToSave = [modelName, ...otherModels];
         for (let i = 0; i < modelsToSave.length; i++) {
           let draft: any = {
             variables: inputVariables ?? allSpecs[i].variables,
