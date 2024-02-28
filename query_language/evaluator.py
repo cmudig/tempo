@@ -277,8 +277,7 @@ class EvaluateExpression(lark.visitors.Transformer):
             if isinstance(expr, Events):
                 return expr.bin_aggregate(self.time_index, *time_bounds, agg_method[0])
             elif isinstance(expr, (Intervals, Compilable)):
-                result = expr.bin_aggregate(self.time_index, *time_bounds, agg_method[1], agg_method[0])
-                return result
+                return expr.bin_aggregate(self.time_index, *time_bounds, agg_method[1], agg_method[0])
             else:
                 raise ValueError(f"Only Events and Intervals can be bin-aggregated")
         else:
@@ -369,7 +368,7 @@ class EvaluateExpression(lark.visitors.Transformer):
         if args[1].value in ("mean", "median"):
             impute_method = args[1].value.lower()
             numpy_func = {"mean": np.nanmean, "median": np.nanmedian}[impute_method]
-            return var_exp.where(nan_mask, numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float)))
+            return var_exp.astype(np.float64).where(nan_mask, numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float)))
         else:
             impute_method = self._parse_literal(args[1].value)
             scalar = var_exp.get_values().dtype.type(impute_method)
@@ -558,7 +557,9 @@ class EvaluateQuery(lark.visitors.Interpreter):
                 var_exp = self.variable_transform(var_exp)
                 # var_exp = var_exp.with_values(pd.Series(sf.discretization.discretize_column(var_exp.name, var_exp.get_values(), self.discretization_spec)[0], 
                 #                                         name=var_exp.name))
+            print(var_exp.name, "before:", var_exp.get_values().dtype, var_exp)
             var_exp = var_exp.compress()
+            print(var_exp.name, "after:", var_exp.get_values().dtype)
             
             if self.cache is not None:
                 self.cache.save((tree_desc, options_desc), var_exp, transform_info=self.variable_transform_desc, time_index_tree=time_index_tree)

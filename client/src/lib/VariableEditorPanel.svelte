@@ -71,6 +71,19 @@
     currentEditingVariableName = null;
   }
 
+  function toggleVariables(variableNames: string[], enabled: boolean) {
+    inputVariables = Object.fromEntries([
+      ...Object.entries(inputVariables).filter(
+        (item) => !variableNames.includes(item[0])
+      ),
+      ...variableNames.map((name) => [
+        name,
+        { ...inputVariables[name], enabled },
+      ]),
+    ]);
+    currentEditingVariableName = null;
+  }
+
   function deleteVariable() {
     inputVariables = Object.fromEntries(
       Object.entries(inputVariables).filter(
@@ -242,11 +255,11 @@
       >
         <Checkbox
           checked={categoryVariables.every((item) => item[1].enabled ?? true)}
-          on:change={(e) => {
-            categoryVariables.forEach(
-              (item) => (inputVariables[item[0]].enabled = e.detail)
-            );
-          }}
+          on:change={(e) =>
+            toggleVariables(
+              categoryVariables.map((v) => v[0]),
+              e.detail
+            )}
         />
         <div class="w-2" />
         <div class="text-slate-500 flex-auto text-left px-2 py-1">
@@ -265,7 +278,7 @@
           on:cancel={() => (currentEditingVariableName = null)}
           on:edit={() => (currentEditingVariableName = varName)}
           on:save={(e) => saveVariableEdits(e.detail.name, e.detail.query)}
-          on:toggle={(e) => (inputVariables[varName].enabled = e.detail)}
+          on:toggle={(e) => toggleVariables([varName], e.detail)}
           on:delete={deleteVariable}
         />
       {/each}

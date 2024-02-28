@@ -99,7 +99,7 @@
         )
       )
     )
-      inputVariables = getModelField(allSpecs[0], 'variables');
+      inputVariables = structuredClone(getModelField(allSpecs[0], 'variables'));
     else inputVariables = null;
     if (
       allSpecs.every(
@@ -228,7 +228,7 @@
       console.error('error saving model:', e);
       saveError = `${e}`;
     }
-    dispatch('train', newModelName);
+    if (isTraining) dispatch('train', newModelName);
   }
 
   let saveDraftTimer: NodeJS.Timeout | null = null;

@@ -579,6 +579,7 @@ class Events(TimeSeriesQueryable):
                                     uniques[np.where(np.isnan(grouped_values), -1, grouped_values).astype(int)])
         
         assert len(grouped_values) == len(index)
+        print(grouped_values.dtype, pd.Series(grouped_values, name=self.name).convert_dtypes())
         return TimeSeries(index, pd.Series(grouped_values, name=self.name).convert_dtypes())
         
     def compress(self):
@@ -863,7 +864,7 @@ class Intervals(TimeSeriesQueryable):
                                     uniques[np.where(np.isnan(grouped_values), -1, grouped_values).astype(int)])
         
         assert len(grouped_values) == len(index)
-        return TimeSeries(index, pd.Series(grouped_values, name=self.name).replace(np.nan, pd.NA))
+        return TimeSeries(index, pd.Series(grouped_values, name=self.name).convert_dtypes())
     
     def with_values(self, new_values, preserve_nans=False):
         return Intervals(self.df.assign(**{self.value_field: self.preserve_nans(new_values) if preserve_nans else new_values}),
@@ -1350,7 +1351,7 @@ class TimeSeries(TimeSeriesQueryable):
                                      duration)
         if uniques is not None:
             result = np.where(np.isnan(result), np.nan, uniques[np.where(np.isnan(result), -1, result).astype(int)])
-        return self.with_values(pd.Series(result, index=self.series.index, name=self.series.name).replace(np.nan, pd.NA))
+        return self.with_values(pd.Series(result, index=self.series.index, name=self.series.name).astype(self.series.dtype))
 
     def aggregate(self, start_times, end_times, agg_func):
         """
