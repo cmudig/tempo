@@ -557,9 +557,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
                 var_exp = self.variable_transform(var_exp)
                 # var_exp = var_exp.with_values(pd.Series(sf.discretization.discretize_column(var_exp.name, var_exp.get_values(), self.discretization_spec)[0], 
                 #                                         name=var_exp.name))
-            print(var_exp.name, "before:", var_exp.get_values().dtype, var_exp)
             var_exp = var_exp.compress()
-            print(var_exp.name, "after:", var_exp.get_values().dtype)
             
             if self.cache is not None:
                 self.cache.save((tree_desc, options_desc), var_exp, transform_info=self.variable_transform_desc, time_index_tree=time_index_tree)

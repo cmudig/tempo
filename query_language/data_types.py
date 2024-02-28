@@ -579,7 +579,6 @@ class Events(TimeSeriesQueryable):
                                     uniques[np.where(np.isnan(grouped_values), -1, grouped_values).astype(int)])
         
         assert len(grouped_values) == len(index)
-        print(grouped_values.dtype, pd.Series(grouped_values, name=self.name).convert_dtypes())
         return TimeSeries(index, pd.Series(grouped_values, name=self.name).convert_dtypes())
         
     def compress(self):
