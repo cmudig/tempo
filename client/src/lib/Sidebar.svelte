@@ -272,7 +272,7 @@
       Models
     </div>
     <div class="flex-auto" />
-    <div class="shrink-0 text-sm mr-2">Display metric:</div>
+    <div class="shrink-0 text-xs mr-2 text-slate-600">Display metric:</div>
     {#if metricOptions.length > 0}
       <select class="flat-select my-1 shrink-0" bind:value={metricToShow}>
         {#each metricOptions as metricName}

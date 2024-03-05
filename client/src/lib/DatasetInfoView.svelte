@@ -1,12 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-  import * as d3 from 'd3';
   import Fa from 'svelte-fa/src/fa.svelte';
-  import type { SliceMetric } from './slices/utils/slice.type';
-  import type { QueryResult, VariableEvaluationSummary } from './model';
-  import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
-  import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
-  import SliceMetricCategoryBar from './slices/metric_charts/SliceMetricCategoryBar.svelte';
+  import type { QueryResult } from './model';
   import QueryResultView from './QueryResultView.svelte';
   import { faXmark } from '@fortawesome/free-solid-svg-icons';
   import TextareaAutocomplete from './slices/utils/TextareaAutocomplete.svelte';

@@ -30,11 +30,17 @@ case_when: "WHEN"i expr "THEN"i expr
 agg_method: VAR_NAME AGG_TYPE?
 AGG_TYPE: "rate"i|"amount"i|"value"i|"duration"i
 
+?cut_names: "NAMED"i value_list
+?cut_expr: LITERAL CUT_TYPE [cut_names]        -> auto_cut
+    | CUT_TYPE value_list [cut_names]          -> manual_cut
+CUT_TYPE: /bins?/i|/quantiles?/i
+
 ?expr: variable_list time_index             -> time_series
     | expr "WHERE"i expr                    -> where_clause
     | expr "CARRY"i (time_quantity | step_quantity)  -> carry_clause
     | expr "IMPUTE"i (VAR_NAME | LITERAL)            -> impute_clause
     | expr "WITH"i VAR_NAME "AS"i logical   -> with_clause
+    | expr "CUT"i cut_expr                  -> cut_clause
     | logical
     
 ?logical: logical "AND"i negation                -> logical_and
@@ -49,8 +55,13 @@ AGG_TYPE: "rate"i|"amount"i|"value"i|"duration"i
     | comparison ">" agg_expr                    -> gt
     | comparison "<" agg_expr                    -> lt
     | comparison "=" agg_expr                    -> eq
+    | comparison "BETWEEN"i agg_expr "AND"i agg_expr  -> between
+    | comparison "CONTAINS"i agg_expr  -> contains
+    | comparison "STARTSWITH"i agg_expr  -> startswith
+    | comparison "ENDSWITH"i agg_expr  -> endswith
     | comparison ("!="|"<>") agg_expr            -> ne
     | comparison "IN"i value_list            -> isin
+    | comparison "NOT"i "IN"i value_list            -> isnotin
     | agg_expr
 
 ?agg_expr: agg_method expr time_bounds
@@ -86,7 +97,7 @@ UNIT: /hours?|minutes?|seconds?|hrs?|mins?|secs?|[hms]/i
 DATA_NAME: /\{[^}]*\}/
 VAR_NAME: /(?!(and|or|not|case|when|else|in|then|every|at|from|to|with|as)\b)[A-Za-z][A-Za-z0-9_]*/ 
 
-LITERAL: SIGNED_NUMBER | QUOTED_STRING
+LITERAL: SIGNED_NUMBER | QUOTED_STRING | /-?inf(inity)?/i | /\\/(?!\\/)(\\\\\/|\\\\\\\|[^\\/])*?\\/i?/
 QUOTED_STRING: /["'`][^"'`]*["'`]/
 
 
@@ -198,6 +209,13 @@ class EvaluateExpression(lark.visitors.Transformer):
         return (start, end)
     
     def _parse_literal(self, literal):
+        if literal.startswith('/'):
+            # Parse as a regex
+            pattern = re.match(r'^/(.*)/(i?)', literal)
+            if pattern is None:
+                raise ValueError(f"Cannot parse regular expression from literal {literal}")
+            return re.compile(pattern.group(1), flags=re.I if "i" in pattern.group(2) else 0)
+        
         if re.search(r"[\"'`]", literal) is not None:
             return re.sub(r"[\"'`]", "", literal)
         try:
@@ -244,6 +262,8 @@ class EvaluateExpression(lark.visitors.Transformer):
 
     def isin(self, args):
         return args[0].isin(args[1])
+    def isnotin(self, args):
+        return ~args[0].isin(args[1])
     
     def value_list(self, args): return [self._parse_literal(v) for v in args]
         
@@ -257,6 +277,14 @@ class EvaluateExpression(lark.visitors.Transformer):
     def leq(self, args): return args[0] <= args[1]
     def eq(self, args): return args[0] == args[1]
     def ne(self, args): return args[0] != args[1]
+    def between(self, args): return (args[0] >= args[1]) & (args[0] < args[2])
+    
+    def contains(self, args):
+        return args[0].with_values(args[0].get_values().str.contains(args[1]))
+    def startswith(self, args):
+        return args[0].with_values(args[0].get_values().str.startswith(args[1]))
+    def endswith(self, args):
+        return args[0].with_values(args[0].get_values().str.startswith(args[1]))
     
     def negate(self, args): return ~args[0]
     
@@ -371,7 +399,11 @@ class EvaluateExpression(lark.visitors.Transformer):
             return var_exp.astype(np.float64).where(nan_mask, numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float)))
         else:
             impute_method = self._parse_literal(args[1].value)
-            scalar = var_exp.get_values().dtype.type(impute_method)
+            dtype = var_exp.get_values().dtype
+            if isinstance(dtype, pd.CategoricalDtype):
+                var_exp = var_exp.with_values(var_exp.get_values().astype(dtype.categories.dtype))
+                dtype = var_exp.get_values().dtype
+            scalar = dtype.type(impute_method)
             return var_exp.where(nan_mask, scalar)
             
     def function_call(self, args):
@@ -407,6 +439,9 @@ class EvaluateExpression(lark.visitors.Transformer):
                 return operands[1].with_values(numpy_func(operands[1].get_values(), make_aligned_value_series(operands[1], operands[0])))
             else:
                 raise ValueError(f"{function_name} function requires at least one parameter to be Attributes, Events, Intervals, TimeIndex, or TimeSeries")
+        elif function_name in ("extract", ):
+            if len(operands) not in (2, 3): raise ValueError(f"{function_name} function takes as input a series, a pattern, and optionally an index of a capturing group")
+            return operands[0].with_values(operands[0].get_values().str.extract(operands[1])[operands[2] if len(operands) > 2 else 0])
         else:
             raise ValueError(f"Unknown function '{function_name}'")
 
@@ -417,6 +452,23 @@ class EvaluateExpression(lark.visitors.Transformer):
         elif all(isinstance(a, TimeSeries) for a in args):
             return TimeSeriesSet.from_series(args)
         raise ValueError("Variable list must contain either all Attributes or all TimeSeries objects")
+    
+    def auto_cut(self, args):
+        num_bins = args[0]
+        if not isinstance(num_bins, (float, int)) and int(num_bins) == num_bins:
+            raise ValueError("Cut must either be followed by an integer bin count or a list of bin cutoffs")
+        cut_type = args[1].value
+        return CutOperator(int(num_bins), cut_type, names=args[2] if len(args) > 2 else None)
+    
+    def manual_cut(self, args):
+        cut_type = args[0].value
+        bins = args[1]
+        return CutOperator(bins, cut_type, names=args[2] if len(args) > 2 else None)
+    
+    def cut_clause(self, args):
+        base_values, cut_op = args
+        return cut_op.apply(base_values)
+        
 
 class EvaluateQuery(lark.visitors.Interpreter):
     def __init__(self, attributes, events, intervals, variable_transform=None, eventtype_macros=None, cache=None, verbose=False):
@@ -448,6 +500,8 @@ class EvaluateQuery(lark.visitors.Interpreter):
             return TimeIndex.from_attributes(idx)
         elif isinstance(idx, TimeIndex):
             return idx
+        elif isinstance(idx, (TimeSeries, TimeSeriesSet)):
+            return idx.index
         else:
             raise ValueError(f"Cannot convert {type(idx)} object to TimeIndex")
 
@@ -777,7 +831,7 @@ if __name__ == '__main__':
 
     dataset = TrajectoryDataset(attributes, events, intervals)
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
-    print(dataset.query("min {e1} from #now - 30 seconds to #now at every {e1} from #mintime to #maxtime"))
+    print(dataset.query("min {e1} from #now - 30 seconds to #now cut 3 quantiles impute 'Missing' at every {e1} from #mintime to #maxtime"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))
     # print(dataset.query("(my_age: (last {e1} from #now - 10 sec to #now) impute 'Missing') every 3 sec from #mintime to #maxtime"))
     # print(dataset.query("mean {e1} * 3 from now - 30 s to now"))

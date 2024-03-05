@@ -981,7 +981,11 @@ class IntervalSet(TimeSeriesQueryable):
     
 class Duration(TimeSeriesQueryable):
     def __init__(self, amount, unit="s"):
-        if unit.lower() in ("day", "d", "days"):
+        if unit.lower() in ("year", "y", "yr", "years", "yrs"):
+            self._value = amount * 3600 * 24 * 365
+        elif unit.lower() in ("week", "w", "wk", "weeks", "wks"):
+            self._value = amount * 3600 * 24 * 7
+        elif unit.lower() in ("day", "d", "days"):
             self._value = amount * 3600 * 24
         elif unit.lower() in ("hour", "h", "hr", "hours", "hrs"):
             self._value = amount * 3600
@@ -1499,6 +1503,71 @@ class TimeSeriesSet:
         return (f"<TimeSeriesSet: {len(self.values)} rows, {len(self.values.columns)} columns>" + 
                 f"\n{repr(pd.concat([self.index.timesteps.reset_index(drop=True), self.values.reset_index(drop=True)], axis=1))}")
     
+class CutOperator:
+    """A helper class that performs a discretization."""
+    def __init__(self, cuts=None, cut_type='bin', names=None):
+        self.cuts = cuts
+        assert cut_type.lower().startswith("bin") or cut_type.lower().startswith("quantile"), "Cut type must be bin(s) or quantile(s)"
+        self.use_quantiles = cut_type.lower().startswith("quantile")
+        self.names = names
+        
+    def make_bin_name(self, values, lower_bound, upper_bound):
+        uniques = np.unique(values)
+        if len(uniques) == 1:
+            if int(uniques[0]) == uniques[0]:
+                return f"{int(uniques[0])}"
+            return f"{uniques[0]:.3g}"
+        if np.isneginf(lower_bound):
+            return f"< {upper_bound:.3g}"
+        elif np.isposinf(upper_bound):
+            return f"> {lower_bound:.3g}"
+        return f"{lower_bound:.3g} - {upper_bound:.3g}"
+        
+    def apply(self, value_series):
+        assert hasattr(value_series, "get_values") and pd.api.types.is_numeric_dtype(value_series.get_values().dtype), "Cut can only be applied to numeric series"
+        values = value_series.get_values().astype(np.float64)
+        
+        bin_cutoffs = self.cuts
+        try:
+            num_bins = int(bin_cutoffs)
+        except:
+            # It's a manual cut
+            pass
+        else:
+            # It's an automatic cut
+            if self.use_quantiles:
+                bin_cutoffs = np.linspace(0.0, 1.0, num_bins + 1)
+            else:
+                min_val = values.min()
+                max_val = values.max()
+                data_range = max_val - min_val
+                if data_range == 0:
+                    if min_val == 0: bin_cutoffs = np.arange(0, num_bins + 1)
+                    else: bin_cutoffs = np.arange(min_val - (num_bins + 1) // 2, max_val + (num_bins + 1) // 2 + 1)
+                else:
+                    bin_cutoffs = np.linspace(min_val, max_val, num_bins + 1)
+        assert len(bin_cutoffs) > 2, "At least three bin cutoffs are required to perform a cut"
+        assert (bin_cutoffs[:-1] < bin_cutoffs[1:]).all(), "Bin cutoffs must be monotonically increasing"
+                
+        if self.use_quantiles:
+            qs = bin_cutoffs
+            bin_cutoffs = np.nanquantile(values, bin_cutoffs)
+            bin_cutoffs[qs == 1.0] = np.inf
+            bin_cutoffs[qs == 0.0] = -np.inf
+        
+        bin_indexes = np.digitize(values, bin_cutoffs)
+        
+        bin_names = self.names
+        if bin_names is None:
+            bin_names = [self.make_bin_name(values[bin_indexes == i], bin_cutoffs[i], bin_cutoffs[i + 1]) 
+                         for i in range(len(bin_cutoffs) - 1)]
+        else:
+            assert len(bin_names) == len(bin_cutoffs) - 1, f"Need exactly {len(bin_cutoffs) - 1} names for {len(bin_cutoffs)} cutoff(s)"
+        
+        # Create a new value series where each value is replaced by the name at the index of the bin
+        categories = pd.Series(np.take(np.array(["Out of Range", *bin_names, "Out of Range"]), bin_indexes)).where(~pd.isna(values), pd.NA)
+        return value_series.with_values(categories.astype("category"))
+            
 if __name__ == "__main__":
     ids = [100, 101, 102]
     attributes = AttributeSet(pd.DataFrame({
@@ -1532,14 +1601,18 @@ if __name__ == "__main__":
     start_times = TimeIndex.from_attributes(attributes.get('start'))
     end_times = TimeIndex.from_attributes(attributes.get('end'))
     times = TimeIndex.range(start_times, end_times, Duration(30))
+    result = events.get('e1').bin_aggregate(times, times - Duration(30), times, 'sum')
+    print(result)
+    discretizer = CutOperator(3, cut_type='quantile', names=["Low", "Medium", "High"])
+    print(discretizer.apply(result))
     
-    print(events.get('e1'))
-    compiled_expression = intervals.get('i1') - Compilable(events.get('e1').bin_aggregate(
-        times,
-        times - Duration(30),
-        times,
-        "last"
-    ))
+    # print(events.get('e1'))
+    # compiled_expression = intervals.get('i1') - Compilable(events.get('e1').bin_aggregate(
+    #     times,
+    #     times - Duration(30),
+    #     times,
+    #     "last"
+    # ))
 
     # compiled_expression = Compilable(events.get('e1')).filter(events.get('e1') < Compilable(events.get('e1').bin_aggregate(
     #     times,
@@ -1548,12 +1621,12 @@ if __name__ == "__main__":
     #     "mean"
     # )))
 
-    print(compiled_expression.bin_aggregate(
-        times,
-        times, times + Duration(30),
-        "amount",
-        "sum"
-    ))
+    # print(compiled_expression.bin_aggregate(
+    #     times,
+    #     times, times + Duration(30),
+    #     "amount",
+    #     "sum"
+    # ))
     
 QUERY_RESULT_TYPENAMES = {
     Attributes: "Attributes",
