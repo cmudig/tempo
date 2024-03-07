@@ -243,7 +243,8 @@
           />
         {:else if metric.type == 'categorical'}
           <SliceMetricCategoryBar
-            order={model.output_values}
+            order={model.output_values ??
+              Object.keys(metric.counts ?? {}).sort()}
             counts={metric.counts}
             width={SidebarTableWidths.Metric - 20}
           />
@@ -285,7 +286,8 @@
           />
         {:else if metric.type == 'categorical'}
           <SliceMetricCategoryBar
-            order={model.output_values}
+            order={model.output_values ??
+              Object.keys(metric.counts ?? {}).sort()}
             counts={metric.counts}
             width={SidebarTableWidths.Metric - 20}
           />

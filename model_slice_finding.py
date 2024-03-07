@@ -226,6 +226,9 @@ class SliceHelper:
             else:
                 with open(os.path.join(self.results_dir, "specifications", slice_spec_name + ".json"), "r") as file:
                     slicing_metadata = json.load(file)
+                    
+            if not slicing_metadata["variables"]:
+                raise ValueError("No slice specification defined. Define one by clicking Configure Slicing.")
                 
             discrete_df, ids = make_slicing_variables(self.manager, dataset, slicing_metadata["variables"], timestep_def) 
             if "slice_filter" in slicing_metadata:

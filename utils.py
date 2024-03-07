@@ -20,7 +20,7 @@ def make_series_summary(values, value_type=None):
         except:
             is_quantitative = False
         if is_binary: value_type = "binary"
-        elif not is_quantitative or num_unique <= 10: value_type = "categorical"
+        elif not is_quantitative or ((values.astype(int) == values).all() and num_unique <= 10): value_type = "categorical"
         else: value_type = "continuous"
     
     summary["type"] = value_type
@@ -67,7 +67,7 @@ def make_query_result_summary(dataset, query_result):
     if isinstance(query_result, Intervals):
         base["durations"] = make_series_summary(query_result.get_end_times() - query_result.get_start_times(), value_type="continuous")
     
-    if hasattr(query_result, "get_values") and (~pd.isna(query_result.get_values())).sum() > 0:
+    if hasattr(query_result, "get_values"):
         base["values"] = make_series_summary(query_result.get_values())
         
     return base

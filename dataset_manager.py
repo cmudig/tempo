@@ -28,17 +28,48 @@ class DatasetManager:
         self.slices_dir = os.path.join(self.base_path, "slices")
         if not os.path.exists(self.slices_dir): os.mkdir(self.slices_dir)
         
+        self.id_uniques = None
+        
+    def _read_dataframe(self, path):
+        if path.endswith(".arrow") or path.endswith(".feather"):
+            return pd.read_feather(path)
+        if path.endswith(".csv"):
+            return pd.read_csv(path)
+        raise ValueError(f"Unknown file extension for path: {path}")
+        
+    def assign_numerical_ids(self, ids):
+        """
+        Converts IDs to integers if they are not already.
+        """
+        if pd.api.types.is_integer_dtype(ids.dtype):
+            assert self.id_uniques is None, "IDs have different types in different source dataframes"
+            return ids
+        else:
+            if self.id_uniques is None:
+                categorical_rep = ids.astype('category')
+                self.id_uniques = categorical_rep.cat.categories
+                return categorical_rep.cat.codes
+            categorical_rep = ids.astype('category')
+            new_vals = categorical_rep.cat.categories[~categorical_rep.cat.categories.isin(self.id_uniques)]
+            self.id_uniques = self.id_uniques.union(new_vals)
+            return pd.Categorical(ids, self.id_uniques).codes
+        
     def load_data(self, sample=False, cache_dir=None, split=None):
         data_config = self.config.get("data", {})
         attrib_config = data_config.get("attributes", {})
         if "path" in attrib_config:
-            attributes = AttributeSet(pd.read_feather(os.path.join(self.base_path, attrib_config["path"])))
+            df = self._read_dataframe(os.path.join(self.base_path, attrib_config["path"]))
+            df = df.set_index(self.assign_numerical_ids(df.index))
+            attributes = AttributeSet(df)
         else:
             attributes = None
         event_config = data_config.get("events", {})
         if "path" in event_config:
-            events = EventSet(pd.read_feather(os.path.join(self.base_path, event_config["path"])),
-                            id_field=event_config.get("id_field", "id"), 
+            df = self._read_dataframe(os.path.join(self.base_path, event_config["path"]))
+            id_field = event_config.get("id_field", "id")
+            df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
+            events = EventSet(df,
+                            id_field=id_field, 
                             type_field=event_config.get("type_field", "eventtype"), 
                             value_field=event_config.get("value_field", "value"), 
                             time_field=event_config.get("time_field", "time"))
@@ -46,12 +77,15 @@ class DatasetManager:
             events = None
         interval_config = data_config.get("intervals", {})
         if "path" in interval_config:
-            intervals = IntervalSet(pd.read_feather(os.path.join(self.base_path, interval_config["path"])),
-                                    id_field=event_config.get("id_field", "id"), 
-                                    type_field=event_config.get("type_field", "intervaltype"), 
-                                    value_field=event_config.get("value_field", "value"), 
-                                    start_time_field=event_config.get("start_time_field", "starttime"),
-                                    end_time_field=event_config.get("end_time_field", "endtime"))
+            df = self._read_dataframe(os.path.join(self.base_path, interval_config["path"]))
+            id_field = interval_config.get("id_field", "id")
+            df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
+            intervals = IntervalSet(df,
+                                    id_field=id_field, 
+                                    type_field=interval_config.get("type_field", "intervaltype"), 
+                                    value_field=interval_config.get("value_field", "value"), 
+                                    start_time_field=interval_config.get("start_time_field", "starttime"),
+                                    end_time_field=interval_config.get("end_time_field", "endtime"))
         else:
             intervals = None
             

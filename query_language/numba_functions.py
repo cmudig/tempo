@@ -1,4 +1,4 @@
-from numba import njit
+from numba import njit, jit
 import numpy as np
 
 @njit 
@@ -18,7 +18,15 @@ def numba_last(x, t0, t1): return x[~np.isnan(x)][-1] if (~np.isnan(x)).sum() el
 @njit 
 def numba_exists(x, t0, t1): return 1.0 if len(x) else 0.0
 @njit 
+def numba_exists_nonnull(x, t0, t1): return 1.0 if len(x[~np.isnan(x)]) else 0.0
+@njit 
 def numba_count(x, t0, t1): return len(x)
+@njit 
+def numba_count_distinct(x, t0, t1): return len(np.unique(x))
+@njit 
+def numba_count_nonnull(x, t0, t1): return len(x[~np.isnan(x)])
+@njit 
+def numba_count_distinct_nonnull(x, t0, t1): return len(np.unique(x[~np.isnan(x)]))
 @njit
 def numba_integral(x, t0, t1): return np.nansum(x) * (t1 - t0) if len(x) else np.nan
     
@@ -31,7 +39,11 @@ AGG_FUNCTIONS = {
     "first": numba_first,
     "last": numba_last,
     "exists": numba_exists,
+    "exists nonnull": numba_exists_nonnull,
     "count": numba_count,
+    "count distinct": numba_count_distinct,
+    "count distinct nonnull": numba_count_distinct_nonnull,
+    "count nonnull": numba_count_nonnull,
     "integral": numba_integral
 }
 
@@ -91,7 +103,7 @@ def numba_join_events(ids, starts, ends, event_ids, event_times, event_values, a
                     grouped_values.append(agg_func(matched_values, starts[t], ends[t]))
             else:
                 time_idxs = list(range(current_id_time_start, i))
-                grouped_values += [np.nan] * len(time_idxs)
+                grouped_values += [agg_func(np.empty((0,), dtype=np.float64), 0, 0)] * len(time_idxs)
                 
             current_id_time_start = i
             current_id_event_start = j
@@ -101,7 +113,8 @@ def numba_join_events(ids, starts, ends, event_ids, event_times, event_values, a
 
     return grouped_values
     
-@njit
+# Use pyobject mode if needed to work with string arrays
+@jit(nopython=False)
 def numba_join_events_dynamic(ids, starts, ends, value_fn, event_ids, event_times, event_values, preaggregated_values, agg_func):
     """
     Performs a bin aggregation using a dynamic function to compute the values being
@@ -145,12 +158,12 @@ def numba_join_events_dynamic(ids, starts, ends, value_fn, event_ids, event_time
                         grouped_values.append(agg_func(np.empty((0,), dtype=np.float64), starts[t], ends[t]))
                     else:
                         matched_values = event_values[matched_idxs]
-                        transformed_values = value_fn(matched_values, preaggregated_values[len(grouped_values)])
+                        transformed_values = value_fn(event_times[matched_idxs], matched_values, preaggregated_values[len(grouped_values)])
                         grouped_values.append(agg_func(transformed_values, starts[t], ends[t]))    
                         
             else:
                 time_idxs = list(range(current_id_time_start, i))
-                grouped_values += [np.nan] * len(time_idxs)
+                grouped_values += [agg_func(np.empty((0,), dtype=np.float64), 0, 0)] * len(time_idxs)
                 
             current_id_time_start = i
             current_id_event_start = j
@@ -220,7 +233,7 @@ def numba_join_intervals(ids, starts, ends, interval_ids, interval_starts, inter
                         grouped_values.append(agg_func(matched_intervals, starts[t], ends[t]))
             else:
                 time_idxs = list(range(current_id_time_start, i))
-                grouped_values += [np.nan] * len(time_idxs)
+                grouped_values += [agg_func(np.empty((0,), dtype=np.float64), 0, 0)] * len(time_idxs)
                 
             current_id_time_start = i
             current_id_event_start = j
@@ -230,7 +243,7 @@ def numba_join_intervals(ids, starts, ends, interval_ids, interval_starts, inter
 
     return grouped_values
     
-@njit
+@jit(nopython=False)
 def numba_join_intervals_dynamic(ids, starts, ends, value_fn, interval_ids, interval_starts, interval_ends, interval_values, preaggregated_values, agg_type, agg_func):
     """
     Performs a bin aggregation using a dynamic function to compute the values being
@@ -276,7 +289,9 @@ def numba_join_intervals_dynamic(ids, starts, ends, value_fn, interval_ids, inte
                     else:
                         matched_intervals = interval_values[matched_idxs]
 
-                        transformed_values = value_fn(matched_intervals, preaggregated_values[len(grouped_values)])
+                        transformed_values = value_fn(np.stack((interval_starts[matched_idxs], interval_ends[matched_idxs]), axis=1), 
+                                                      matched_intervals, 
+                                                      preaggregated_values[len(grouped_values)])
                         if agg_type == "rate":
                             transformed_values *= ((np.minimum(ends[t], interval_ends[matched_idxs]) - 
                                                    np.maximum(starts[t], interval_starts[matched_idxs])) / 
@@ -294,7 +309,7 @@ def numba_join_intervals_dynamic(ids, starts, ends, value_fn, interval_ids, inte
                         grouped_values.append(agg_func(transformed_values, starts[t], ends[t]))
             else:
                 time_idxs = list(range(current_id_time_start, i))
-                grouped_values += [np.nan] * len(time_idxs)
+                grouped_values += [agg_func(np.empty((0,), dtype=np.float64), 0, 0)] * len(time_idxs)
                 
             current_id_time_start = i
             current_id_event_start = j

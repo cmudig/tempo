@@ -83,6 +83,7 @@
     <div class="relative w-full flex-auto mr-2">
       <textarea
         bind:this={inputItem}
+        spellcheck={false}
         class="bg-gray-200 appearance-none border-2 border-gray-200 w-full rounded text-gray-700 font-mono text-xs p-2 leading-tight focus:outline-none focus:border-blue-600 focus:bg-white"
         placeholder="Enter a slice definition..."
         bind:value={featureText}

@@ -1,9 +1,11 @@
 <script lang="ts">
+  import Fa from 'svelte-fa';
   import type { QueryResult, VariableEvaluationSummary } from './model';
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
   import SliceMetricCategoryBar from './slices/metric_charts/SliceMetricCategoryBar.svelte';
   import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
   import * as d3 from 'd3';
+  import { faDownload } from '@fortawesome/free-solid-svg-icons';
 
   export let query: string = '';
   export let evaluateQuery: boolean = true;
@@ -82,7 +84,15 @@
         {evaluationSummary.name}
       </div>
     {:else}
-      <div class="mb-1 text-slate-500 text-xs font-bold">Query Result</div>
+      <div class="mb-1 text-slate-500 text-xs flex justify-between">
+        <div class="font-bold">Query Result</div>
+        <a
+          class="hover:opacity-50 ml-2"
+          title="Download query result for all data splits"
+          href="/data/query?q={encodeURIComponent(query)}&dl=1"
+          target="_blank"><Fa icon={faDownload} class="inline" /></a
+        >
+      </div>
     {/if}
     {#if !!evaluatedType}
       <div class="mb-2 text-slate-600 text-xs">

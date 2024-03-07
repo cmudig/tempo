@@ -3,7 +3,7 @@ import numpy as np
 import random
 from query_language.numba_functions import *
 from numba.typed import List
-from numba import njit
+from numba import njit, jit
 
 def make_aligned_value_series(value_set, other):
     """value_set must have get_ids() and get_values()"""
@@ -91,7 +91,7 @@ class Compilable:
     A wrapper around a data series (Attributes, Events, or Intervals) that saves
     a compute graph when operations are called on it.
     """
-    def __init__(self, data_or_fn, name=None, leaves=None):
+    def __init__(self, data_or_fn, name=None, leaves=None, time_expression="times"):
         if isinstance(data_or_fn, str):
             self.fn = data_or_fn
             self.data = None
@@ -105,12 +105,15 @@ class Compilable:
             if name is None: name = 'var_' + ('%015x' % random.randrange(16**15))
             self.name = name
             self.leaves = {name: self}
+        self.time_expression = time_expression
             
     @staticmethod
     def wrap(data):
         if isinstance(data, str):
             # Make sure this gets inserted as a string LITERAL, not a variable
             return Compilable(repr(data))
+        elif np.isscalar(data) and pd.isna(data):
+            return Compilable("np.nan")
         return Compilable(data)
         
     def function_string(self):
@@ -118,12 +121,12 @@ class Compilable:
         else: return self.fn
         
     def mono_parent(self, string):
-        return Compilable(string, leaves=self.leaves)
+        return Compilable(string, leaves=self.leaves, time_expression=self.time_expression)
     
     def execute(self):
         fn = self.get_executable_function()
         inputs = {v: self.leaves[v].data for v in self.leaves}
-        return fn(**inputs)
+        return fn(None, **inputs)
     
     def get_executable_function(self):
         """
@@ -133,8 +136,14 @@ class Compilable:
         """
         args = [f"{k}=None" for k in self.leaves.keys()]
         results = {}
-        exec(f"def compiled_fn({', '.join(args)}): return {self.function_string()}", 
-             globals(), results)
+        # Functions can use the times argument to access either the event times
+        # or interval starts/ends for each row
+        if False: # Debug mode
+            debug_str = print('values in wrapped fn:', times.shape, {', '.join(str(k) for k in self.leaves.keys())}); 
+        else:
+            debug_str = ""
+        function_string = f"def compiled_fn(times, {', '.join(args)}): {debug_str} return {self.function_string()}"
+        exec(function_string, globals(), results)
         return results["compiled_fn"]
         
     def bin_aggregate(self, index, start_times, end_times, agg_type, agg_func):
@@ -195,10 +204,10 @@ class Compilable:
                     raise NotImplementedError("Nested aggregations currently only work on numerical values")
                 
                 if series_inputs is None:
-                    series_inputs = value.prepare_aggregation_inputs(agg_func)
+                    series_inputs = value.prepare_aggregation_inputs(agg_func, convert_to_categorical=False)
                     series_inputs = (*series_inputs[:-2], series_inputs[-2].reshape(-1, 1))
                 else:
-                    new_series_inputs = value.prepare_aggregation_inputs(agg_func)
+                    new_series_inputs = value.prepare_aggregation_inputs(agg_func, convert_to_categorical=False)
                     assert new_series_inputs[0].equals(series_inputs[0]), "IDs do not match among unaggregated expressions"
                     assert new_series_inputs[1].equals(series_inputs[1]), "Times do not match among unaggregated expressions"
                     if isinstance(value, Intervals):
@@ -213,7 +222,7 @@ class Compilable:
         lcls = {}
         arg_assignments = ([f"{n}=preagg[{i}]" for i, n in enumerate(preaggregated_input_names)] + 
                            [f"{n}=series_vals[:,{i}]" for i, n in enumerate(series_input_names)])
-        exec(f"def wrapped_fn(fn): return lambda series_vals, preagg: fn({', '.join(arg_assignments)})", globals(), lcls)
+        exec(f"def wrapped_fn(fn): return lambda times, series_vals, preagg: fn(times, {', '.join(arg_assignments)})", globals(), lcls)
         wrapped_fn = lcls['wrapped_fn']
         compiled_fn = njit()(wrapped_fn(compiled_fn))
         
@@ -255,19 +264,42 @@ class Compilable:
             condition = Compilable.wrap(condition)
             
         return Compilable(f"np.where({condition.function_string()}, {self.function_string()}, {other.function_string()})",
-                          leaves={**self.leaves, **condition.leaves, **other.leaves})
+                          leaves={**self.leaves, **condition.leaves, **other.leaves},
+                          time_expression=self.time_expression)
     
     def filter(self, condition):
         if not isinstance(condition, Compilable):
             condition = Compilable.wrap(condition)
             
         return Compilable(f"({self.function_string()})[{condition.function_string()}]",
-                          leaves={**self.leaves, **condition.leaves})
+                          leaves={**self.leaves, **condition.leaves},
+                          time_expression=self.time_expression + f"[{condition.function_string()}]")
     
     def impute(self, method='mean', constant_value=None):
         if method == 'constant':
             return self.mono_parent(f"np.where(np.isnan({self.function_string()}), {constant_value}, {self.function_string()})")
         return self.mono_parent(f"np.where(np.isnan({self.function_string()}), np.nan{method}({self.function_string()}), {self.function_string()})")
+    
+    def time(self):
+        return self.mono_parent(f"np.where(np.isnan({self.function_string()}), np.nan, {self.time_expression})")
+    
+    # def starttime(self):
+    #     return self.mono_parent(f"np.where(np.isnan({self.function_string()}), np.nan, {self.time_expression}[:,0])")
+    # def endtime(self):
+    #     return self.mono_parent(f"np.where(np.isnan({self.function_string()}), np.nan, {self.time_expression}[:,1])")
+
+    def start(self):
+        # We assume the input to the function is an interval object. But none of the
+        # math inside the function can depend on this fact since otherwise it would
+        # have been preconverted to an event object. So we can simply convert all
+        # contained interval objects to be events.
+        new_leaves = {name: Compilable(obj.data.start_events()) if isinstance(obj.data, Intervals) else obj
+                      for name, obj in self.leaves.items()}
+        return Compilable(self.function_string(), leaves=new_leaves, time_expression=self.time_expression)
+    def end(self):
+        new_leaves = {name: Compilable(obj.data.end_events()) if isinstance(obj.data, Intervals) else obj
+                      for name, obj in self.leaves.items()}
+        return Compilable(self.function_string(), leaves=new_leaves, time_expression=self.time_expression)
     
     def __abs__(self): return self.mono_parent(f"abs({self.function_string()})")
     def __neg__(self): return self.mono_parent(f"-({self.function_string()})")
@@ -281,7 +313,8 @@ class Compilable:
         fn_strings = (self.function_string(), other.function_string())
         if reverse: fn_strings = fn_strings[1], fn_strings[0]
         return Compilable(f"({fn_strings[0]}) {opname} ({fn_strings[1]})",
-                          leaves={**self.leaves, **other.leaves})
+                          leaves={**self.leaves, **other.leaves},
+                          time_expression=self.time_expression)
         
     def __eq__(self, other): return self._handle_binary_op("==", other)
     def __ge__(self, other): return self._handle_binary_op(">=", other)
@@ -313,7 +346,19 @@ class Compilable:
     def __rsub__(self, other): return self._handle_binary_op("-", other, reverse=True)
     def __rtruediv__(self, other): return self._handle_binary_op("/", other, reverse=True)
     def __rxor__(self, other): return self._handle_binary_op("^", other, reverse=True)
-        
+    
+    def min(self, other): 
+        if not isinstance(other, Compilable):
+            other = Compilable.wrap(other)
+        return Compilable(f"min({self.function_string()}, {other.function_string()})",
+                          leaves={**self.leaves, **other.leaves},
+                          time_expression=self.time_expression)
+    def max(self, other): 
+        if not isinstance(other, Compilable):
+            other = Compilable.wrap(other)
+        return Compilable(f"max({self.function_string()}, {other.function_string()})",
+                          leaves={**self.leaves, **other.leaves},
+                          time_expression=self.time_expression)
 
 class Attributes(TimeSeriesQueryable):
     def __init__(self, series):
@@ -342,6 +387,9 @@ class Attributes(TimeSeriesQueryable):
     
     def serialize(self):
         return {"type": "Attributes", "name": self.name}, pd.DataFrame(self.series)
+    
+    def to_csv(self, *args, **kwargs):
+        return pd.DataFrame(self.series).to_csv(*args, **kwargs)
     
     @staticmethod
     def deserialize(metadata, df):
@@ -424,6 +472,9 @@ class AttributeSet(TimeSeriesQueryable):
     def serialize(self):
         return {"type": "AttributeSet"}, self.df
     
+    def to_csv(self, *args, **kwargs):
+        return self.df.to_csv(*args, **kwargs)
+    
     @staticmethod
     def deserialize(metadata, df):
         return AttributeSet(df)
@@ -482,10 +533,13 @@ class Events(TimeSeriesQueryable):
                       id_field=metadata["id_field"],
                       name=metadata["name"])
         
+    def to_csv(self, *args, **kwargs):
+        return self.df.to_csv(*args, **kwargs)
+    
     def filter(self, mask):
         """Returns a new Events with only steps for which the mask is True."""
         if hasattr(mask, "get_values"): mask = mask.get_values()
-        return Events(self.df[mask],
+        return Events(self.df[mask].reset_index(drop=True),
                       type_field=self.type_field,
                       time_field=self.time_field,
                       id_field=self.id_field,
@@ -531,18 +585,23 @@ class Events(TimeSeriesQueryable):
         result = self.bin_aggregate(start_times, start_times, end_times, agg_func)
         return Attributes(result.series.set_axis(result.index.get_ids()))
         
-    def prepare_aggregation_inputs(self, agg_func):
+    def prepare_aggregation_inputs(self, agg_func, convert_to_categorical=True):
         event_ids = self.df[self.id_field]
         event_times = self.df[self.time_field].astype(np.float64)
         event_values = self.df[self.value_field]
-        if isinstance(event_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(event_values.dtype) or pd.api.types.is_string_dtype(event_values.dtype):
+        if convert_to_categorical and (
+            isinstance(event_values.dtype, pd.CategoricalDtype) or 
+            pd.api.types.is_object_dtype(event_values.dtype) or pd.api.types.is_string_dtype(event_values.dtype)):
             # Convert to numbers before using numba
             if agg_func not in CATEGORICAL_SUPPORT_AGG_FUNCTIONS:
                 raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
             event_values, uniques = pd.factorize(event_values)
             event_values = np.where(pd.isna(event_values), np.nan, event_values).astype(np.float64)
-        else:
+        elif convert_to_categorical:
             event_values = event_values.values.astype(np.float64)
+            uniques = None
+        else:
+            event_values = event_values.values
             uniques = None
         
         return event_ids, event_times, event_values, uniques
@@ -665,10 +724,13 @@ class EventSet(TimeSeriesQueryable):
                       value_field=metadata["value_field"],
                       id_field=metadata["id_field"])
         
+    def to_csv(self, *args, **kwargs):
+        return self.df.to_csv(*args, **kwargs)
+    
     def filter(self, mask):
         """Returns a new EventSet with only steps for which the mask is True."""
         if hasattr(mask, "get_values"): mask = mask.get_values()
-        return EventSet(self.df[mask],
+        return EventSet(self.df[mask].reset_index(drop=True),
                       type_field=self.type_field,
                       time_field=self.time_field,
                       id_field=self.id_field,
@@ -729,11 +791,14 @@ class Intervals(TimeSeriesQueryable):
                       value_field=metadata["value_field"],
                       id_field=metadata["id_field"],
                       name=metadata["name"])
-        
+       
+    def to_csv(self, *args, **kwargs):
+        return self.df.to_csv(*args, **kwargs)
+     
     def filter(self, mask):
         """Returns a new Intervals with only steps for which the mask is True."""
         if hasattr(mask, "get_values"): mask = mask.get_values()
-        return Intervals(self.df[mask],
+        return Intervals(self.df[mask].reset_index(drop=True),
                       type_field=self.type_field,
                       start_time_field=self.start_time_field,
                       end_time_field=self.end_time_field,
@@ -809,18 +874,23 @@ class Intervals(TimeSeriesQueryable):
         result = self.bin_aggregate(start_times, start_times, end_times, agg_type, agg_func)
         return Attributes(result.series.set_axis(result.index.get_ids()))
         
-    def prepare_aggregation_inputs(self, agg_func):
+    def prepare_aggregation_inputs(self, agg_func, convert_to_categorical=True):
         event_ids = self.df[self.id_field]
         interval_starts = self.df[self.start_time_field].astype(np.float64)
         interval_ends = self.df[self.end_time_field].astype(np.float64)
         interval_values = self.df[self.value_field]
         
-        if isinstance(interval_values.dtype, pd.CategoricalDtype) or pd.api.types.is_object_dtype(interval_values.dtype) or pd.api.types.is_object_dtype(interval_values.dtype):
+        if convert_to_categorical and (
+            isinstance(interval_values.dtype, pd.CategoricalDtype) or 
+            pd.api.types.is_object_dtype(interval_values.dtype) or pd.api.types.is_object_dtype(interval_values.dtype)):
             # Convert to numbers before using numba
             if agg_func not in CATEGORICAL_SUPPORT_AGG_FUNCTIONS:
                 raise ValueError(f"Cannot use agg_func {agg_func} on categorical data")
             interval_values, uniques = pd.factorize(interval_values)
             interval_values = np.where(pd.isna(interval_values), np.nan, interval_values).astype(np.float64)
+        elif convert_to_categorical:
+            interval_values = interval_values.values.astype(np.float64)
+            uniques = None
         else:
             interval_values = interval_values.values
             uniques = None
@@ -943,6 +1013,9 @@ class IntervalSet(TimeSeriesQueryable):
                       value_field=metadata["value_field"],
                       id_field=metadata["id_field"])
         
+    def to_csv(self, *args, **kwargs):
+        return self.df.to_csv(*args, **kwargs)
+    
     def get_ids(self):
         return self.df[self.id_field]
     
@@ -958,7 +1031,7 @@ class IntervalSet(TimeSeriesQueryable):
     def filter(self, mask):
         """Returns a new Intervals with only steps for which the mask is True."""
         if hasattr(mask, "get_values"): mask = mask.get_values()
-        return IntervalSet(self.df[mask],
+        return IntervalSet(self.df[mask].reset_index(drop=True),
                       type_field=self.type_field,
                       start_time_field=self.start_time_field,
                       end_time_field=self.end_time_field,
@@ -1067,7 +1140,10 @@ class TimeIndex(TimeSeriesQueryable):
         return TimeIndex(df,
                       time_field=metadata["time_field"],
                       id_field=metadata["id_field"])
-            
+           
+    def to_csv(self, *args, **kwargs):
+        return self.timesteps.to_csv(*args, **kwargs)
+     
     def __len__(self): return len(self.timesteps)
     
     def __eq__(self, other): return (
@@ -1090,7 +1166,7 @@ class TimeIndex(TimeSeriesQueryable):
     def filter(self, mask):
         """Returns a new time index with only steps for which the mask is True."""
         if hasattr(mask, "get_values"): mask = mask.get_values()
-        return TimeIndex(self.timesteps[mask], id_field=self.id_field, time_field=self.time_field)
+        return TimeIndex(self.timesteps[mask].reset_index(drop=True), id_field=self.id_field, time_field=self.time_field)
         
     @staticmethod
     def from_constant(ids, constant_time):
@@ -1289,6 +1365,11 @@ class TimeSeries(TimeSeriesQueryable):
         index = TimeIndex.deserialize(metadata["index_meta"], df[df.columns[:2]])
         return TimeSeries(index, df[df.columns[2]])
     
+    def to_csv(self, *args, **kwargs):
+        _, index_df = self.index.serialize()
+        return pd.concat([index_df.reset_index(drop=True),
+                        pd.DataFrame(self.series).reset_index(drop=True)], axis=1).to_csv(*args, **kwargs)
+    
     def filter(self, mask):
         """Returns a new time series with an updated index and values with only
         values for which the mask is True."""
@@ -1464,6 +1545,11 @@ class TimeSeriesSet:
             return TimeSeriesSet(index, df)
         index = TimeIndex.deserialize(metadata["index_meta"], df[df.columns[:2]])
         return TimeSeriesSet(index, df[df.columns[2:]])
+
+    def to_csv(self, *args, **kwargs):
+        _, index_df = self.index.serialize()
+        return pd.concat([index_df.reset_index(drop=True),
+                        self.values.reset_index(drop=True)], axis=1).to_csv(*args, **kwargs)
         
     def filter(self, mask):
         """Returns a new time series set with an updated index and values with only
@@ -1495,6 +1581,12 @@ class TimeSeriesSet:
         if col not in self.values:
             raise ValueError(f"TimeSeriesSet has no column named '{col}'")
         return TimeSeries(self.index, self.values[col])
+    
+    def get_ids(self):
+        return self.index.get_ids()
+
+    def get_times(self):
+        return self.index.get_times()
     
     def __len__(self):
         return len(self.values)

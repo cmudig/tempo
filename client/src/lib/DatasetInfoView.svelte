@@ -136,6 +136,7 @@
         <div class="relative w-full h-24 mb-2">
           <textarea
             class="flat-text-input w-full h-full font-mono"
+            spellcheck={false}
             bind:value={query}
             bind:this={queryInput}
             placeholder={'Enter a query, such as: ' + hints[hintIndex]}

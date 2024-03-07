@@ -6,6 +6,7 @@
   import { scaleBand, scaleLog, scaleLinear } from 'd3-scale';
   import BarTooltip from './BarTooltip.svelte';
   import type { Histogram } from '../utils/slice.type';
+  import AxisX from '../charts/AxisX.svelte';
 
   export let width = 100;
 
@@ -65,6 +66,7 @@
         fill={color}
         on:hover={(e) => (hoveredBin = e.detail != null ? e.detail.bin : null)}
       />
+      <AxisX ticks={[]} baseline gridlines={false} />
     </Svg>
   </LayerCake>
 </div>

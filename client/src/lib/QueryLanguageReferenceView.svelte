@@ -32,7 +32,7 @@
           >Literals</button
         >
         <button class="section-link" on:click={() => scrollTo('data-fields')}
-          >Retrieving Data Fields</button
+          >Data Fields</button
         >
         <button class="section-link" on:click={() => scrollTo('element-wise')}
           >Element-wise Operations</button
@@ -50,8 +50,18 @@
           class="section-link"
           on:click={() => scrollTo('transformations')}>Transformations</button
         >
+        <button
+          class="section-link"
+          on:click={() => scrollTo('discretizations')}>Discretizations</button
+        >
         <button class="section-link" on:click={() => scrollTo('variables')}
           >Inline Variables</button
+        >
+        <button class="section-link" on:click={() => scrollTo('constants')}
+          >Constants</button
+        >
+        <button class="section-link" on:click={() => scrollTo('functions')}
+          >Functions</button
         >
       </div>
     </div>
@@ -90,7 +100,7 @@
         </div>
 
         <span id="data-fields" />
-        <div class="reference-header">Retrieving Data Fields</div>
+        <div class="reference-header">Data Fields</div>
         <div class="reference-element">
           <div class="sample">&lbrace;field&rbrace;</div>
           <div class="explanation">
@@ -256,8 +266,8 @@
           <div class="explanation">
             Creates a time index that contains a row for each time from the
             given start time to the end time in each trajectory, separated by
-            the duration. Use <span class="font-mono">#mintime</span> or
-            <span class="font-mono">#maxtime</span> to denote the earliest and latest
+            the duration. Use <span class="constant">#mintime</span> or
+            <span class="constant">#maxtime</span> to denote the earliest and latest
             times in each trajectory, respectively.
           </div>
         </div>
@@ -270,37 +280,39 @@
           <div class="explanation">
             Creates a time index that contains a row for the time of each event
             from the given start time to the end time in each trajectory. Use <span
-              class="font-mono">#mintime</span
+              class="constant">#mintime</span
             >
-            or <span class="font-mono">#maxtime</span> to denote the earliest and
+            or <span class="constant">#maxtime</span> to denote the earliest and
             latest times in each trajectory, respectively.
           </div>
         </div>
         <div class="reference-element">
           <div class="sample">
-            <span class="keyword">at every start</span> &lbrace;field&rbrace;
+            <span class="keyword">at every</span>
+            <span class="function">start</span>(&lbrace;field&rbrace;)
             <span class="keyword">from</span>
             start <span class="keyword">to</span> end
           </div>
           <div class="explanation">
             Creates a time index that contains a row for the start time of each
             <strong>interval</strong> from the given start time to the end time
-            in each trajectory. Use <span class="font-mono">#mintime</span>
-            or <span class="font-mono">#maxtime</span> to denote the earliest and
+            in each trajectory. Use <span class="constant">#mintime</span>
+            or <span class="constant">#maxtime</span> to denote the earliest and
             latest times in each trajectory, respectively.
           </div>
         </div>
         <div class="reference-element">
           <div class="sample">
-            <span class="keyword">at every end</span> &lbrace;field&rbrace;
+            <span class="keyword">at every</span>
+            <span class="function">end</span>(&lbrace;field&rbrace;)
             <span class="keyword">from</span>
             start <span class="keyword">to</span> end
           </div>
           <div class="explanation">
             Creates a time index that contains a row for the end time of each
             <strong>interval</strong> from the given start time to the end time
-            in each trajectory. Use <span class="font-mono">#mintime</span>
-            or <span class="font-mono">#maxtime</span> to denote the earliest and
+            in each trajectory. Use <span class="constant">#mintime</span>
+            or <span class="constant">#maxtime</span> to denote the earliest and
             latest times in each trajectory, respectively.
           </div>
         </div>
@@ -310,10 +322,10 @@
           </div>
           <div class="explanation">
             Creates a time index that contains a row for each trajectory for
-            each element in the given value list. Use <span class="font-mono"
+            each element in the given value list. Use <span class="constant"
               >#mintime</span
             >
-            or <span class="font-mono">#maxtime</span> to denote the earliest and
+            or <span class="constant">#maxtime</span> to denote the earliest and
             latest times in each trajectory, respectively.
           </div>
         </div>
@@ -322,14 +334,14 @@
         <div class="reference-header">Aggregations</div>
         <div class="reference-element">
           <div class="sample">
-            <span class="function">mean</span> expr
+            <span class="parameter">mean</span> expr
             <span class="keyword">from</span>
             start <span class="keyword">to</span> end [timestep definition]
           </div>
           <div class="explanation">
             Aggregates the values of the given <strong>event expression</strong>
             between time bounds evaluated at every element of the time index. Use
-            <span class="font-mono">#now</span> to denote the current time of the
+            <span class="constant">#now</span> to denote the current time of the
             time index when expressing time bounds.
           </div>
           <div class="explanation">
@@ -343,7 +355,10 @@
               'first',
               'last',
               'exists',
+              'exists nonnull',
               'count',
+              'count distinct',
+              'count nonnull',
             ]
               .map((fn) => `<span class="font-mono">${fn}</span>`)
               .join(', ')}.
@@ -351,7 +366,7 @@
         </div>
         <div class="reference-element">
           <div class="sample">
-            <span class="function">mean value</span> expr
+            <span class="parameter">mean value</span> expr
             <span class="keyword">from</span>
             start <span class="keyword">to</span> end [timestep definition]
           </div>
@@ -374,21 +389,24 @@
               'first',
               'last',
               'exists',
+              'exists nonnull',
               'count',
+              'count distinct',
+              'count nonnull',
               'integral',
             ]
               .map((fn) => `<span class="font-mono">${fn}</span>`)
               .join(', ')}.
           </div>
           <div class="explanation">
-            The second keyword can be <span class="function">value</span>,
-            <span class="function">amount</span>,
-            <span class="function">rate</span>, or
-            <span class="function">duration</span>. This specifies if the
+            The second keyword can be <span class="parameter">value</span>,
+            <span class="parameter">amount</span>,
+            <span class="parameter">rate</span>, or
+            <span class="parameter">duration</span>. This specifies if the
             interval's value should be transformed based on how much it overlaps
             with the time bounds. For example, if the stored interval represents
             a total quantity of drug administered over the interval,
-            <span class="function">sum amount</span> will calculate the total amount
+            <span class="parameter">sum amount</span> will calculate the total amount
             of that drug administered within the time bounds, assuming it was delivered
             at a constant rate.
           </div>
@@ -402,7 +420,7 @@
           </div>
           <div class="explanation">
             Replaces values in expr in which the predicate's value is false with
-            NaN.
+            a missing value.
           </div>
         </div>
         <div class="reference-element">
@@ -419,12 +437,12 @@
         <div class="reference-element">
           <div class="sample">
             expr <span class="keyword">impute</span>
-            <span class="function">mean</span>
+            <span class="parameter">mean</span>
           </div>
           <div class="explanation">
             Replaces missing values with the given function of the non-missing
-            values. Supported functions: <span class="function">mean</span>,
-            <span class="function">median</span>
+            values. Supported functions: <span class="parameter">mean</span>,
+            <span class="parameter">median</span>
           </div>
         </div>
         <div class="reference-element">
@@ -435,56 +453,65 @@
             Replaces missing values with the given constant value.
           </div>
         </div>
+
+        <span id="discretizations" />
+        <div class="reference-header">Discretizations</div>
         <div class="reference-element">
           <div class="sample">
             expr <span class="keyword">cut</span> 4
-            <span class="function">quantiles</span>, expr
+            <span class="parameter">quantiles</span>, expr
             <span class="keyword">cut</span>
-            3 <span class="function">quantiles</span>
+            3 <span class="parameter">quantiles</span>
             <span class="keyword">named</span> ["Low", "Medium", "High"]
           </div>
           <div class="explanation">
             Discretizes values into the specified number of equally-spaced
-            quantiles. If names are not provided, default interval names will be
-            used.
+            quantiles. If names are provided, the number of names should be
+            equal to the number of quantiles. If names are not provided, default
+            interval names will be used.
           </div>
         </div>
         <div class="reference-element">
           <div class="sample">
             expr <span class="keyword">cut</span> 3
-            <span class="function">bins</span>, expr
+            <span class="parameter">bins</span>, expr
             <span class="keyword">cut</span>
-            5 <span class="function">bins</span>
+            5 <span class="parameter">bins</span>
             <span class="keyword">named</span> ["a", "b", ...]
           </div>
           <div class="explanation">
             Discretizes values into the specified number of equally-spaced
-            numerical bins. If names are not provided, default interval names
-            will be used.
+            numerical bins. If names are provided, the number of names should be
+            equal to the number of quantiles. If names are not provided, default
+            interval names will be used.
           </div>
         </div>
         <div class="reference-element">
           <div class="sample">
             expr <span class="keyword">cut</span>
-            <span class="function">bins</span> [-inf, 0, 1, ...]
+            <span class="parameter">bins</span> [-inf, 0, 1, ...]
           </div>
           <div class="explanation">
             Discretizes values into the bins with the specified cutoffs. All
             bins are inclusive on the lower bound and exclusive on the upper
-            bound. Use <span class="font-mono">-inf</span>
+            bound, such that if N bin cutoffs are provided, N - 1 bins will be
+            created. Use <span class="font-mono">-inf</span>
             and <span class="font-mono">inf</span> to create open-ended bins on either
-            side. Names can be provided as shown above.
+            side. Names can be provided as shown above, using a value list that contains
+            N - 1 names.
           </div>
         </div>
         <div class="reference-element">
           <div class="sample">
             expr <span class="keyword">cut</span>
-            <span class="function">quantiles</span> [0, 0.2, 0.8, 1]
+            <span class="parameter">quantiles</span> [0, 0.2, 0.8, 1]
           </div>
           <div class="explanation">
             Discretizes values into the bins with the specified quantile
             cutoffs. All bins are inclusive on the lower bound and exclusive on
-            the upper bound. Names can be provided as shown above.
+            the upper bound, such that if N bin cutoffs are provided, N - 1 bins
+            will be created. Names can be provided as shown above, using a value
+            list that contains N - 1 names.
           </div>
         </div>
 
@@ -497,6 +524,140 @@
           </div>
           <div class="explanation">
             Creates a variable named 'varname' that can be used inside expr.
+          </div>
+        </div>
+
+        <span id="constants" />
+        <div class="reference-header">Constants</div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="constant">#mintime</span>
+          </div>
+          <div class="explanation">
+            Stores the minimum time value for any event or interval for each
+            trajectory.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="constant">#maxtime</span>
+          </div>
+          <div class="explanation">
+            Stores the maximum time value for any event or interval for each
+            trajectory.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="constant">#value</span>
+          </div>
+          <div class="explanation">
+            Stores the value of an expression being operated on by a 'where'
+            clause. Only valid within the condition of a 'where' clause.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="constant">#now</span>
+          </div>
+          <div class="explanation">
+            Stores the current time being evaluated in a timestep definition.
+            Only valid when a timestep definition is present.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="constant">#indexvalue</span>
+          </div>
+          <div class="explanation">
+            Stores the current value of an event or interval selected within a
+            timestep definition. Only valid for timesteps defined by an "at
+            every" expression.
+          </div>
+        </div>
+
+        <span id="functions" />
+        <div class="reference-header">Functions</div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="function">time</span>(expr)
+          </div>
+          <div class="explanation">
+            Takes an event series as input and returns a series containing the
+            times of each event.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="function">start</span>(expr)
+          </div>
+          <div class="explanation">
+            Takes an interval series as input and returns an event series
+            representing the starts of each interval (interval values are
+            preserved).
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="function">starttime</span>(expr)
+          </div>
+          <div class="explanation">
+            Takes an interval series as input and returns an event series where
+            the values are the start times of each interval.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="function">end</span>(expr)
+          </div>
+          <div class="explanation">
+            Takes an interval series as input and returns an event series
+            representing the ends of each interval (interval values are
+            preserved).
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="function">endtime</span>(expr)
+          </div>
+          <div class="explanation">
+            Takes an interval series as input and returns an event series where
+            the values are the end times of each interval.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="function">abs</span>(expr)
+          </div>
+          <div class="explanation">
+            Returns the element-wise absolute values of the given expression.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="function">max</span>(expr1, expr2)
+          </div>
+          <div class="explanation">
+            Returns the element-wise maximum of the two given expressions.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="function">min</span>(expr1, expr2)
+          </div>
+          <div class="explanation">
+            Returns the element-wise minimum of the two given expressions.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="function">extract</span>(expr, pattern),
+            <span class="function">extract</span>(expr, pattern, index)
+          </div>
+          <div class="explanation">
+            Returns a capture group from the given regular expression evaluated
+            on each element in expr. If index is provided, returns the capture
+            group with that index (starting from 0).
           </div>
         </div>
       </div>
@@ -529,7 +690,13 @@
   .keyword {
     @apply text-blue-700;
   }
-  .function {
+  .parameter {
     @apply text-green-700 font-mono;
+  }
+  .function {
+    @apply text-violet-700 font-mono;
+  }
+  .constant {
+    @apply text-pink-700 font-mono;
   }
 </style>

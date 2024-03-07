@@ -85,6 +85,7 @@
             {/if}
             <div class="relative w-full {showName ? 'h-24' : 'h-full min-h-0'}">
               <textarea
+                spellcheck={false}
                 class="flat-text-input w-full h-full font-mono"
                 bind:this={queryInput}
                 bind:value={newVariableQuery}

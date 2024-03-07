@@ -27,8 +27,9 @@ named_variable: (/[A-Za-z][^:]*/i | VAR_NAME) ":"
  
 case_when: "WHEN"i expr "THEN"i expr
 
-agg_method: VAR_NAME AGG_TYPE?
+agg_method: VAR_NAME AGG_OPTIONS* AGG_TYPE?
 AGG_TYPE: "rate"i|"amount"i|"value"i|"duration"i
+AGG_OPTIONS: "distinct"i|"nonnull"i
 
 ?cut_names: "NAMED"i value_list
 ?cut_expr: LITERAL CUT_TYPE [cut_names]        -> auto_cut
@@ -197,13 +198,23 @@ class EvaluateExpression(lark.visitors.Transformer):
                 end.time_field: make_aligned_value_series(end, start)
             }), id_field=end.id_field, time_field=end.time_field)
         elif isinstance(start, Attributes) and isinstance(end, Attributes):
-            start = TimeIndex.from_attributes(start)
-            end = TimeIndex.from_attributes(end)
+            if self.time_index is not None:
+                start = self.time_index.with_times(make_aligned_value_series(self.time_index, start))
+                end = self.time_index.with_times(make_aligned_value_series(self.time_index, end))
+            else:
+                start = TimeIndex.from_attributes(start)
+                end = TimeIndex.from_attributes(end)
         elif isinstance(start, Attributes) and not isinstance(end, Attributes):
-            start = TimeIndex.from_attributes(start)
+            if self.time_index is not None:
+                start = self.time_index.with_times(make_aligned_value_series(self.time_index, start))
+            else:
+                start = TimeIndex.from_attributes(start)
             end = start.with_times(end)
         elif isinstance(end, Attributes) and not isinstance(start, Attributes):
-            end = TimeIndex.from_attributes(end)
+            if self.time_index is not None:
+                end = self.time_index.with_times(make_aligned_value_series(self.time_index, end))
+            else:
+                end = TimeIndex.from_attributes(end)
             start = end.with_times(start)
         
         return (start, end)
@@ -235,11 +246,11 @@ class EvaluateExpression(lark.visitors.Transformer):
     def where_value(self, args):
         if self.value_placeholder is None:
             raise ValueError(f"'value' keyword can only be used within a where clause to refer to the data being filtered.")
-        return self.value_placeholder
+        return Compilable(self.value_placeholder)
     def index_value(self, args):
         if self.index_value_placeholder is None:
             raise ValueError(f"'indexvalue' keyword can only be used within a time series defined with 'at every' event or interval.")
-        return self.index_value_placeholder
+        return Compilable(self.index_value_placeholder)
     def atom(self, args): return args[0]
     
     def min_time(self, args):
@@ -318,9 +329,13 @@ class EvaluateExpression(lark.visitors.Transformer):
                 raise ValueError(f"Only Events and Intervals can be aggregated")            
         
     def agg_method(self, args):
-        if len(args) > 1:
-            return (args[0].value, args[1].value)
-        return (args[0].value, "value")
+        results = {}
+        for arg in args[1:]:
+            results.setdefault(arg.type, []).append(arg.value)
+        agg_func = args[0].value
+        if "AGG_OPTIONS" in results:
+            agg_func += " " + " ".join(sorted(x.lower() for x in results["AGG_OPTIONS"]))
+        return (agg_func, results.get("AGG_TYPE", ["value"])[0])
         
     def case_expr(self, args):
         whens = args[:-1]
@@ -409,27 +424,51 @@ class EvaluateExpression(lark.visitors.Transformer):
     def function_call(self, args):
         function_name = args[0].value.lower()
         operands = args[1:]
-        if function_name in ("time", "start", "end"):
-            if len(operands) != 1: raise ValueError(f"time function requires exactly one operand")
+        if function_name in ("time", "starttime", "endtime"):
+            if len(operands) != 1: raise ValueError(f"{function_name} function requires exactly one operand")
             if function_name == "time":
+                if isinstance(operands[0], Compilable):
+                    return operands[0].time()
                 if not hasattr(operands[0], "get_times"):
-                    raise ValueError("time function requires an object with a single time value per datum")
+                    raise ValueError("time function requires an object with time values")
                 return operands[0].with_values(operands[0].get_times())
-            elif function_name == "start":
+            elif function_name == "starttime":
+                if isinstance(operands[0], Compilable):
+                    return operands[0].start().time()
+                if not hasattr(operands[0], "get_start_times"):
+                    raise ValueError("starttime function requires interval objects")
+                return operands[0].start_events().with_values(operands[0].get_start_times())
+            elif function_name == "endtime":
+                if isinstance(operands[0], Compilable):
+                    return operands[0].end().time()
+                if not hasattr(operands[0], "get_end_times"):
+                    raise ValueError("endtime function requires interval objects")
+                return operands[0].end_events().with_values(operands[0].get_end_times())
+        elif function_name in ("start", "end"):
+            if len(operands) != 1: raise ValueError(f"{function_name} function requires exactly one operand")
+            if function_name == "start":
+                if isinstance(operands[0], Compilable):
+                    return operands[0].start()
                 if not hasattr(operands[0], "get_start_times"):
                     raise ValueError("start function requires interval objects")
-                return operands[0].start_events().with_values(operands[0].get_start_times())
+                return operands[0].start_events()
             elif function_name == "end":
+                if isinstance(operands[0], Compilable):
+                    return operands[0].end()
                 if not hasattr(operands[0], "get_end_times"):
                     raise ValueError("end function requires interval objects")
-                return operands[0].end_events().with_values(operands[0].get_end_times())
+                return operands[0].end_events()
         elif function_name in ("abs", ):
             if len(operands) != 1: raise ValueError(f"{function_name} function requires exactly one operand")
             return getattr(operands[0], function_name)()
         elif function_name in ("max", "min"):
             if len(operands) != 2: raise ValueError(f"{function_name} function requires exactly two operands")
             numpy_func = np.maximum if function_name == "max" else np.minimum
-            if isinstance(operands[0], TimeIndex):
+            if isinstance(operands[0], Compilable):
+                return getattr(operands[0], function_name)(operands[1])
+            if isinstance(operands[1], Compilable):
+                return getattr(operands[1], function_name)(operands[0])
+            elif isinstance(operands[0], TimeIndex):
                 return operands[0].with_times(numpy_func(operands[0].get_times(), make_aligned_value_series(operands[0], operands[1])))
             elif isinstance(operands[1], TimeIndex):
                 return operands[1].with_times(numpy_func(operands[1].get_times(), make_aligned_value_series(operands[1], operands[0])))
@@ -441,7 +480,10 @@ class EvaluateExpression(lark.visitors.Transformer):
                 raise ValueError(f"{function_name} function requires at least one parameter to be Attributes, Events, Intervals, TimeIndex, or TimeSeries")
         elif function_name in ("extract", ):
             if len(operands) not in (2, 3): raise ValueError(f"{function_name} function takes as input a series, a pattern, and optionally an index of a capturing group")
-            return operands[0].with_values(operands[0].get_values().str.extract(operands[1])[operands[2] if len(operands) > 2 else 0])
+            pattern = operands[1]
+            if isinstance(pattern, re.Pattern) and not pattern.groups:
+                pattern = re.compile("(" + pattern.pattern + ")", flags=pattern.flags)
+            return operands[0].with_values(operands[0].get_values().str.extract(pattern)[operands[2] if len(operands) > 2 else 0])
         else:
             raise ValueError(f"Unknown function '{function_name}'")
 
@@ -797,9 +839,16 @@ class TrajectoryDataset:
                                         variable_transform=variable_transform,
                                         cache=self.cache if use_cache else None, 
                                         verbose=True)
-        tree = self.parser.parse(query_string)
+        tree = self.parse(query_string)
         result = query_evaluator.visit(tree)
         return result
+    
+    def parse(self, query, keep_all_tokens=False):
+        if keep_all_tokens:
+            parser = lark.Lark(GRAMMAR, parser="earley", keep_all_tokens=True)
+        else:
+            parser = self.parser
+        return parser.parse(query)
     
     def set_macros(self, macros):
         self.eventtype_macros = macros

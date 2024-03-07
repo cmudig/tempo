@@ -1,4 +1,10 @@
-const constantExpressions = ['now', 'value', 'mintime', 'maxtime'];
+const constantExpressions = [
+  'now',
+  'value',
+  'mintime',
+  'maxtime',
+  'indexvalue',
+];
 
 export function getAutocompleteOptions(
   dataFields: string[],

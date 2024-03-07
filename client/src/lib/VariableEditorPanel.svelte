@@ -25,7 +25,9 @@
   let allCategories: string[] = [];
   $: allCategories = Array.from(
     new Set(Object.values(inputVariables).map((v) => v.category))
-  ).sort();
+  )
+    .filter((c) => !!c)
+    .sort();
 
   let visibleInputVariableCategory: string | null = null;
   $: if (allCategories.length > 0 && visibleInputVariableCategory == null)
@@ -179,17 +181,25 @@
     style="min-width: 280px; max-width: 400px;"
   >
     <div class="flex-auto min-h-0 overflow-auto">
-      {#each allCategories as cat}
+      {#if allCategories.length > 0}
+        {#each allCategories as cat}
+          <button
+            class="w-full my-1 py-1 text-sm px-4 rounded {visibleInputVariableCategory ==
+            cat
+              ? 'bg-slate-600 text-white hover:bg-slate-700 font-bold'
+              : 'text-slate-800 hover:bg-slate-200'}"
+            on:click={() => (visibleInputVariableCategory = cat)}
+          >
+            {cat}
+          </button>
+        {/each}
+      {:else}
         <button
-          class="w-full my-1 py-1 text-sm px-4 rounded {visibleInputVariableCategory ==
-          cat
-            ? 'bg-slate-600 text-white hover:bg-slate-700 font-bold'
-            : 'text-slate-800 hover:bg-slate-200'}"
-          on:click={() => (visibleInputVariableCategory = cat)}
+          class="w-full my-1 py-1 text-sm px-4 rounded bg-slate-600 text-white hover:bg-slate-700 font-bold"
         >
-          {cat}
+          All
         </button>
-      {/each}
+      {/if}
     </div>
     <div class="my-2 flex w-full justify-center gap-2">
       <button
@@ -213,6 +223,7 @@
       <div class="relative flex-auto w-full">
         <textarea
           class="flat-text-input-large w-full h-full font-mono"
+          spellcheck={false}
           bind:this={rawInput}
           bind:value={rawRepresentation}
           on:input={updateRawRepresentation}

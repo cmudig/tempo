@@ -322,6 +322,46 @@
     async () =>
       (dataFields = (await (await fetch('/data/fields')).json()).fields)
   );
+
+  async function downloadModelData() {
+    if (!inputVariables) return;
+    try {
+      let inputVariableString = Object.entries(inputVariables)
+        .filter((v) => v[1].enabled ?? true)
+        .map(([varName, varObj]) => `${varName}: ${varObj.query}`)
+        .join(',\n\t');
+      let response = await fetch(`/data/download`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          queries: {
+            inputs: `(\n\t${inputVariableString}\n)\n${timestepDefinition}`,
+            target: `${outcomeVariable}${
+              !!patientCohort ? ' where (' + patientCohort + ')' : ''
+            } ${timestepDefinition}`,
+          },
+        }),
+      });
+      if (response.status != 200) {
+        saveError = await response.text();
+        return;
+      }
+      saveError = null;
+      let blob = await response.blob();
+      let url = window.URL.createObjectURL(blob);
+      let a = document.createElement('a');
+      document.body.appendChild(a);
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `${newModelName}.zip`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Error downloading model data:', e);
+    }
+  }
 </script>
 
 {#if isLoadingSpecs}
@@ -385,6 +425,7 @@
     </h3>
     {#if timestepDefinition !== null}
       <textarea
+        spellcheck={false}
         class="w-full font-mono flat-text-input"
         bind:value={timestepDefinition}
       />
@@ -414,6 +455,50 @@
         {/each}
       </select>
     {/if}
+
+    <h3 class="font-bold mt-3 mb-1">
+      Timestep Filter &nbsp;<Tooltip
+        title="A predicate that returns true for any timestep that should be evaluated by the model."
+        position="right"
+      />
+    </h3>
+    {#if patientCohort !== null}
+      <VariableEditor
+        varName="cohort"
+        varInfo={{ query: patientCohort, category: '', enabled: true }}
+        {timestepDefinition}
+        showCheckbox={false}
+        showButtons={false}
+        autosave
+        showName={false}
+        {dataFields}
+        editing
+        on:save={(e) => (patientCohort = e.detail.query)}
+      />
+    {:else}
+      <div class="text-sm text-slate-600 mb-1">
+        The selected models have multiple values. To modify all models, choose a
+        variant to use:
+      </div>
+      <select
+        class="flat-select font-mono mb-2"
+        on:change={(e) => {
+          if (!!e.target && e.target.value >= 0)
+            patientCohort = getModelField(allSpecs[e.target.value], 'cohort');
+        }}
+      >
+        <option value={-1}></option>
+        {#each [modelName, ...otherModels] as model, i}
+          <option value={i}
+            >{model} | {getModelField(allSpecs[i], 'cohort')}</option
+          >
+        {/each}
+      </select>
+    {/if}
+    <!-- <textarea
+    class="flat-text-input w-full font-mono"
+    bind:value={patientCohort}
+  /> -->
 
     <h3 class="font-bold mt-2 mb-1">
       Input Variables &nbsp;<Tooltip
@@ -499,49 +584,6 @@
     class="flat-text-input w-full font-mono"
     bind:value={outcomeVariable}
   /> -->
-    <h3 class="font-bold mt-3 mb-1">
-      Timestep Filter &nbsp;<Tooltip
-        title="A predicate that returns true for any timestep that should be evaluated by the model."
-        position="right"
-      />
-    </h3>
-    {#if patientCohort !== null}
-      <VariableEditor
-        varName="cohort"
-        varInfo={{ query: patientCohort, category: '', enabled: true }}
-        {timestepDefinition}
-        showCheckbox={false}
-        showButtons={false}
-        autosave
-        showName={false}
-        {dataFields}
-        editing
-        on:save={(e) => (patientCohort = e.detail.query)}
-      />
-    {:else}
-      <div class="text-sm text-slate-600 mb-1">
-        The selected models have multiple values. To modify all models, choose a
-        variant to use:
-      </div>
-      <select
-        class="flat-select font-mono mb-2"
-        on:change={(e) => {
-          if (!!e.target && e.target.value >= 0)
-            patientCohort = getModelField(allSpecs[e.target.value], 'cohort');
-        }}
-      >
-        <option value={-1}></option>
-        {#each [modelName, ...otherModels] as model, i}
-          <option value={i}
-            >{model} | {getModelField(allSpecs[i], 'cohort')}</option
-          >
-        {/each}
-      </select>
-    {/if}
-    <!-- <textarea
-    class="flat-text-input w-full font-mono"
-    bind:value={patientCohort}
-  /> -->
     {#if hasDraft || !changesSaved}
       <div class="text-sm text-slate-500 mt-2">
         {#if changesSaved}<strong>Draft saved.&nbsp;</strong>{/if}Changes have
@@ -560,6 +602,11 @@
         </button>
       {/if}
       <button class="my-1 btn btn-slate" on:click={reset}> Revert </button>
+      {#if otherModels.length == 0}
+        <button class="my-1 btn btn-slate" on:click={downloadModelData}>
+          Download Data
+        </button>
+      {/if}
       <button
         class="my-1 btn text-slate-800 bg-red-200 hover:bg-red-300"
         on:click={async () => {

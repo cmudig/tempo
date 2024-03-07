@@ -5,7 +5,11 @@ from model_training import make_modeling_variables
 from model_slice_finding import describe_slice_change_differences, describe_slice_differences
 from utils import make_query_result_summary
 from threading import Lock
+from io import BytesIO
+import zipfile
+import time
 import slice_finding as sf
+import datetime
 import json
 import lark
 import os
@@ -293,14 +297,65 @@ if __name__ == '__main__':
         args = request.args
         if "q" not in args: return "Query endpoint must have a 'q' query argument", 400
         try:
-            result = sample_dataset.query(args.get("q"), use_cache=False)
-            summary = {
-                "n_values": len(result.get_values()),
-                "n_trajectories": len(set(result.get_ids().values.tolist())),
-                "result_type": QUERY_RESULT_TYPENAMES.get(type(result), "Other"),
-                "query": args.get("q")
-            }
-            return jsonify({**summary, "result": make_query_result_summary(sample_dataset, result)})
+            if args.get("dl", "0") == "1":
+                dataset, (train_ids, val_ids, test_ids) = dataset_manager.load_data(sample=SAMPLE_MODEL_TRAINING_DATA)
+                result = dataset.query(args.get("q"))
+                memory_file = BytesIO()
+                with zipfile.ZipFile(memory_file, 'w') as zf:
+                    data = zipfile.ZipInfo(f'query.txt')
+                    data.date_time = time.localtime(time.time())[:6]
+                    data.compress_type = zipfile.ZIP_DEFLATED
+                    zf.writestr(data, args.get("q"))
+                    for filename, ids in (("train", train_ids), ("val", val_ids), ("test", test_ids)):
+                        data = zipfile.ZipInfo(f'{filename}.csv')
+                        data.date_time = time.localtime(time.time())[:6]
+                        data.compress_type = zipfile.ZIP_DEFLATED
+                        zf.writestr(data, result.filter(result.get_ids().isin(ids)).to_csv())
+                memory_file.seek(0)
+                return send_file(memory_file, 
+                                 as_attachment=True, 
+                                 download_name=f"query_result_{str(datetime.datetime.now().replace(microsecond=0))}.zip")
+            else:
+                result = sample_dataset.query(args.get("q"), use_cache=False)
+                summary = {
+                    "n_values": len(result.get_values()),
+                    "n_trajectories": len(set(result.get_ids().values.tolist())),
+                    "result_type": QUERY_RESULT_TYPENAMES.get(type(result), "Other"),
+                    "query": args.get("q")
+                }
+                return jsonify({**summary, "result": make_query_result_summary(sample_dataset, result)})
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            return jsonify({"error": str(e)})
+        
+    @app.post("/data/download")
+    def download_batch_queries():
+        body = request.json
+        if "queries" not in body: return "/data/download request body must include a queries dictionary", 400
+        try:
+            dataset, (train_ids, val_ids, test_ids) = dataset_manager.load_data(sample=SAMPLE_MODEL_TRAINING_DATA)
+            memory_file = BytesIO()
+            with zipfile.ZipFile(memory_file, 'w') as zf:
+                data = zipfile.ZipInfo(f'queries.txt')
+                data.date_time = time.localtime(time.time())[:6]
+                data.compress_type = zipfile.ZIP_DEFLATED
+                zf.writestr(data, "\n\n".join(f"{name}\n{query}" for name, query in body.get("queries").items()))
+                for query_name, query in body.get("queries").items():
+                    result = dataset.query(query)
+                    for filename, ids in (("train", train_ids), ("val", val_ids), ("test", test_ids)):
+                        data = zipfile.ZipInfo(f'{query_name}_{filename}.csv')
+                        data.date_time = time.localtime(time.time())[:6]
+                        data.compress_type = zipfile.ZIP_DEFLATED
+                        zf.writestr(data, result.filter(result.get_ids().isin(ids)).to_csv())
+            memory_file.seek(0)
+            if "filename" in body:
+                filename = body.get("filename") + ".zip"
+            else:
+                filename = f"query_result_{str(datetime.datetime.now().replace(microsecond=0))}.zip"
+            return send_file(memory_file, 
+                                as_attachment=True, 
+                                download_name=filename)
         except Exception as e:
             import traceback
             print(traceback.format_exc())
@@ -312,7 +367,7 @@ if __name__ == '__main__':
         if "query" not in body: return "validate_syntax request body must include a query", 400
         try:
             query = body.get("query")
-            result = sample_dataset.parser.parse(query)
+            result = sample_dataset.parse(query, keep_all_tokens=True)
             
             unnamed_index = 0
             parsed_variables = {}
@@ -325,6 +380,7 @@ if __name__ == '__main__':
                     unnamed_index += 1
                 min_pos = min(token.start_pos for token in var_exp.children[-1].scan_values(lambda x: isinstance(x, lark.Token)))
                 max_pos = max(token.end_pos for token in var_exp.children[-1].scan_values(lambda x: isinstance(x, lark.Token)))
+                print(var_name, query[min_pos:max_pos])
                 parsed_variables[var_name] = {"query": query[min_pos:max_pos], "enabled": True}
             return jsonify({"success": True, "variables": parsed_variables})
         except Exception as e:
