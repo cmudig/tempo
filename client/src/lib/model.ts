@@ -20,7 +20,7 @@ export type ModelMetrics = {
   n_test: { instances: number; trajectories: number };
   trivial_solution_warning?: {
     variables: string[];
-    metric: number;
+    metric: string;
     metric_value: number;
     metric_threshold: number;
     metric_fraction: number;

@@ -236,6 +236,7 @@ class SliceHelper:
                 print(slice_filter)
             else:
                 slice_filter = sf.filters.SliceFilterBase()
+            print("original length:", len(discrete_df.df))
             self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)] = (discrete_df, ids, slice_filter)
         return self.discrete_dfs[(slice_spec_name, timestep_def, evaluation)]
         
@@ -705,8 +706,8 @@ class SliceEvaluationHelper(SliceHelper):
                 model_name = match.group(1)
                 new_weights[f"{model_name}_err"] = w
                 # new_weights[f"{model_name}_err_xf"] = w
-            elif wname == "complexity": new_weights["Simple Rule"] = w
-            elif wname == "size": new_weights["Large Slice"] = w
+            elif wname == "Simple Rule": new_weights["complexity"] = w
+            elif wname == "Large Slice": new_weights["size"] = w
             else:
                 new_weights[wname] = w
         return new_weights

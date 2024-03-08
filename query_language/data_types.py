@@ -180,10 +180,11 @@ class Compilable:
         series_type = None # None, "events" or "intervals"
         for name, value in self.leaves.items():
             value = value.data
+            if isinstance(value, TimeSeries) and not index.timesteps.equals(value.index.timesteps):
+                value = value.to_events()
             if isinstance(value, TimeSeries):
-                assert value.index == index, "TimeSeries inside aggregation expression does not match current aggregation index"
-                if pd.api.types.is_object_dtype(value.get_values().values.dtype) or pd.api.types.is_string_dtype(value.get_values().values.dtype):
-                    raise NotImplementedError("Nested aggregations currently only work on numerical values")
+                # if pd.api.types.is_object_dtype(value.get_values().values.dtype) or pd.api.types.is_string_dtype(value.get_values().values.dtype):
+                #     raise NotImplementedError("Nested aggregations currently only work on numerical values")
                 preaggregated_input_names.append(name)
                 # This line crashes when the preaggregated series values are strings
                 preaggregated_inputs.append(value.get_values().values.astype(np.float64).reshape(-1, 1))
@@ -200,8 +201,8 @@ class Compilable:
                 else:
                     raise ValueError(f"Unsupported aggregation expression type {str(type(value))}")
                 
-                if pd.api.types.is_object_dtype(value.get_values().values.dtype) or pd.api.types.is_string_dtype(value.get_values().values.dtype):
-                    raise NotImplementedError("Nested aggregations currently only work on numerical values")
+                # if pd.api.types.is_object_dtype(value.get_values().values.dtype) or pd.api.types.is_string_dtype(value.get_values().values.dtype):
+                #     raise NotImplementedError("Nested aggregations currently only work on numerical values")
                 
                 if series_inputs is None:
                     series_inputs = value.prepare_aggregation_inputs(agg_func, convert_to_categorical=False)
@@ -218,13 +219,13 @@ class Compilable:
                 if result_name is None: result_name = value.name
                 
         preaggregated_inputs = np.hstack(preaggregated_inputs)
-        compiled_fn = njit()(self.get_executable_function())
+        compiled_fn = jit(nopython=False)(self.get_executable_function())
         lcls = {}
         arg_assignments = ([f"{n}=preagg[{i}]" for i, n in enumerate(preaggregated_input_names)] + 
                            [f"{n}=series_vals[:,{i}]" for i, n in enumerate(series_input_names)])
         exec(f"def wrapped_fn(fn): return lambda times, series_vals, preagg: fn(times, {', '.join(arg_assignments)})", globals(), lcls)
         wrapped_fn = lcls['wrapped_fn']
-        compiled_fn = njit()(wrapped_fn(compiled_fn))
+        compiled_fn = jit(nopython=False)(wrapped_fn(compiled_fn))
         
         if series_type == "events":
             grouped_values = numba_join_events_dynamic(List(ids.values.tolist()),
@@ -601,7 +602,10 @@ class Events(TimeSeriesQueryable):
             event_values = event_values.values.astype(np.float64)
             uniques = None
         else:
-            event_values = event_values.values
+            if not pd.api.types.is_numeric_dtype(event_values.dtype):
+                event_values = np.array(event_values.replace(pd.NA, np.nan), dtype='object')
+            else:
+                event_values = event_values.values.astype(np.float64)
             uniques = None
         
         return event_ids, event_times, event_values, uniques
@@ -892,7 +896,10 @@ class Intervals(TimeSeriesQueryable):
             interval_values = interval_values.values.astype(np.float64)
             uniques = None
         else:
-            interval_values = interval_values.values
+            if not pd.api.types.is_numeric_dtype(interval_values.dtype):
+                interval_values = np.array(interval_values.replace(pd.NA, np.nan), dtype='object')
+            else:
+                interval_values = interval_values.values.astype(np.float64)
             uniques = None
         
         return event_ids, interval_starts, interval_ends, interval_values, uniques
@@ -1186,13 +1193,17 @@ class TimeIndex(TimeSeriesQueryable):
             mask &= event_times[events.time_field] >= make_aligned_value_series(events, starts)
         if ends is not None:
             mask &= event_times[events.time_field] < make_aligned_value_series(events, ends)
-        mask &= ~event_times.duplicated([events.id_field, events.time_field])
+        # Don't deduplicate times, for consistency with other operations
+        # mask &= ~event_times.duplicated([events.id_field, events.time_field])
         result = TimeIndex(event_times[mask].reset_index(drop=True), 
                          id_field=events.id_field, 
                          time_field=events.time_field)
         if return_filtered_events:
             return result, events.filter(mask)
         return result
+        
+    def to_timeseries(self):
+        return TimeSeries(self, self.get_times())
         
     @staticmethod
     def from_attributes(attributes, id_field="id"):
@@ -1327,6 +1338,23 @@ class TimeIndex(TimeSeriesQueryable):
     def __le__(self, other): return self._handle_binary_op("__le__", other)
     def __ne__(self, other): return self._handle_binary_op("__ne__", other)
     def __lt__(self, other): return self._handle_binary_op("__lt__", other)    
+
+    def __floordiv__(self, other): return self.to_timeseries()._handle_binary_op("__floordiv__", other)
+    def __mod__(self, other): return self.to_timeseries()._handle_binary_op("__mod__", other)
+    def __mul__(self, other): return self.to_timeseries()._handle_binary_op("__mul__", other)
+    def __pow__(self, other): return self.to_timeseries()._handle_binary_op("__pow__", other)
+    def __sub__(self, other): return self.to_timeseries()._handle_binary_op("__sub__", other)
+    def __truediv__(self, other): return self.to_timeseries()._handle_binary_op("__truediv__", other)
+
+    def __rdiv__(self, other): return self.to_timeseries()._handle_binary_op("__rdiv__", other)
+    def __rfloordiv__(self, other): return self.to_timeseries()._handle_binary_op("__rfloordiv__", other)
+    def __rmatmul__(self, other): return self.to_timeseries()._handle_binary_op("__rmatmul__", other)
+    def __rmod__(self, other): return self.to_timeseries()._handle_binary_op("__rmod__", other)
+    def __rmul__(self, other): return self.to_timeseries()._handle_binary_op("__rmul__", other)
+    def __rpow__(self, other): return self.to_timeseries()._handle_binary_op("__rpow__", other)
+    def __rsub__(self, other): return self.to_timeseries()._handle_binary_op("__rsub__", other)
+    def __rtruediv__(self, other): return self.to_timeseries()._handle_binary_op("__rtruediv__", other)
+    def __rxor__(self, other): return self.to_timeseries()._handle_binary_op("__rxor__", other)
     
 
 class TimeSeries(TimeSeriesQueryable):

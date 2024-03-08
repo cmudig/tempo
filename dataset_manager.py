@@ -3,7 +3,7 @@ import os
 import json
 import pickle
 from query_language.data_types import *
-from query_language.evaluator import TrajectoryDataset
+from query_language.evaluator import TrajectoryDataset, get_all_trajectory_ids
 from sklearn.model_selection import train_test_split
 from model_training import ModelTrainer
 from model_slice_finding import SliceDiscoveryHelper, SliceEvaluationHelper
@@ -51,7 +51,7 @@ class DatasetManager:
                 return categorical_rep.cat.codes
             categorical_rep = ids.astype('category')
             new_vals = categorical_rep.cat.categories[~categorical_rep.cat.categories.isin(self.id_uniques)]
-            self.id_uniques = self.id_uniques.union(new_vals)
+            self.id_uniques = self.id_uniques.union(new_vals, sort=False)
             return pd.Categorical(ids, self.id_uniques).codes
         
     def load_data(self, sample=False, cache_dir=None, split=None):
@@ -79,7 +79,9 @@ class DatasetManager:
         if "path" in interval_config:
             df = self._read_dataframe(os.path.join(self.base_path, interval_config["path"]))
             id_field = interval_config.get("id_field", "id")
+            # prev_unique = len(df[id_field].unique())
             df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
+            # assert prev_unique == len(df[id_field].unique()), "NOT SAME NUMBER OF IDS"
             intervals = IntervalSet(df,
                                     id_field=id_field, 
                                     type_field=interval_config.get("type_field", "intervaltype"), 
@@ -90,24 +92,22 @@ class DatasetManager:
             intervals = None
             
         assert attributes is not None or events is not None or intervals is not None, "At least one of attributes, events, or intervals must be provided"
-        if attributes is not None:
-            ids = attributes.get_ids()
-        elif events is not None:
-            ids = np.array(list(set(events.get_ids())))
-        elif intervals is not None:
-            ids = np.array(list(set(intervals.get_ids())))
+        ids = get_all_trajectory_ids(attributes, events, intervals)
             
-        if sample:
+        # print("All IDS:", ids)
+        if sample and len(ids) > 5000:
             np.random.seed(1234)
             valid_ids = np.random.choice(ids, size=5000, replace=False)
         else:
             valid_ids = ids
+        # print("valid IDS:", valid_ids)
         if attributes is not None:
             attributes = attributes.filter(attributes.get_ids().isin(valid_ids))
         if events is not None:
             events = events.filter(events.get_ids().isin(valid_ids))
         if intervals is not None:
             intervals = intervals.filter(intervals.get_ids().isin(valid_ids))
+        # print("Length:", intervals)
         
         if not os.path.exists(f"{self.cache_dir()}/train_test_split.pkl"):
             train_split_config = {**data_config.get("split", DEFAULT_SPLIT)}
@@ -130,6 +130,7 @@ class DatasetManager:
             with open(f"{self.cache_dir()}/train_test_split.pkl", "rb") as file:
                 train_ids, val_ids, test_ids = pickle.load(file)
 
+        # print("Original split:", intervals.filter(intervals.get_ids().isin(train_ids)), intervals.filter(intervals.get_ids().isin(val_ids)), intervals.filter(intervals.get_ids().isin(test_ids)))
         if split is not None:
             split_ids = {"train": train_ids, "val": val_ids, "test": test_ids}[split]
             if attributes is not None:
@@ -138,6 +139,9 @@ class DatasetManager:
                 events = events.filter(events.get_ids().isin(split_ids))
             if intervals is not None:
                 intervals = intervals.filter(intervals.get_ids().isin(split_ids))
+        # print("After splitting:", intervals)
+        # for e in np.unique(intervals.get_types()):
+        #     print(intervals.get(e))
 
         if "macros" in data_config:
             macro_path = (os.path.join(self.base_path, data_config["macros"]["path"])

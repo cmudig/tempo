@@ -100,14 +100,17 @@
     {#if !!metrics.trivial_solution_warning}
       <div class="mb-2 p-4 bg-orange-100 rounded-lg">
         <h4 class="font-bold text-orange-700/80 mb-2">
-          <Fa class="inline text-orange-300" icon={faWarning} /> Predictive task
-          may be trivially solvable
+          <Fa class="inline text-orange-300" icon={faWarning} /> Model may be approximated
+          with fewer variables
         </h4>
         <div class="text-gray-800 text-sm mb-2">
           The target variable can be predicted with {metrics
-            .trivial_solution_warning.metric} of {percentageFormat(
-            metrics.trivial_solution_warning.metric_value
-          )} using the following input variables:
+            .trivial_solution_warning.metric} of {decimalMetrics.includes(
+            metrics.trivial_solution_warning.metric
+          )
+            ? decimalFormat(metrics.trivial_solution_warning.metric_value)
+            : percentageFormat(metrics.trivial_solution_warning.metric_value)} using
+          only the input variables:
         </div>
         <ul>
           {#each metrics.trivial_solution_warning.variables as varName}

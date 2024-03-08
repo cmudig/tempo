@@ -49,10 +49,10 @@
   }
 
   async function saveSpec(overwrite: boolean) {
-    if (!specVariables || !sliceFilter) return;
+    if (!specVariables) return;
     let newSpec: SliceSpec = {
       variables: specVariables,
-      slice_filter: sliceFilter,
+      slice_filter: sliceFilter ?? { type: 'base' },
     };
     let newSpecName: string = sliceSpec;
     if (!overwrite)

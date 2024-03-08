@@ -109,11 +109,11 @@ QUOTED_STRING: /["'`][^"'`]*["'`]/
 
 def get_all_trajectory_ids(attributes, events, intervals):
     all_ids = []
-    if len(attributes.get_ids()):
+    if attributes is not None and len(attributes.get_ids()):
         all_ids.append(attributes.get_ids().values)
-    if len(events.get_ids()):
+    if events is not None and len(events.get_ids()):
         all_ids.append(events.get_ids().unique())
-    elif len(intervals.get_ids()):
+    elif intervals is not None and len(intervals.get_ids()):
         all_ids.append(intervals.get_ids().unique())
     return np.unique(np.concatenate(all_ids))
 

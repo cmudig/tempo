@@ -39,15 +39,25 @@
   let isLoadingSpecs: boolean = false;
   let isTraining: boolean = false;
 
-  $: if (!!modelName) {
-    setupModels(modelName, otherModels);
-  } else {
-    allSpecs = [];
-    baseSpec = null;
+  let oldModelName: string | null = null;
+  let oldOtherModels: string[] = [];
+  $: if (
+    oldModelName !== modelName ||
+    !areObjectsEqual(oldOtherModels, otherModels)
+  ) {
+    if (!!modelName) {
+      setupModels(modelName, otherModels);
+    } else {
+      allSpecs = [];
+      baseSpec = null;
+    }
+    oldModelName = modelName;
+    oldOtherModels = otherModels;
   }
 
   function setupModels(active: string, others: string[]) {
     newModelName = active;
+    console.log('setting up models');
     loadAllModelSpecs([active, ...others]);
   }
 

@@ -11,22 +11,22 @@ def numba_median(x, t0, t1): return np.nanmedian(x) if len(x[~np.isnan(x)]) else
 def numba_min(x, t0, t1): return np.nanmin(x) if len(x[~np.isnan(x)]) else np.nan
 @njit 
 def numba_max(x, t0, t1): return np.nanmax(x) if len(x[~np.isnan(x)]) else np.nan
-@njit 
+@jit(nopython=False)
 def numba_first(x, t0, t1): return x[~np.isnan(x)][0] if (~np.isnan(x)).sum() else np.nan
-@njit 
+@jit(nopython=False)
 def numba_last(x, t0, t1): return x[~np.isnan(x)][-1] if (~np.isnan(x)).sum() else np.nan
-@njit 
+@jit(nopython=False)
 def numba_exists(x, t0, t1): return 1.0 if len(x) else 0.0
-@njit 
+@jit(nopython=False)
 def numba_exists_nonnull(x, t0, t1): return 1.0 if len(x[~np.isnan(x)]) else 0.0
-@njit 
+@jit(nopython=False)
 def numba_count(x, t0, t1): return len(x)
-@njit 
-def numba_count_distinct(x, t0, t1): return len(np.unique(x))
-@njit 
+@jit(nopython=False)
+def numba_count_distinct(x, t0, t1): return len(set(x))
+@jit(nopython=False)
 def numba_count_nonnull(x, t0, t1): return len(x[~np.isnan(x)])
-@njit 
-def numba_count_distinct_nonnull(x, t0, t1): return len(np.unique(x[~np.isnan(x)]))
+@jit(nopython=False)
+def numba_count_distinct_nonnull(x, t0, t1): return len(set(x[~np.isnan(x)]))
 @njit
 def numba_integral(x, t0, t1): return np.nansum(x) * (t1 - t0) if len(x) else np.nan
     
@@ -47,7 +47,7 @@ AGG_FUNCTIONS = {
     "integral": numba_integral
 }
 
-CATEGORICAL_SUPPORT_AGG_FUNCTIONS = {"first", "last", "exists", "count"}
+CATEGORICAL_SUPPORT_AGG_FUNCTIONS = {"first", "last", "exists", "exists nonnull", "count", "count distinct", "count distinct nonnull", "count nonnull"}
 TYPE_PRESERVING_AGG_FUNCTIONS = {"sum", "mean", "median", "min", "max", "first", "last", "integral"}
 
 def convert_numba_result_dtype(x, agg_func):
