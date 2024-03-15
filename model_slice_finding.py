@@ -18,39 +18,38 @@ def make_slicing_variables(manager, dataset, variable_definitions, timestep_defi
     """Creates the slicing variables dataframe."""
     query = make_query(variable_definitions, timestep_definition)
     print("Generated query")
+    
     # Save the discretization mapping to a cache file so we can recover it later
     discretization_results = {}
     def get_unique_values(var_exp):
-        value_indexes, col_spec = sf.discretization.discretize_column(var_exp.name, 
-                                                                      var_exp.get_values(), 
-                                                                      {"method": "unique"})
         if var_exp.name:
+            value_indexes, col_spec = sf.discretization.discretize_column(var_exp.name, 
+                                                                        var_exp.get_values(), 
+                                                                        {"method": "unique"})
             discretization_results[var_exp.name] = col_spec
-        return var_exp.with_values(pd.Series(value_indexes, name=var_exp.name))
+            return var_exp.with_values(pd.Series(value_indexes, name=var_exp.name)), col_spec
+        return var_exp, None
+    def restore_discretization_info(var_exp, info):
+        # convert string keys to integers
+        new_info = {}
+        for k, v in info[1].items():
+            try:
+                new_info[int(k)] = v
+            except:
+                new_info[k] = v
+        discretization_results[var_exp.name] = (var_exp.name, new_info)
+        return var_exp
         
-    variable_df = dataset.query(query, variable_transform=("unique_values", get_unique_values))
+    variable_df = dataset.query(query, variable_transform=("unique_values", get_unique_values, restore_discretization_info))
     
-    # Save the value name dictionary to a cache file
-    discretization_path = os.path.join(manager.cache_dir(), "slice_discretizations", f"{timestep_definition}.pkl")
-    if not os.path.exists(os.path.dirname(discretization_path)):
-        os.mkdir(os.path.dirname(discretization_path))
-        
     discrete_df = None
     if not discretization_results:
-        try:
-            with open(discretization_path, "rb") as file:
-                discretization_results = pickle.load(file)
-        except:
-            print("Re-discretizing data because value names were not found")
-            discrete_df = sf.discretization.discretize_data(variable_df.values, {
-                col: { "method": "keep" }
-                for col in variable_df.values.columns
-            })
+        print("Re-discretizing data because value names were not found")
+        discrete_df = sf.discretization.discretize_data(variable_df.values, {
+            col: { "method": "keep" }
+            for col in variable_df.values.columns
+        })
     else:
-        with open(discretization_path, "wb") as file:
-            pickle.dump(discretization_results, file)
-    
-    if discrete_df is None:
         dataframe = variable_df.values
         value_names = {i: discretization_results[col] 
                        for i, col in enumerate(dataframe.columns)
@@ -69,6 +68,11 @@ def make_slicing_variables(manager, dataset, variable_definitions, timestep_defi
     print("Completed discretization")
     return discrete_df, variable_df.index.get_ids()
 
+# def remove_slice_discretization_data(manager, timestep_definition):
+#     discretization_path = os.path.join(manager.cache_dir(), "slice_discretizations", f"{timestep_definition}.pkl")
+#     if os.path.exists(discretization_path):
+#         os.remove(discretization_path)
+    
 HOLDOUT_FRACTION = 0.5
 
 def parse_controls(discrete_df, controls, source_mask=None):
@@ -491,7 +495,7 @@ class SliceDiscoveryHelper(SliceHelper):
         super().invalidate_slice_spec(slice_spec_name)
         # Remove all found slices that have this slice spec name
         for path in os.listdir(self.results_dir):
-            if (match := re.match(r"^slice_results_(.*).json$"), path) is not None:
+            if (match := re.match(r"^slice_results_(.*).json$", path)) is not None:
                 timestep_def = match.group(1)
                 self.load_timestep_slice_results(timestep_def)
                 self.slice_scores[timestep_def] = {
@@ -1006,6 +1010,7 @@ def describe_slice_differences(variables, slice_obj, slice_filter=None, valid_ma
             if slice_filter is not None and not slice_filter(sf.slices.SliceFeature(col, [val])): continue
             base_prob = base_count / len(base_df)
             slice_prob = slice_count / len(slice_df)
+            if slice_prob < base_prob: continue
             enrichment_scores[(col_name, val_name)] = (base_prob, slice_prob, (1e-3 + slice_prob) / (1e-3 + base_prob))
 
     top_enrichments = sorted(enrichment_scores.items(), key=lambda x: x[1][-1], reverse=True)[:topk]

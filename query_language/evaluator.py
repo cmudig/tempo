@@ -12,11 +12,13 @@ import slice_finding as sf
 GRAMMAR = """
 start: variable_expr | variable_list
 
-time_index: "EVERY"i atom time_bounds            -> periodic_time_index // periodic time literal
-    | "AT EVERY"i atom time_bounds  -> event_time_index
+time_index: "EVERY"i atom [time_bounds]            -> periodic_time_index // periodic time literal
+    | "AT EVERY"i atom [time_bounds]  -> event_time_index
     | "AT"i "(" expr ("," expr)* ")"             -> array_time_index
 
-time_bounds: "FROM"i expr "TO"i expr
+time_bounds: "FROM"i expr "TO"i expr              -> time_bounds_both_ends
+    | "BEFORE"i expr                              -> time_bounds_upper
+    | "AFTER"i expr                               -> time_bounds_lower
 
 variable_list: variable_expr
     | "(" variable_expr ("," variable_expr)* ")"
@@ -72,8 +74,11 @@ CUT_TYPE: /bins?/i|/quantiles?/i
     | sum "-" product                       -> expr_sub
     | product
 
-?product: product "*" atom                      -> expr_mul
-    | product "/" atom                      -> expr_div
+?product: product "*" exponent                      -> expr_mul
+    | product "/" exponent                      -> expr_div
+    | exponent
+
+?exponent: exponent "^" atom                      -> expr_pow
     | atom
 
 value_list: ("("|"[") LITERAL ("," LITERAL)* (")"|"]")
@@ -93,7 +98,7 @@ atom: VAR_NAME "(" expr ("," expr)* ")"                 -> function_call
 
 time_quantity: LITERAL UNIT
 step_quantity: LITERAL /steps?/i
-UNIT: /hours?|minutes?|seconds?|hrs?|mins?|secs?|[hms]/i
+UNIT: /years?|days?|hours?|minutes?|seconds?|yrs?|hrs?|mins?|secs?|[hmsdy]/i
 
 DATA_NAME: /\{[^}]*\}/
 VAR_NAME: /(?!(and|or|not|case|when|else|in|then|every|at|from|to|with|as)\b)[A-Za-z][A-Za-z0-9_]*/ 
@@ -185,39 +190,72 @@ class EvaluateExpression(lark.visitors.Transformer):
         return Duration(self._parse_literal(args[0]), args[1])
         
     def time_bounds(self, args):
-        # Broadcast and convert to TimeIndex if needed
         start, end = args
-        if isinstance(start, TimeIndex) and not isinstance(end, TimeIndex):
-            end = TimeIndex(pd.DataFrame({
-                start.id_field: start.get_ids(), 
-                start.time_field: make_aligned_value_series(start, end)
-            }), id_field=start.id_field, time_field=start.time_field)
-        elif isinstance(end, TimeIndex) and not isinstance(start, TimeIndex):
-            start = TimeIndex(pd.DataFrame({
-                end.id_field: end.get_ids(), 
-                end.time_field: make_aligned_value_series(end, start)
-            }), id_field=end.id_field, time_field=end.time_field)
-        elif isinstance(start, Attributes) and isinstance(end, Attributes):
-            if self.time_index is not None:
-                start = self.time_index.with_times(make_aligned_value_series(self.time_index, start))
-                end = self.time_index.with_times(make_aligned_value_series(self.time_index, end))
-            else:
-                start = TimeIndex.from_attributes(start)
-                end = TimeIndex.from_attributes(end)
-        elif isinstance(start, Attributes) and not isinstance(end, Attributes):
-            if self.time_index is not None:
-                start = self.time_index.with_times(make_aligned_value_series(self.time_index, start))
-            else:
-                start = TimeIndex.from_attributes(start)
-            end = start.with_times(end)
-        elif isinstance(end, Attributes) and not isinstance(start, Attributes):
-            if self.time_index is not None:
-                end = self.time_index.with_times(make_aligned_value_series(self.time_index, end))
-            else:
-                end = TimeIndex.from_attributes(end)
-            start = end.with_times(start)
-        
-        return (start, end)
+        if isinstance(start, Compilable):
+            start = start.execute()
+        if isinstance(end, Compilable):
+            end = end.execute()
+            
+        # If either the start or end are Events, this creates an implicit
+        # time index (overriding the initial one).
+        if isinstance(start, Events) or isinstance(end, Events):
+            if isinstance(start, Events) and isinstance(end, Events):
+                if len(start.get_values()) != len(end.get_values()):
+                    raise ValueError(f"Event sets used for aggregation bounds must be same length")
+                new_index = TimeIndex.from_events(start)
+                start = new_index
+                end = TimeIndex.from_events(end)
+            elif isinstance(start, Events):
+                new_index = TimeIndex.from_events(start)
+                start = new_index
+                end = start.with_times(make_aligned_value_series(start, end))
+            elif isinstance(end, Events):
+                new_index = TimeIndex.from_events(end)
+                end = new_index
+                start = end.with_times(make_aligned_value_series(end, start))
+        else:
+            # Broadcast and convert to TimeIndex if needed
+            if isinstance(start, TimeIndex) and not isinstance(end, TimeIndex):
+                end = TimeIndex(pd.DataFrame({
+                    start.id_field: start.get_ids(), 
+                    start.time_field: make_aligned_value_series(start, end)
+                }), id_field=start.id_field, time_field=start.time_field)
+            elif isinstance(end, TimeIndex) and not isinstance(start, TimeIndex):
+                start = TimeIndex(pd.DataFrame({
+                    end.id_field: end.get_ids(), 
+                    end.time_field: make_aligned_value_series(end, start)
+                }), id_field=end.id_field, time_field=end.time_field)
+            elif isinstance(start, Attributes) and isinstance(end, Attributes):
+                if self.time_index is not None:
+                    start = self.time_index.with_times(make_aligned_value_series(self.time_index, start))
+                    end = self.time_index.with_times(make_aligned_value_series(self.time_index, end))
+                else:
+                    start = TimeIndex.from_attributes(start)
+                    end = TimeIndex.from_attributes(end)
+            elif isinstance(start, Attributes) and not isinstance(end, Attributes):
+                if self.time_index is not None:
+                    start = self.time_index.with_times(make_aligned_value_series(self.time_index, start))
+                else:
+                    start = TimeIndex.from_attributes(start)
+                end = start.with_times(make_aligned_value_series(start, end))
+            elif isinstance(end, Attributes) and not isinstance(start, Attributes):
+                if self.time_index is not None:
+                    end = self.time_index.with_times(make_aligned_value_series(self.time_index, end))
+                else:
+                    end = TimeIndex.from_attributes(end)
+                start = end.with_times(make_aligned_value_series(end, start))
+            new_index = None
+            
+        return (start, end, new_index)
+    
+    def time_bounds_both_ends(self, args):
+        return self.time_bounds(args)
+    
+    def time_bounds_upper(self, args):
+        return self.time_bounds([self.min_time([]), args[0]])
+    
+    def time_bounds_lower(self, args):
+        return self.time_bounds([args[0], self.max_time([])])
     
     def _parse_literal(self, literal):
         if literal.startswith('/'):
@@ -231,7 +269,7 @@ class EvaluateExpression(lark.visitors.Transformer):
             return re.sub(r"[\"'`]", "", literal)
         try:
             amt = float(literal)
-            if round(amt) == amt:
+            if not np.isinf(amt) and round(amt) == amt:
                 amt = int(amt)
             return amt
         except ValueError:
@@ -246,7 +284,7 @@ class EvaluateExpression(lark.visitors.Transformer):
     def where_value(self, args):
         if self.value_placeholder is None:
             raise ValueError(f"'value' keyword can only be used within a where clause to refer to the data being filtered.")
-        return Compilable(self.value_placeholder)
+        return Compilable(self.value_placeholder) if self.time_index is not None else self.value_placeholder
     def index_value(self, args):
         if self.index_value_placeholder is None:
             raise ValueError(f"'indexvalue' keyword can only be used within a time series defined with 'at every' event or interval.")
@@ -282,6 +320,7 @@ class EvaluateExpression(lark.visitors.Transformer):
     def expr_sub(self, args): return args[0] - args[1]
     def expr_mul(self, args): return args[0] * args[1]
     def expr_div(self, args): return args[0] / args[1]
+    def expr_pow(self, args): return args[0] ** args[1]
     def gt(self, args): return args[0] > args[1]
     def lt(self, args): return args[0] < args[1]
     def geq(self, args): return args[0] >= args[1]
@@ -305,20 +344,26 @@ class EvaluateExpression(lark.visitors.Transformer):
     def agg_expr(self, args):
         agg_method = args[0]
         expr = args[1]
-        time_bounds = args[-1]
+        *time_bounds, time_index = args[-1]
+        has_inner_time_index = time_index is not None # if this is true, the return value will be an Events!
+        if time_index is None: time_index = self.time_index
         
-        if self.time_index is not None:
-            assert len(time_bounds[0]) == len(self.time_index), f"Start time bounds for aggregation (length {len(time_bounds[0])}) must be equal length to overall time index (length {len(self.time_index)})"
-            assert len(time_bounds[1]) == len(self.time_index), f"End time bounds for aggregation (length {len(time_bounds[1])}) must be equal length to overall time index (length {len(self.time_index)})"
+        if time_index is not None:
+            assert len(time_bounds[0]) == len(time_index), f"Start time bounds for aggregation (length {len(time_bounds[0])}) must be equal length to overall time index (length {len(time_index)})"
+            assert len(time_bounds[1]) == len(time_index), f"End time bounds for aggregation (length {len(time_bounds[1])}) must be equal length to overall time index (length {len(time_index)})"
+            agg_result = None
             if isinstance(expr, TimeSeries):
                 # Convert the expression to an Events
                 expr = expr.to_events()
             if isinstance(expr, Events):
-                return expr.bin_aggregate(self.time_index, *time_bounds, agg_method[0])
+                agg_result = expr.bin_aggregate(time_index, *time_bounds, agg_method[0])
             elif isinstance(expr, (Intervals, Compilable)):
-                return expr.bin_aggregate(self.time_index, *time_bounds, agg_method[1], agg_method[0])
+                agg_result = expr.bin_aggregate(time_index, *time_bounds, agg_method[1], agg_method[0])
             else:
                 raise ValueError(f"Only Events and Intervals can be bin-aggregated")
+            if has_inner_time_index:
+                return agg_result.to_events()
+            return agg_result
         else:
             if isinstance(expr, (Events, TimeSeries)):
                 return expr.aggregate(*time_bounds, agg_method[0])
@@ -505,7 +550,7 @@ class EvaluateExpression(lark.visitors.Transformer):
     def manual_cut(self, args):
         cut_type = args[0].value
         bins = args[1]
-        return CutOperator(bins, cut_type, names=args[2] if len(args) > 2 else None)
+        return CutOperator(np.array(bins), cut_type, names=args[2] if len(args) > 2 else None)
     
     def cut_clause(self, args):
         base_values, cut_op = args
@@ -520,17 +565,21 @@ class EvaluateQuery(lark.visitors.Interpreter):
         self.intervals = intervals
         self.cache = cache
         self.eventtype_macros = eventtype_macros if eventtype_macros is not None else {}
-        # If provided, this should be a tuple of (description, transform). The
+        # If provided, this should be a tuple of (description, transform_fn, restore_fn). The
         # description should be a string uniquely identifying this transform,
         # and transform should be a function that will be called on any variable 
-        # expressions before returning or saving to cache. The function should
-        # take as input a TimeSeriesQueryable, and it should return a transformed 
-        # instance of the input.
+        # expressions before saving to cache. The function should
+        # take as input a TimeSeriesQueryable, and it should return either a 
+        # tuple (transformed, info). The info will be stored in the cache. If the
+        # query result is retrieved from the cache, the restore_fn will be called
+        # with two arguments, the stored TimeSeriesQueryable and the stored info,
+        # and it should return a restored version of the time series object.
         if variable_transform is not None:
-            self.variable_transform_desc, self.variable_transform = variable_transform
+            self.variable_transform_desc, self.variable_transform, self.variable_restore = variable_transform
         else:
             self.variable_transform_desc = None
             self.variable_transform = None
+            self.variable_restore = None
         self.verbose = verbose
         self.evaluator = EvaluateExpression(self.attributes, self.events, self.intervals, self.eventtype_macros)
         
@@ -550,16 +599,25 @@ class EvaluateQuery(lark.visitors.Interpreter):
     def periodic_time_index(self, tree):
         duration = self.evaluator.transform(tree.children[0])
                 
-        start_time = self._make_time_index(self.evaluator.transform(tree.children[1].children[0]))
-        end_time = self._make_time_index(self.evaluator.transform(tree.children[1].children[1]))
-        
+        if tree.children[1] is not None:
+            start_time = self._make_time_index(self.evaluator.transform(tree.children[1].children[0]))
+            end_time = self._make_time_index(self.evaluator.transform(tree.children[1].children[1]))
+        else:
+            start_time = self._make_time_index(self.evaluator.min_time([]))
+            end_time = self._make_time_index(self.evaluator.max_time([]))
+            
         return TimeIndex.range(start_time, end_time, duration)
         
     def event_time_index(self, tree):
         events = self.evaluator.transform(tree.children[0])
 
-        start_time = self.evaluator.transform(tree.children[-1].children[0])
-        end_time = self.evaluator.transform(tree.children[-1].children[1])
+        if tree.children[-1] is not None:
+            start_time = self.evaluator.transform(tree.children[-1].children[0])
+            end_time = self.evaluator.transform(tree.children[-1].children[1])
+        else:
+            start_time = self.evaluator.min_time([])
+            end_time = self.evaluator.max_time([])
+            
         if isinstance(start_time, Attributes) and isinstance(end_time, Attributes):
             pass
         elif isinstance(start_time, Attributes) and not isinstance(end_time, Attributes):
@@ -583,7 +641,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
                 raise ValueError(f"Unrecognized interval position '{tree.children[1].value}'")
         
         if not isinstance(events, Events):
-            raise ValueError(f"Expected 'at every' data element to evaluate to an Events object, but instead got '{type(events)}'")
+            raise ValueError(f"Expected 'at every' data element to evaluate to an Events object, but instead got '{type(events).__name__}'")
         index, filtered_events = TimeIndex.from_events(events, starts=start_time, ends=end_time, return_filtered_events=True)
         self.evaluator.index_value_placeholder = TimeSeries(index, filtered_events.get_values())
         return index
@@ -602,6 +660,10 @@ class EvaluateQuery(lark.visitors.Interpreter):
             var_exp = tree.children[1]
         elif self.cache is not None:
             var_exp = self.cache.lookup((tree_desc, options_desc), time_index_tree=time_index_tree, transform_info=self.variable_transform_desc)
+            if self.variable_transform_desc is not None and var_exp is not None:
+                var_exp, transform_data = var_exp
+                if self.variable_restore is not None:
+                    var_exp = self.variable_restore(var_exp, transform_data)
         else: var_exp = None
         if cache_only and var_exp is None: return tree
         elif var_exp is not None:
@@ -642,6 +704,10 @@ class EvaluateQuery(lark.visitors.Interpreter):
                     elif isinstance(var_exp, TimeIndex):
                         # Use the times as the time series values
                         var_exp = TimeSeries(var_exp, var_exp.get_times())
+                    elif (isinstance(var_exp, Events) and len(var_exp) == len(evaluator.time_index) and 
+                          (var_exp.get_ids().values == evaluator.time_index.get_ids().values).all()):
+                        # This is an Events but is perfectly aligned to the time index
+                        var_exp = TimeSeries(TimeIndex.from_events(var_exp), var_exp.get_values())
                         
             if var_name is not None:
                 var_exp = var_exp.rename(var_name)
@@ -650,13 +716,19 @@ class EvaluateQuery(lark.visitors.Interpreter):
             raise ValueError(f"Exception occurred when processing variable '{var_name}': {e}")
         else:
             if self.variable_transform is not None:
-                var_exp = self.variable_transform(var_exp)
+                var_exp, transform_data = self.variable_transform(var_exp)
+            else:
+                transform_data = None
                 # var_exp = var_exp.with_values(pd.Series(sf.discretization.discretize_column(var_exp.name, var_exp.get_values(), self.discretization_spec)[0], 
                 #                                         name=var_exp.name))
             var_exp = var_exp.compress()
             
             if self.cache is not None:
-                self.cache.save((tree_desc, options_desc), var_exp, transform_info=self.variable_transform_desc, time_index_tree=time_index_tree)
+                self.cache.save((tree_desc, options_desc), 
+                                var_exp, 
+                                transform_info=self.variable_transform_desc, 
+                                transform_data=transform_data,
+                                time_index_tree=time_index_tree)
             return var_exp
         
     def _parse_time_series(self, tree, evaluator):
@@ -683,7 +755,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
             # to Compilables! This will enable us to calculate dynamic values
             # during the aggregation.
             
-            for desc in node.iter_subtrees():
+            for desc in node.children[1].iter_subtrees():
                 if desc is None or desc == node: continue
                 desc.children = [Compilable(evaluator.transform(n)) if isinstance(n, lark.Tree) and n.data == "agg_expr" else n for n in desc.children]
                 
@@ -777,12 +849,14 @@ class QueryResultCache:
             if not os.path.exists(fpath): return
             df = pd.read_feather(fpath)
             result = TimeSeriesQueryable.deserialize(result_info["meta"], df, **({"index": index} if index is not None else {}))
+            if transform_info is not None:
+                result = (result, result_info.get("transform_data", None))
             if save_in_memory:
                 self._in_memory_cache[query_cache_key] = result
             return result
         return None
         
-    def save(self, tree, result, time_index_tree=None, transform_info=None):
+    def save(self, tree, result, time_index_tree=None, transform_info=None, transform_data=None):
         """Saves the given result object to the cache for the given tree description."""
         query_cache_name = self._make_cache_key(tree, time_index_tree, transform_info)
         if query_cache_name in self._query_cache and (time_index_tree is None or "time_index_" + str(time_index_tree) in self._query_cache):
@@ -802,6 +876,8 @@ class QueryResultCache:
             "fname": fname,
             **({"time_index_tree": str(time_index_tree)} if time_index_tree is not None else {})
         }
+        if transform_data is not None:
+            self._query_cache[query_cache_name]["transform_data"] = sf.utils.convert_to_native_types(transform_data)
         df.to_feather(os.path.join(self.cache_dir, fname))
         with open(os.path.join(self.cache_dir, "query_cache.json"), "w") as file:
             json.dump(self._query_cache, file)
@@ -880,11 +956,12 @@ if __name__ == '__main__':
 
     dataset = TrajectoryDataset(attributes, events, intervals)
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
-    print(dataset.query("min {e1} from #now - 30 seconds to #now cut 3 quantiles impute 'Missing' at every {e1} from #mintime to #maxtime"))
+    # print(dataset.query("min {e1} from #now - 30 seconds to #now cut 3 quantiles impute 'Missing' at every {e1} from #mintime to #maxtime"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))
     # print(dataset.query("(my_age: (last {e1} from #now - 10 sec to #now) impute 'Missing') every 3 sec from #mintime to #maxtime"))
     # print(dataset.query("mean {e1} * 3 from now - 30 s to now"))
     # print(dataset.query("max(mean {e2} from now - 30 seconds to now, mean {e1} from now - 30 seconds to now) at every {e2} from {start} to {end}"))
     print(events.get('e1'))
+    print(dataset.query("{e1} - (last {e1} before {e1})"))
     # print(dataset.query("mean {e1} where {e1} > (last {e1} from #now - 30 sec to #now) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
     # print(dataset.query("mean (case when {e1} > (last {e2} from #now - 30 sec to #now) then {e1} else 0 end) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))

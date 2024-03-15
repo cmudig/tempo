@@ -249,7 +249,7 @@ class ModelTrainer:
             # Check for trivial solutions
             max_variables = 5
             metric_fraction = 0.95
-
+            
             variable_names = []
             for i in reversed(np.argsort(model.feature_importances_)[-max_variables:]):
                 variable_names.append(variables.columns[i])
@@ -266,13 +266,14 @@ class ModelTrainer:
                     full_metrics=False,
                     **model_params)
                 if sub_metrics["performance"][submodel_metric] >= metrics["performance"][submodel_metric] * metric_fraction:
-                    metrics["trivial_solution_warning"] = {
-                        "metric": submodel_metric,
-                        "variables": variable_names,
-                        "metric_value": sub_metrics["performance"][submodel_metric],
-                        "metric_threshold": metrics["performance"][submodel_metric] * metric_fraction,
-                        "metric_fraction": metric_fraction
-                    }
+                    if len(variable_names) <= len(variables.columns) * 0.5:
+                        metrics["trivial_solution_warning"] = {
+                            "metric": submodel_metric,
+                            "variables": variable_names,
+                            "metric_value": sub_metrics["performance"][submodel_metric],
+                            "metric_threshold": metrics["performance"][submodel_metric] * metric_fraction,
+                            "metric_fraction": metric_fraction
+                        }
                     break
         
         # Return preds and true values in the validation and test sets, putting

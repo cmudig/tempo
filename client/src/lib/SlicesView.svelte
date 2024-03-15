@@ -365,6 +365,7 @@
       <SliceDetailsView
         slice={selectedSlice}
         modelNames={modelsToShow}
+        {sliceSpec}
         on:close={() => (selectedSlices = [])}
       />
     </ResizablePanel>

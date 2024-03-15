@@ -83,7 +83,8 @@
     {#each varToDisplay.enrichments as enrichment}
       {#if !!change}
         <div class="text-xs text-slate-600 mb-1">
-          {ratioFormat(enrichment.ratio)} more likely to {#if enrichment.source_value != enrichment.destination_value}change
+          {ratioFormat(Math.abs(enrichment.ratio))}
+          {enrichment.ratio > 0 ? 'more' : 'less'} likely to {#if enrichment.source_value != enrichment.destination_value}change
             from
             <strong>{enrichment.source_value}</strong> to
             <strong>{enrichment.destination_value}</strong>{:else}remain <strong
@@ -93,7 +94,8 @@
         </div>
       {:else}
         <div class="text-xs text-slate-600 mb-1">
-          {ratioFormat(enrichment.ratio)} more likely to be
+          {ratioFormat(Math.abs(enrichment.ratio))}
+          {enrichment.ratio > 0 ? 'more' : 'less'} likely to be
           <strong>{enrichment.value}</strong>
           in slice than overall
         </div>

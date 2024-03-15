@@ -139,10 +139,11 @@ class Compilable:
         # Functions can use the times argument to access either the event times
         # or interval starts/ends for each row
         if False: # Debug mode
-            debug_str = print('values in wrapped fn:', times.shape, {', '.join(str(k) for k in self.leaves.keys())}); 
+            debug_str = f"print('values in wrapped fn:', times, {', '.join(str(k) for k in self.leaves.keys())}); "
         else:
             debug_str = ""
         function_string = f"def compiled_fn(times, {', '.join(args)}): {debug_str} return {self.function_string()}"
+        # print(function_string)
         exec(function_string, globals(), results)
         return results["compiled_fn"]
         
@@ -180,7 +181,8 @@ class Compilable:
         series_type = None # None, "events" or "intervals"
         for name, value in self.leaves.items():
             value = value.data
-            if isinstance(value, TimeSeries) and not index.timesteps.equals(value.index.timesteps):
+            if isinstance(value, TimeIndex): value = value.to_timeseries()
+            if isinstance(value, TimeSeries) and not index.equals(value.index):
                 value = value.to_events()
             if isinstance(value, TimeSeries):
                 # if pd.api.types.is_object_dtype(value.get_values().values.dtype) or pd.api.types.is_string_dtype(value.get_values().values.dtype):
@@ -199,7 +201,7 @@ class Compilable:
                         raise ValueError("Cannot have both un-aggregated Events and Intervals inside an aggregation expression")
                     series_type = "intervals"
                 else:
-                    raise ValueError(f"Unsupported aggregation expression type {str(type(value))}")
+                    raise ValueError(f"Unsupported aggregation expression type {type(value).__name__}")
                 
                 # if pd.api.types.is_object_dtype(value.get_values().values.dtype) or pd.api.types.is_string_dtype(value.get_values().values.dtype):
                 #     raise NotImplementedError("Nested aggregations currently only work on numerical values")
@@ -210,14 +212,24 @@ class Compilable:
                 else:
                     new_series_inputs = value.prepare_aggregation_inputs(agg_func, convert_to_categorical=False)
                     assert new_series_inputs[0].equals(series_inputs[0]), "IDs do not match among unaggregated expressions"
-                    assert new_series_inputs[1].equals(series_inputs[1]), "Times do not match among unaggregated expressions"
-                    if isinstance(value, Intervals):
-                        assert new_series_inputs[2].equals(series_inputs[2]), "Times do not match among unaggregated expressions"
+                    # assert new_series_inputs[1].equals(series_inputs[1]), "Times do not match among unaggregated expressions"
+                    # if isinstance(value, Intervals):
+                    #     assert new_series_inputs[2].equals(series_inputs[2]), "Times do not match among unaggregated expressions"
                     series_inputs = (*series_inputs[:-1],
                                     np.hstack([series_inputs[-1], new_series_inputs[-2].reshape(-1, 1)]))
                     
                 if result_name is None: result_name = value.name
                 
+        if len(preaggregated_inputs) == 0:
+            # Nothing was aligned to the time index, so a regular aggregation is fine
+            agg_expr = self.execute()
+            if isinstance(agg_expr, Events):
+                return agg_expr.bin_aggregate(index, start_times, end_times, agg_func)
+            return agg_expr.bin_aggregate(index, start_times, end_times, agg_type, agg_func)
+        if series_type is None:
+            # Everything was already aligned to the time index, so the aggregation is meaningless
+            raise ValueError("The expression to be aggregated is already an aligned Time Series")
+            
         preaggregated_inputs = np.hstack(preaggregated_inputs)
         compiled_fn = jit(nopython=False)(self.get_executable_function())
         lcls = {}
@@ -746,7 +758,7 @@ class EventSet(TimeSeriesQueryable):
         new_df = self.df[(self.df[self.type_field] == eventtype) if isinstance(eventtype, str) else (self.df[self.type_field].isin(eventtype))].copy()
         try: new_df = new_df.assign(**{self.value_field: new_df[self.value_field].astype(np.float64)})
         except: pass
-        return Events(new_df,
+        return Events(new_df.reset_index(drop=True),
                       type_field=self.type_field, 
                       time_field=self.time_field,
                       value_field=self.value_field,
@@ -1049,7 +1061,7 @@ class IntervalSet(TimeSeriesQueryable):
     
     def get(self, eventtype):
         new_df = self.df[(self.df[self.type_field] == eventtype) if isinstance(eventtype, str) else (self.df[self.type_field].isin(eventtype))]
-        return Intervals(new_df,
+        return Intervals(new_df.reset_index(drop=True),
                       type_field=self.type_field, 
                       start_time_field=self.start_time_field,
                       end_time_field=self.end_time_field,
@@ -1153,13 +1165,12 @@ class TimeIndex(TimeSeriesQueryable):
      
     def __len__(self): return len(self.timesteps)
     
-    def __eq__(self, other): return (
+    def equals(self, other): return (
         isinstance(other, TimeIndex) and 
-        (self.get_ids() == other.get_ids()).all() and
-        (self.get_times() == other.get_times()).all()
+        len(self.timesteps) == len(other.timesteps) and
+        (self.get_ids().values == other.get_ids().values).all() and
+        (self.get_times().values == other.get_times().values).all()
     )
-    
-    def __ne__(self, other): return not (self == other)
     
     def get_ids(self):
         return self.timesteps[self.id_field]
@@ -1679,7 +1690,7 @@ class CutOperator:
         
         bin_names = self.names
         if bin_names is None:
-            bin_names = [self.make_bin_name(values[bin_indexes == i], bin_cutoffs[i], bin_cutoffs[i + 1]) 
+            bin_names = [self.make_bin_name(values[bin_indexes == i + 1], bin_cutoffs[i], bin_cutoffs[i + 1]) 
                          for i in range(len(bin_cutoffs) - 1)]
         else:
             assert len(bin_names) == len(bin_cutoffs) - 1, f"Need exactly {len(bin_cutoffs) - 1} names for {len(bin_cutoffs)} cutoff(s)"

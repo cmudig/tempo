@@ -60,6 +60,7 @@ def _background_model_generation(base_path, queue, single_thread=False):
                 with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump(meta, file)
             except KeyboardInterrupt:
+                print("Resetting training model")
                 with open(dataset_manager.model_spec_path(model_name), "w") as file:
                     json.dump(meta, file)
                 return
@@ -371,8 +372,14 @@ if __name__ == '__main__':
             
             unnamed_index = 0
             parsed_variables = {}
-            for var_exp in result.find_data("variable_expr"):
-                if len(list(var_exp.find_data("variable_expr"))) > 1: continue
+            ignore_exps = set() # for inner variable expressions
+            top_variable_list = next((n for n in result.iter_subtrees_topdown() if isinstance(n, lark.Tree) and n.data == "variable_list"), None)
+            if top_variable_list is None:
+                raise ValueError("No variable list defined")
+            for var_exp in top_variable_list.iter_subtrees_topdown():
+                if var_exp in ignore_exps or not isinstance(var_exp, lark.Tree) or not var_exp.data == "variable_expr": continue
+                for child in var_exp.find_data("variable_expr"):
+                    ignore_exps.add(child)
                 var_name_node = next(var_exp.find_data("named_variable"), None)
                 if var_name_node: var_name = var_name_node.children[0].value
                 else: 

@@ -14,6 +14,7 @@
   const dispatch = createEventDispatcher();
 
   export let modelNames: string[] = [];
+  export let sliceSpec: string | null = 'default';
   export let slice: SliceFeatureBase | null = null;
 
   let selectedFeature: string | null = null;
@@ -38,6 +39,7 @@
           },
           body: JSON.stringify({
             slice: slice,
+            sliceSpec: sliceSpec ?? 'default',
             ...(offset != 0 ? { offset: offset } : {}),
           }),
         })

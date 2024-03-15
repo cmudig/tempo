@@ -67,7 +67,7 @@ def make_query_result_summary(dataset, query_result):
     if isinstance(query_result, Intervals):
         base["durations"] = make_series_summary(query_result.get_end_times() - query_result.get_start_times(), value_type="continuous")
     
-    if hasattr(query_result, "get_values"):
+    if hasattr(query_result, "get_values") and (~pd.isna(query_result.get_values())).sum() > 0:
         base["values"] = make_series_summary(query_result.get_values())
         
     return base

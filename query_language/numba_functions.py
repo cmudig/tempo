@@ -16,6 +16,12 @@ def numba_first(x, t0, t1): return x[~np.isnan(x)][0] if (~np.isnan(x)).sum() el
 @jit(nopython=False)
 def numba_last(x, t0, t1): return x[~np.isnan(x)][-1] if (~np.isnan(x)).sum() else np.nan
 @jit(nopython=False)
+def numba_any(x, t0, t1): return (1.0 if np.nansum(x) > 0 else 0.0) if len(x[~np.isnan(x)]) else np.nan
+@jit(nopython=False)
+def numba_all(x, t0, t1): return (1.0 if np.isnan(x).sum() == 0 and np.all(x) else 0.0) if len(x[~np.isnan(x)]) else np.nan
+@jit(nopython=False)
+def numba_all_nonnull(x, t0, t1): return (1.0 if np.all(x[~np.isnan(x)]) else 0.0) if len(x[~np.isnan(x)]) else np.nan
+@jit(nopython=False)
 def numba_exists(x, t0, t1): return 1.0 if len(x) else 0.0
 @jit(nopython=False)
 def numba_exists_nonnull(x, t0, t1): return 1.0 if len(x[~np.isnan(x)]) else 0.0
@@ -38,6 +44,9 @@ AGG_FUNCTIONS = {
     "max": numba_max,
     "first": numba_first,
     "last": numba_last,
+    "any": numba_any,
+    "all": numba_all,
+    "all nonnull": numba_all_nonnull,
     "exists": numba_exists,
     "exists nonnull": numba_exists_nonnull,
     "count": numba_count,

@@ -59,7 +59,12 @@ class DatasetManager:
         attrib_config = data_config.get("attributes", {})
         if "path" in attrib_config:
             df = self._read_dataframe(os.path.join(self.base_path, attrib_config["path"]))
-            df = df.set_index(self.assign_numerical_ids(df.index))
+            id_field = attrib_config.get("id_field", "id")
+            if id_field in df.columns:
+                df = df.set_index(id_field, drop=True)
+            else:
+                print("ID column not found in attributes, using the dataframe index")
+                df = df.set_index(self.assign_numerical_ids(df.index))
             attributes = AttributeSet(df)
         else:
             attributes = None

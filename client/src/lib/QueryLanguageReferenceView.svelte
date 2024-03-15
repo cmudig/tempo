@@ -267,8 +267,16 @@
             Creates a time index that contains a row for each time from the
             given start time to the end time in each trajectory, separated by
             the duration. Use <span class="constant">#mintime</span> or
-            <span class="constant">#maxtime</span> to denote the earliest and latest
-            times in each trajectory, respectively.
+            <span class="constant">#maxtime</span> to denote the earliest and
+            latest times in each trajectory, respectively. (If the
+            <span class="font-mono"
+              ><span class="keyword">from</span>
+              start <span class="keyword">to</span> end</span
+            >
+            clause is omitted, the bounds are assumed to be
+            <span class="constant">#mintime</span>
+            and
+            <span class="constant">#maxtime</span>.)
           </div>
         </div>
         <div class="reference-element">
@@ -283,7 +291,15 @@
               class="constant">#mintime</span
             >
             or <span class="constant">#maxtime</span> to denote the earliest and
-            latest times in each trajectory, respectively.
+            latest times in each trajectory, respectively. (If the
+            <span class="font-mono"
+              ><span class="keyword">from</span>
+              start <span class="keyword">to</span> end</span
+            >
+            clause is omitted, the bounds are assumed to be
+            <span class="constant">#mintime</span>
+            and
+            <span class="constant">#maxtime</span>.)
           </div>
         </div>
         <div class="reference-element">
@@ -352,6 +368,9 @@
               'median',
               'min',
               'max',
+              'any',
+              'all',
+              'all nonnull',
               'first',
               'last',
               'exists',
@@ -366,6 +385,28 @@
         </div>
         <div class="reference-element">
           <div class="sample">
+            <span class="parameter">mean</span> expr
+            <span class="keyword">before</span> end [timestep definition]
+          </div>
+          <div class="explanation">
+            Performs an aggregation as above, using <span class="constant"
+              >#mintime</span
+            > as the lower bound.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
+            <span class="parameter">mean</span> expr
+            <span class="keyword">after</span> start [timestep definition]
+          </div>
+          <div class="explanation">
+            Performs an aggregation as above, using <span class="constant"
+              >#maxtime</span
+            > as the upper bound.
+          </div>
+        </div>
+        <div class="reference-element">
+          <div class="sample">
             <span class="parameter">mean value</span> expr
             <span class="keyword">from</span>
             start <span class="keyword">to</span> end [timestep definition]
@@ -375,7 +416,7 @@
               >interval expression</strong
             >
             between time bounds evaluated at every element of the time index. Use
-            <span class="font-mono">#now</span> to denote the current time of the
+            <span class="constant">#now</span> to denote the current time of the
             time index when expressing time bounds.
           </div>
           <div class="explanation">
@@ -386,6 +427,9 @@
               'median',
               'min',
               'max',
+              'any',
+              'all',
+              'all nonnull',
               'first',
               'last',
               'exists',
