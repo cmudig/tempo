@@ -249,6 +249,7 @@ class SliceHelper:
         Removes all data artifacts and found slices belonging to the given slice spec.
         """
         self.discrete_dfs = {k: v for k, v in self.discrete_dfs.items() if k[0] != slice_spec_name}
+        self.clear_model_caches()
 
     def clear_model_caches(self):
         self.model_spec_cache = {}
@@ -458,6 +459,7 @@ class SliceDiscoveryHelper(SliceHelper):
         
     def rescore_model(self, model_name):
         """Recalculates the discovery set scores for the given model."""
+        self.clear_model_caches()
         timestep_def = self.get_model_timestep_def(model_name)
         self.load_timestep_slice_results(timestep_def)   
         if not self.slice_scores.get(timestep_def, []):
@@ -864,6 +866,7 @@ class SliceEvaluationHelper(SliceHelper):
     def rescore_model(self, model_name, timestep_def=None):
         """Recalculates the evaluation slice scores for the given model."""
         print("Rescoring model")
+        self.clear_model_caches()
         if model_name in self.metrics: 
             del self.metrics[model_name]
             
@@ -962,6 +965,7 @@ class SliceEvaluationHelper(SliceHelper):
                                               valid_df, 
                                               score_fns, 
                                               similarity_threshold=0.7)
+        print("Score cache:", self.eval_score_caches.setdefault(timestep_def, {}).setdefault(result_key, {}))
         rank_list.score_cache = self.eval_score_caches.setdefault(timestep_def, {}).setdefault(result_key, {})
         return rank_list, metrics, ids, valid_df
 

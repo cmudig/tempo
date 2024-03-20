@@ -411,7 +411,7 @@ if __name__ == '__main__':
                 queue = mp.Queue()
                 model_worker = mp.Process(target=_background_model_generation, args=(base_path, queue), kwargs={"single_thread": args.single_thread})
                 model_worker.start()
-        elif state in ("waiting", "error"):
+        if state in ("loading", "waiting", "error"):
             with open(dataset_manager.model_spec_path(model_name), "r") as file:
                 meta = json.load(file)
             with open(dataset_manager.model_spec_path(model_name), "w") as file:

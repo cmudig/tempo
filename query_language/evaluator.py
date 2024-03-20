@@ -19,6 +19,7 @@ time_index: "EVERY"i atom [time_bounds]            -> periodic_time_index // per
 time_bounds: "FROM"i expr "TO"i expr              -> time_bounds_both_ends
     | "BEFORE"i expr                              -> time_bounds_upper
     | "AFTER"i expr                               -> time_bounds_lower
+    | "AT"i expr                               -> time_bounds_instant
 
 variable_list: variable_expr
     | "(" variable_expr ("," variable_expr)* ")"
@@ -134,6 +135,8 @@ class EvaluateExpression(lark.visitors.Transformer):
         self.index_value_placeholder = None
         self.variables = {}
         self._all_ids = None
+        self._mintimes = None
+        self._maxtimes = None
         
     def get_all_ids(self):
         if self._all_ids is not None: return self._all_ids
@@ -252,10 +255,15 @@ class EvaluateExpression(lark.visitors.Transformer):
         return self.time_bounds(args)
     
     def time_bounds_upper(self, args):
-        return self.time_bounds([self.min_time([]), args[0]])
+        start, end, new_index = self.time_bounds([self.min_time([]), args[0]])
+        return start, self._perform_binary_numpy_function([start, end], "max", np.maximum), new_index
     
     def time_bounds_lower(self, args):
-        return self.time_bounds([args[0], self.max_time([])])
+        start, end, new_index = self.time_bounds([args[0], self.max_time([])])
+        return self._perform_binary_numpy_function([start, end], "min", np.minimum), end, new_index
+
+    def time_bounds_instant(self, args):
+        return self.time_bounds([args[0], args[0]])
     
     def _parse_literal(self, literal):
         if literal.startswith('/'):
@@ -292,12 +300,16 @@ class EvaluateExpression(lark.visitors.Transformer):
     def atom(self, args): return args[0]
     
     def min_time(self, args):
+        if self._mintimes is not None: return self._mintimes
         event_mins = self.events.get_times().groupby(self.events.get_ids()).agg("min")
         interval_mins = self.intervals.get_start_times().groupby(self.intervals.get_ids()).agg("min")
         ids = self.get_all_ids()
         all_mins = pd.merge(pd.Series(ids, name="id"), pd.merge(event_mins, interval_mins, how='outer', left_index=True, right_index=True), left_on="id", right_index=True).set_index("id").min(axis=1)
-        return Attributes(all_mins.rename("mintime"))
+        self._mintimes = Attributes(all_mins.rename("mintime"))
+        return self._mintimes
+    
     def max_time(self, args): 
+        if self._maxtimes is not None: return self._maxtimes
         event_maxes = self.events.get_times().groupby(self.events.get_ids()).agg("max")
         interval_maxes = self.intervals.get_end_times().groupby(self.intervals.get_ids()).agg("max")
         ids = self.get_all_ids()
@@ -307,7 +319,8 @@ class EvaluateExpression(lark.visitors.Transformer):
             all_maxes += datetime.timedelta(seconds=1)
         else:
             all_maxes += 1
-        return Attributes(all_maxes.rename("maxtime"))
+        self._maxtimes = Attributes(all_maxes.rename("maxtime"))
+        return self._maxtimes
 
     def isin(self, args):
         return args[0].isin(args[1])
@@ -466,6 +479,22 @@ class EvaluateExpression(lark.visitors.Transformer):
             scalar = dtype.type(impute_method)
             return var_exp.where(nan_mask, scalar)
             
+    def _perform_binary_numpy_function(self, operands, function_name, numpy_func):
+        if isinstance(operands[0], Compilable):
+            return getattr(operands[0], function_name)(operands[1])
+        if isinstance(operands[1], Compilable):
+            return getattr(operands[1], function_name)(operands[0])
+        elif isinstance(operands[0], TimeIndex):
+            return operands[0].with_times(numpy_func(operands[0].get_times(), make_aligned_value_series(operands[0], operands[1])))
+        elif isinstance(operands[1], TimeIndex):
+            return operands[1].with_times(numpy_func(operands[1].get_times(), make_aligned_value_series(operands[1], operands[0])))
+        if isinstance(operands[0], (Attributes, Events, Intervals, TimeSeries)):
+            return operands[0].with_values(numpy_func(operands[0].get_values(), make_aligned_value_series(operands[0], operands[1])))
+        elif isinstance(operands[1], (Attributes, Events, Intervals, TimeSeries)):
+            return operands[1].with_values(numpy_func(operands[1].get_values(), make_aligned_value_series(operands[1], operands[0])))
+        else:
+            raise ValueError(f"{function_name} function requires at least one parameter to be Attributes, Events, Intervals, TimeIndex, or TimeSeries")
+
     def function_call(self, args):
         function_name = args[0].value.lower()
         operands = args[1:]
@@ -509,20 +538,7 @@ class EvaluateExpression(lark.visitors.Transformer):
         elif function_name in ("max", "min"):
             if len(operands) != 2: raise ValueError(f"{function_name} function requires exactly two operands")
             numpy_func = np.maximum if function_name == "max" else np.minimum
-            if isinstance(operands[0], Compilable):
-                return getattr(operands[0], function_name)(operands[1])
-            if isinstance(operands[1], Compilable):
-                return getattr(operands[1], function_name)(operands[0])
-            elif isinstance(operands[0], TimeIndex):
-                return operands[0].with_times(numpy_func(operands[0].get_times(), make_aligned_value_series(operands[0], operands[1])))
-            elif isinstance(operands[1], TimeIndex):
-                return operands[1].with_times(numpy_func(operands[1].get_times(), make_aligned_value_series(operands[1], operands[0])))
-            if isinstance(operands[0], (Attributes, Events, Intervals, TimeSeries)):
-                return operands[0].with_values(numpy_func(operands[0].get_values(), make_aligned_value_series(operands[0], operands[1])))
-            elif isinstance(operands[1], (Attributes, Events, Intervals, TimeSeries)):
-                return operands[1].with_values(numpy_func(operands[1].get_values(), make_aligned_value_series(operands[1], operands[0])))
-            else:
-                raise ValueError(f"{function_name} function requires at least one parameter to be Attributes, Events, Intervals, TimeIndex, or TimeSeries")
+            return self._perform_binary_numpy_function(operands, function_name, numpy_func)
         elif function_name in ("extract", ):
             if len(operands) not in (2, 3): raise ValueError(f"{function_name} function takes as input a series, a pattern, and optionally an index of a capturing group")
             pattern = operands[1]

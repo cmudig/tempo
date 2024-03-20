@@ -324,6 +324,17 @@
       }
     } catch (e) {}
     newModelName = newName!;
+    // reset the existing model (remove any drafts)
+    await fetch('/models', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: modelName,
+        draft: {},
+      }),
+    });
     await trainModel(true);
   }
 

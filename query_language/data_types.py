@@ -337,24 +337,24 @@ class Compilable:
     def __lt__(self, other): return self._handle_binary_op("<", other)
     
     def __add__(self, other): return self._handle_binary_op("+", other)
-    def __and__(self, other): return self._handle_binary_op("and", other)
+    def __and__(self, other): return self._handle_binary_op("&", other)
     def __floordiv__(self, other): return self._handle_binary_op("//", other)
     def __mod__(self, other): return self._handle_binary_op("%", other)
     def __mul__(self, other): return self._handle_binary_op("*", other)
-    def __or__(self, other): return self._handle_binary_op("or", other)
+    def __or__(self, other): return self._handle_binary_op("|", other)
     def __pow__(self, other): return self._handle_binary_op("**", other)
     def __sub__(self, other): return self._handle_binary_op("-", other)
     def __truediv__(self, other): return self._handle_binary_op("/", other)
     def __xor__(self, other): return self._handle_binary_op("^", other)
 
     def __radd__(self, other): return self._handle_binary_op("+", other, reverse=True)
-    def __rand__(self, other): return self._handle_binary_op("and", other, reverse=True)
+    def __rand__(self, other): return self._handle_binary_op("&", other, reverse=True)
     def __rdiv__(self, other): return self._handle_binary_op("/", other, reverse=True)
     def __rfloordiv__(self, other): return self._handle_binary_op("//", other, reverse=True)
     def __rmatmul__(self, other): return self._handle_binary_op("@", other, reverse=True)
     def __rmod__(self, other): return self._handle_binary_op("%", other, reverse=True)
     def __rmul__(self, other): return self._handle_binary_op("*", other, reverse=True)
-    def __ror__(self, other): return self._handle_binary_op("or", other, reverse=True)
+    def __ror__(self, other): return self._handle_binary_op("|", other, reverse=True)
     def __rpow__(self, other): return self._handle_binary_op("**", other, reverse=True)
     def __rsub__(self, other): return self._handle_binary_op("-", other, reverse=True)
     def __rtruediv__(self, other): return self._handle_binary_op("/", other, reverse=True)
@@ -1510,7 +1510,7 @@ class TimeSeries(TimeSeriesQueryable):
     def __abs__(self): return self.with_values(self.series.__abs__(), preserve_nans=True)
     def __neg__(self): return self.with_values(self.series.__neg__(), preserve_nans=True)
     def __pos__(self): return self.with_values(self.series.__pos__(), preserve_nans=True)
-    def __invert__(self): return self.with_values(self.series.__invert__(), preserve_nans=True)
+    def __invert__(self): return self.with_values(self.series.astype(pd.BooleanDtype()).__invert__(), preserve_nans=True)
     
     def _handle_binary_op(self, opname, other):
         if isinstance(other, (Events, Intervals, TimeIndex, Compilable)):

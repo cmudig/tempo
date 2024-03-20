@@ -155,7 +155,7 @@
                   prefix
                 )}
               replaceFn={performAutocomplete}
-              triggers={['{', '#']}
+              triggers={['{', '#', ',']}
               delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
               menuItemTextFn={(v) => v.value}
               maxItems={3}

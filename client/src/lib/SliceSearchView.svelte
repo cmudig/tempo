@@ -432,7 +432,7 @@
       {:else}
         <div class="p-3 border-r border-slate-200">
           <div class="h-full flex items-center gap-2">
-            <ActionMenuButton
+            <!-- <ActionMenuButton
               buttonClass="btn px-1 py-0.5 hover:bg-slate-200 text-xs text-slate-600 font-bold"
               buttonTitle="Add a filter option"
               disabled={retrievingSlices}
@@ -454,7 +454,7 @@
                   {/if}
                 {/each}
               </div>
-            </ActionMenuButton>
+            </ActionMenuButton> -->
             <button
               disabled={retrievingSlices}
               class="btn px-1 py-0.5 hover:bg-slate-200 text-xs text-slate-600 font-bold"

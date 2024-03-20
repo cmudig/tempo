@@ -6,6 +6,7 @@ import pickle
 from query_language.data_types import *
 from utils import make_series_summary, make_query
 import xgboost
+from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve, f1_score
 import slice_finding as sf
 
@@ -121,8 +122,17 @@ class ModelTrainer:
         # Don't do class weights - instead, we can simply choose a better operating point
         # if not regressor:
         #     model_params['scale_pos_weight'] = (len(train_y) - train_y.sum()) / train_y.sum()
+        if model_type == "multiclass_classification":
+            weights = compute_sample_weight(
+                class_weight='balanced',
+                y=train_y
+            )
+            params = {'sample_weight': weights}
+        else:
+            params = {}
+            
         model = model_cls(**model_params)
-        model.fit(train_X, train_y, eval_set=[(val_X[val_sample], val_y[val_sample])])
+        model.fit(train_X, train_y, eval_set=[(val_X[val_sample], val_y[val_sample])], **params)
         
         print("Evaluating")
             
@@ -170,9 +180,7 @@ class ModelTrainer:
                         "Macro F1": float(f1_score(test_y, test_pred >= opt_threshold, average="macro")),
                     }
                     metrics["roc"] = {}
-                    for t in sorted([*np.arange(0, 0.1, 0.01), 
-                                    *np.arange(0.1, 0.9, 0.1), 
-                                    *np.arange(0.9, 1, 0.01), 
+                    for t in sorted([*np.arange(0, 1, 0.02), 
                                     float(opt_threshold)]):
                         conf = confusion_matrix(test_y, (test_pred >= t))
                         tn, fp, fn, tp = conf.ravel()
@@ -301,7 +309,9 @@ class ModelTrainer:
             if (pd.api.types.is_numeric_dtype(outcome.get_values().dtype) and 
                 num_unique > 10):
                 model_meta["model_type"] = "regression"
-            elif num_unique == 2 and set(np.unique(outcome.get_values()[~pd.isna(outcome.get_values())]).astype(int).tolist()) == set([0, 1]):
+            elif (num_unique == 2 and 
+                  pd.api.types.is_numeric_dtype(outcome.get_values().dtype) and 
+                  set(np.unique(outcome.get_values()[~pd.isna(outcome.get_values())]).astype(int).tolist()) == set([0, 1])):
                 model_meta["model_type"] = "binary_classification"
             else:
                 model_meta["model_type"] = "multiclass_classification"
