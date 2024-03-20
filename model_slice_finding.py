@@ -885,7 +885,7 @@ class SliceEvaluationHelper(SliceHelper):
             
                 valid_outcomes = outcomes.astype(np.float64)
                 valid_preds = preds
-                if len(valid_preds.shape) > 1: valid_preds = np.argmax(valid_preds, axis=1)
+                if len(valid_preds.shape) > 1: valid_preds = np.where(np.isnan(valid_outcomes), np.nan, np.argmax(valid_preds, axis=1))
 
                 if spec["model_type"] == "multiclass_classification":
                     output_vals = np.array(spec["output_values"])
