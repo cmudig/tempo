@@ -91,8 +91,16 @@ class Compilable:
     A wrapper around a data series (Attributes, Events, or Intervals) that saves
     a compute graph when operations are called on it.
     """
-    def __init__(self, data_or_fn, name=None, leaves=None, time_expression="times"):
-        if isinstance(data_or_fn, str):
+    def __init__(self, data_or_fn, name=None, leaves=None, time_expression=lambda x: "times"):
+        if isinstance(data_or_fn, Compilable):
+            if data_or_fn.data is not None:
+                self.data = data_or_fn.data
+                self.fn = None
+            elif data_or_fn.fn is not None:
+                self.data = None
+                self.fn = data_or_fn.fn
+            self.leaves = leaves if leaves is not None else {}
+        elif callable(data_or_fn):
             self.fn = data_or_fn
             self.data = None
             self.leaves = leaves if leaves is not None else {}
@@ -111,24 +119,26 @@ class Compilable:
     def wrap(data):
         if isinstance(data, str):
             # Make sure this gets inserted as a string LITERAL, not a variable
-            return Compilable(repr(data))
+            return Compilable(lambda _: repr(data))
         elif np.isscalar(data) and pd.isna(data):
-            return Compilable("np.nan")
+            return Compilable(lambda _: "np.nan")
         return Compilable(data)
         
-    def function_string(self):
+    def function_string(self, immediate=True):
         if self.data is not None: return self.name if self.name is not None else self.data
-        else: return self.fn
+        else: return self.fn(immediate)
         
-    def mono_parent(self, string):
-        return Compilable(string, leaves=self.leaves, time_expression=self.time_expression)
+    def mono_parent(self, fn):
+        return Compilable(fn, leaves=self.leaves, time_expression=self.time_expression)
     
     def execute(self):
         fn = self.get_executable_function()
         inputs = {v: self.leaves[v].data for v in self.leaves}
-        return fn(None, **inputs)
+        return fn(next((v.get_ids() for v in self.leaves.values() if hasattr(v, "get_ids")), None), 
+                  next((v.get_times() for v in self.leaves.values() if hasattr(v, "get_times")), None), 
+                  **inputs)
     
-    def get_executable_function(self):
+    def get_executable_function(self, immediate=True):
         """
         Returns a tuple (fn, args), where fn is a function that can be called
         with the given list of arguments to return the computed value of the
@@ -139,11 +149,11 @@ class Compilable:
         # Functions can use the times argument to access either the event times
         # or interval starts/ends for each row
         if False: # Debug mode
-            debug_str = f"print('values in wrapped fn:', times, {', '.join(str(k) for k in self.leaves.keys())}); "
+            debug_str = f"print('values in wrapped fn:', ids, times, {', '.join(str(k) for k in self.leaves.keys())}); "
         else:
             debug_str = ""
-        function_string = f"def compiled_fn(times, {', '.join(args)}): {debug_str} return {self.function_string()}"
-        # print(function_string)
+        function_string = f"def compiled_fn(ids, times, {', '.join(args)}): {debug_str} return {self.function_string(immediate)}"
+        print(function_string)
         exec(function_string, globals(), results)
         return results["compiled_fn"]
         
@@ -185,11 +195,13 @@ class Compilable:
             if isinstance(value, TimeSeries) and not index.equals(value.index):
                 value = value.to_events()
             if isinstance(value, TimeSeries):
-                # if pd.api.types.is_object_dtype(value.get_values().values.dtype) or pd.api.types.is_string_dtype(value.get_values().values.dtype):
-                #     raise NotImplementedError("Nested aggregations currently only work on numerical values")
                 preaggregated_input_names.append(name)
-                # This line crashes when the preaggregated series values are strings
-                preaggregated_inputs.append(value.get_values().values.astype(np.float64).reshape(-1, 1))
+                preagg_values = value.get_values()
+                if not pd.api.types.is_numeric_dtype(preagg_values.dtype):
+                    preagg_values = np.array(preagg_values.replace(pd.NA, np.nan), dtype='object')
+                else:
+                    preagg_values = preagg_values.astype(np.float64).values
+                preaggregated_inputs.append(preagg_values.reshape(-1, 1))
             else:
                 series_input_names.append(name)
                 if isinstance(value, Events):
@@ -231,11 +243,11 @@ class Compilable:
             raise ValueError("The expression to be aggregated is already an aligned Time Series")
             
         preaggregated_inputs = np.hstack(preaggregated_inputs)
-        compiled_fn = jit(nopython=False)(self.get_executable_function())
+        compiled_fn = jit(nopython=False)(self.get_executable_function(immediate=False))
         lcls = {}
         arg_assignments = ([f"{n}=preagg[{i}]" for i, n in enumerate(preaggregated_input_names)] + 
                            [f"{n}=series_vals[:,{i}]" for i, n in enumerate(series_input_names)])
-        exec(f"def wrapped_fn(fn): return lambda times, series_vals, preagg: fn(times, {', '.join(arg_assignments)})", globals(), lcls)
+        exec(f"def wrapped_fn(fn): return lambda ids, times, series_vals, preagg: fn(ids, times, {', '.join(arg_assignments)})", globals(), lcls)
         wrapped_fn = lcls['wrapped_fn']
         compiled_fn = jit(nopython=False)(wrapped_fn(compiled_fn))
         
@@ -264,8 +276,6 @@ class Compilable:
                                                 AGG_FUNCTIONS[agg_func])
             grouped_values = convert_numba_result_dtype(grouped_values, agg_func)
             
-        # TODO do we need to convert back categorical types?
-        
         assert len(grouped_values) == len(index)
         
         return TimeSeries(index, pd.Series(grouped_values, name=result_name or "aggregated_series").convert_dtypes())
@@ -276,7 +286,10 @@ class Compilable:
         if not isinstance(condition, Compilable):
             condition = Compilable.wrap(condition)
             
-        return Compilable(f"np.where({condition.function_string()}, {self.function_string()}, {other.function_string()})",
+        return Compilable(lambda immediate: (
+            f"({self.function_string()}).where({condition.function_string(immediate)}, {other.function_string(immediate)})" 
+            if immediate else 
+            f"np.where({condition.function_string(immediate)}, {self.function_string(immediate)}, {other.function_string(immediate)})"),
                           leaves={**self.leaves, **condition.leaves, **other.leaves},
                           time_expression=self.time_expression)
     
@@ -284,18 +297,39 @@ class Compilable:
         if not isinstance(condition, Compilable):
             condition = Compilable.wrap(condition)
             
-        return Compilable(f"({self.function_string()})[{condition.function_string()}]",
+        return Compilable(lambda immediate: (
+            f"({self.function_string(immediate)}).where({condition.function_string(immediate)}, np.nan)"
+            if immediate else f"({self.function_string(immediate)})[{condition.function_string(immediate)}]"),
                           leaves={**self.leaves, **condition.leaves},
-                          time_expression=self.time_expression + f"[{condition.function_string()}]")
+                          time_expression=lambda immediate: f"({self.time_expression(immediate)})[{condition.function_string(immediate)}]")
     
     def impute(self, method='mean', constant_value=None):
         if method == 'constant':
-            return self.mono_parent(f"np.where(np.isnan({self.function_string()}), {constant_value}, {self.function_string()})")
-        return self.mono_parent(f"np.where(np.isnan({self.function_string()}), np.nan{method}({self.function_string()}), {self.function_string()})")
+            return self.mono_parent(lambda immediate: (
+                f"({self.function_string(immediate)}).where(~({self.function_string(immediate)}).isna(), ({self.function_string(immediate)}).get_values().dtype.type({constant_value}))"
+                if immediate else f"np.where(np.isnan({self.function_string(immediate)}), {constant_value}, {self.function_string(immediate)})"
+            ))
+        return self.mono_parent(lambda immediate: (
+                f"({self.function_string(immediate)}).where(~({self.function_string(immediate)}).isna(), np.nan{method}({self.function_string(immediate)}))"
+                if immediate else f"np.where(np.isnan({self.function_string(immediate)}), np.nan{method}({self.function_string(immediate)}), {self.function_string(immediate)})"
+            ))
     
     def time(self):
-        return self.mono_parent(f"np.where(np.isnan({self.function_string()}), np.nan, {self.time_expression})")
+        return self.mono_parent(lambda immediate: (
+            f"({self.time_expression(immediate)}).where(~({self.function_string(immediate)}).isna())"
+            if immediate else f"np.where(np.isnan({self.function_string(immediate)}), np.nan, {self.time_expression(immediate)})"
+        ))
     
+    def shift(self, offset):
+        """Shifts the event values by the given number of steps, reversed from Pandas, i.e.
+        a shift by 1 shifts row values backwards, so the value in each row is the
+        value from the next event."""
+        def op(immediate):
+            if immediate:
+                return f"({self.function_string(immediate)}).with_values(({self.function_string(immediate)}).get_values().groupby(({self.function_string(immediate)}).get_ids()).shift({-offset}))"
+            raise NotImplementedError("Shift not supported yet for deferred computation")
+        return op
+        
     # def starttime(self):
     #     return self.mono_parent(f"np.where(np.isnan({self.function_string()}), np.nan, {self.time_expression}[:,0])")
     # def endtime(self):
@@ -308,24 +342,26 @@ class Compilable:
         # contained interval objects to be events.
         new_leaves = {name: Compilable(obj.data.start_events()) if isinstance(obj.data, Intervals) else obj
                       for name, obj in self.leaves.items()}
-        return Compilable(self.function_string(), leaves=new_leaves, time_expression=self.time_expression)
+        return Compilable(self, leaves=new_leaves, time_expression=self.time_expression)
     def end(self):
         new_leaves = {name: Compilable(obj.data.end_events()) if isinstance(obj.data, Intervals) else obj
                       for name, obj in self.leaves.items()}
-        return Compilable(self.function_string(), leaves=new_leaves, time_expression=self.time_expression)
+        return Compilable(self, leaves=new_leaves, time_expression=self.time_expression)
     
-    def __abs__(self): return self.mono_parent(f"abs({self.function_string()})")
-    def __neg__(self): return self.mono_parent(f"-({self.function_string()})")
-    def __pos__(self): return self.mono_parent(f"+({self.function_string()})")
-    def __invert__(self): return self.mono_parent(f"~({self.function_string()})")
+    def __abs__(self): return self.mono_parent(lambda immediate: f"abs({self.function_string(immediate)})")
+    def __neg__(self): return self.mono_parent(lambda immediate: f"-({self.function_string(immediate)})")
+    def __pos__(self): return self.mono_parent(lambda immediate: f"+({self.function_string(immediate)})")
+    def __invert__(self): return self.mono_parent(lambda immediate: f"~({self.function_string(immediate)})")
     
     def _handle_binary_op(self, opname, other, reverse=False):
         if not isinstance(other, Compilable):
             other = Compilable.wrap(other)
-            
-        fn_strings = (self.function_string(), other.function_string())
-        if reverse: fn_strings = fn_strings[1], fn_strings[0]
-        return Compilable(f"({fn_strings[0]}) {opname} ({fn_strings[1]})",
+        
+        def op(immediate):    
+            fn_strings = (self.function_string(immediate), other.function_string(immediate))
+            if reverse: fn_strings = fn_strings[1], fn_strings[0]
+            return f"({fn_strings[0]}) {opname} ({fn_strings[1]})"
+        return Compilable(op,
                           leaves={**self.leaves, **other.leaves},
                           time_expression=self.time_expression)
         
@@ -363,13 +399,13 @@ class Compilable:
     def min(self, other): 
         if not isinstance(other, Compilable):
             other = Compilable.wrap(other)
-        return Compilable(f"min({self.function_string()}, {other.function_string()})",
+        return Compilable(lambda immediate: f"min({self.function_string(immediate)}, {other.function_string(immediate)})",
                           leaves={**self.leaves, **other.leaves},
                           time_expression=self.time_expression)
     def max(self, other): 
         if not isinstance(other, Compilable):
             other = Compilable.wrap(other)
-        return Compilable(f"max({self.function_string()}, {other.function_string()})",
+        return Compilable(lambda immediate: f"max({self.function_string(immediate)}, {other.function_string(immediate)})",
                           leaves={**self.leaves, **other.leaves},
                           time_expression=self.time_expression)
 
@@ -669,6 +705,12 @@ class Events(TimeSeriesQueryable):
                       value_field=self.value_field,
                       name=self.name)
         
+    def shift(self, offset):
+        """Shifts the event values by the given number of steps, reversed from Pandas, i.e.
+        a shift by 1 shifts row values backwards, so the value in each row is the
+        value from the next event."""
+        return self.with_values(self.get_values().groupby(self.get_ids()).shift(-offset))
+        
     def __abs__(self): return self.with_values(self.df[self.value_field].__abs__(), preserve_nans=True)
     def __neg__(self): return self.with_values(self.df[self.value_field].__neg__(), preserve_nans=True)
     def __pos__(self): return self.with_values(self.df[self.value_field].__pos__(), preserve_nans=True)
@@ -864,6 +906,12 @@ class Intervals(TimeSeriesQueryable):
     
     def preserve_nans(self, new_values):
         return new_values.where(~pd.isna(self.get_values()), pd.NA)
+        
+    def shift(self, offset):
+        """Shifts the interval values by the given number of steps, reversed from Pandas, i.e.
+        a shift by 1 shifts row values backwards, so the value in each row is the
+        value from the next interval."""
+        return self.with_values(self.get_values().groupby(self.get_ids()).shift(-offset))
         
     def __getattr__(self, name):
         value_series = self.df[self.value_field]

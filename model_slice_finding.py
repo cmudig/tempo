@@ -524,13 +524,13 @@ class SliceDiscoveryHelper(SliceHelper):
             discovery_score_fns, _ = self.get_score_functions(valid_df, timestep_def, include_model_names=[model_name])
             
             result_key = self.controls_to_result_key(controls)
-            print('result key:', result_key)
             
             # Save time by only finding slices on the rows where the outcome exists
             outcome_exists = ~np.isnan(outcomes)
             discovery_df = valid_df.filter(outcome_exists)
             discovery_score_fns = {k: fn.subslice(outcome_exists) for k, fn in discovery_score_fns.items()}
             discovery_outcomes = outcomes[outcome_exists]
+            print(discovery_df.df.shape, discovery_outcomes.shape)
             
             last_progress = 0
             

@@ -545,6 +545,12 @@ class EvaluateExpression(lark.visitors.Transformer):
             if isinstance(pattern, re.Pattern) and not pattern.groups:
                 pattern = re.compile("(" + pattern.pattern + ")", flags=pattern.flags)
             return operands[0].with_values(operands[0].get_values().str.extract(pattern)[operands[2] if len(operands) > 2 else 0])
+        elif function_name == "shift":
+            if len(operands) != 2: raise ValueError(f"{function_name} function requires exactly two operands")
+            return operands[0].shift(operands[1])
+        elif function_name in ("previous", "next"):
+            if len(operands) != 1: raise ValueError(f"{function_name} function requires exactly two operands")
+            return operands[0].shift(1 if function_name == "next" else -1)
         else:
             raise ValueError(f"Unknown function '{function_name}'")
 

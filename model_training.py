@@ -100,9 +100,11 @@ class ModelTrainer:
         if row_mask is None: row_mask = np.ones(len(variables), dtype=bool)
         train_X = variables[train_mask & row_mask].values
         train_y = outcomes[train_mask & row_mask]
+        print(train_X, train_y, pd.isna(train_X).sum(axis=0), pd.isna(train_y).sum())
         train_ids = ids[train_mask & row_mask]
         val_X = variables[val_mask & row_mask].values
         val_y = outcomes[val_mask & row_mask]
+        print(val_X, val_y, pd.isna(val_X).sum(axis=0), pd.isna(val_y).sum())
         val_ids = ids[val_mask & row_mask]
         test_X = variables[test_mask & row_mask].values
         test_y = outcomes[test_mask & row_mask]

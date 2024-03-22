@@ -167,7 +167,7 @@ def numba_join_events_dynamic(ids, starts, ends, value_fn, event_ids, event_time
                         grouped_values.append(agg_func(np.empty((0,), dtype=np.float64), starts[t], ends[t]))
                     else:
                         matched_values = event_values[matched_idxs]
-                        transformed_values = value_fn(event_times[matched_idxs], matched_values, preaggregated_values[len(grouped_values)])
+                        transformed_values = value_fn(event_ids[matched_idxs], event_times[matched_idxs], matched_values, preaggregated_values[len(grouped_values)])
                         grouped_values.append(agg_func(transformed_values, starts[t], ends[t]))    
                         
             else:
@@ -298,7 +298,8 @@ def numba_join_intervals_dynamic(ids, starts, ends, value_fn, interval_ids, inte
                     else:
                         matched_intervals = interval_values[matched_idxs]
 
-                        transformed_values = value_fn(np.stack((interval_starts[matched_idxs], interval_ends[matched_idxs]), axis=1), 
+                        transformed_values = value_fn(interval_ids[matched_idxs],
+                                                      np.stack((interval_starts[matched_idxs], interval_ends[matched_idxs]), axis=1), 
                                                       matched_intervals, 
                                                       preaggregated_values[len(grouped_values)])
                         if agg_type == "rate":
