@@ -1,23 +1,23 @@
 <script lang="ts">
-  import { type ModelMetrics, type VariableDefinition } from './model';
+  import { type ModelMetrics, type VariableDefinition } from '../model';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import * as d3 from 'd3';
-  import ModelTrainingView from './ModelTrainingView.svelte';
+  import ModelTrainingView from '../ModelTrainingView.svelte';
   import {
     checkSlicingStatus,
     checkTrainingStatus,
     type SliceFindingStatus,
     type TrainingStatus,
-  } from './training';
+  } from '../training';
   import SliceSearchView from './SliceSearchView.svelte';
   import {
     SliceSearchControl,
     type Slice,
     type SliceFeatureBase,
-  } from './slices/utils/slice.type';
-  import { areObjectsEqual } from './slices/utils/utils';
-  import SliceDetailsView from './slice_details/SliceDetailsView.svelte';
-  import ResizablePanel from './utils/ResizablePanel.svelte';
+  } from '../slices/utils/slice.type';
+  import { areObjectsEqual } from '../slices/utils/utils';
+  import SliceDetailsView from '../slice_details/SliceDetailsView.svelte';
+  import ResizablePanel from '../utils/ResizablePanel.svelte';
 
   const dispatch = createEventDispatcher();
 

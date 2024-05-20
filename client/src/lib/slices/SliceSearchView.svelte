@@ -6,9 +6,9 @@
     type SliceMetric,
     SliceControlStrings,
     type SliceMetricInfo,
-  } from './slices/utils/slice.type';
-  import SliceRow from './slices/slice_table/SliceRow.svelte';
-  import Hoverable from './slices/utils/Hoverable.svelte';
+  } from './utils/slice.type';
+  import SliceRow from './slice_table/SliceRow.svelte';
+  import Hoverable from './utils/Hoverable.svelte';
   import {
     faFilter,
     faMinus,
@@ -23,18 +23,18 @@
     areSetsEqual,
     sortMetrics,
     sortScoreNames,
-  } from './slices/utils/utils';
-  import { TableWidths } from './slices/slice_table/tablewidths';
-  import SliceTable from './slices/slice_table/SliceTable.svelte';
-  import SliceFeatureEditor from './slices/slice_table/SliceFeatureEditor.svelte';
-  import { featureToString, parseFeature } from './slices/utils/slice_parsing';
-  import SliceFeature from './slices/slice_table/SliceFeature.svelte';
-  import ActionMenuButton from './slices/utils/ActionMenuButton.svelte';
+  } from './utils/utils';
+  import { TableWidths } from './slice_table/tablewidths';
+  import SliceTable from './slice_table/SliceTable.svelte';
+  import SliceFeatureEditor from './slice_table/SliceFeatureEditor.svelte';
+  import { featureToString, parseFeature } from './utils/slice_parsing';
+  import SliceFeature from './slice_table/SliceFeature.svelte';
+  import ActionMenuButton from './utils/ActionMenuButton.svelte';
   import { createEventDispatcher } from 'svelte';
-  import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
-  import ScoreWeightMenu from './slices/utils/ScoreWeightMenu.svelte';
+  import SliceMetricBar from './metric_charts/SliceMetricBar.svelte';
+  import ScoreWeightMenu from './utils/ScoreWeightMenu.svelte';
   import SliceSpecEditor from './SliceSpecEditor.svelte';
-  import { MetricColors } from './colors';
+  import { MetricColors } from '../colors';
 
   const dispatch = createEventDispatcher();
 

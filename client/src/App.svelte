@@ -4,7 +4,7 @@
   import ModelEditor from './lib/ModelEditor.svelte';
   import ModelResultsView from './lib/ModelResultsView.svelte';
   import SlicesView from './lib/SlicesView.svelte';
-  import Sidebar from './lib/Sidebar.svelte';
+  import Sidebar from './lib/sidebar/Sidebar.svelte';
   import type { Slice, SliceFeatureBase } from './lib/slices/utils/slice.type';
   import {
     faBook,
@@ -12,7 +12,6 @@
     faWarning,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
-  import SavedSlicesView from './lib/SavedSlicesView.svelte';
   import ResizablePanel from './lib/utils/ResizablePanel.svelte';
   import DatasetInfoView from './lib/DatasetInfoView.svelte';
   import logoUrl from './assets/logo_dark.svg';

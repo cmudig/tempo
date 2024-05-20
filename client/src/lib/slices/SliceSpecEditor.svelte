@@ -1,8 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
-  import type { SliceFilter, SliceSpec, VariableDefinition } from './model';
-  import VariableEditorPanel from './VariableEditorPanel.svelte';
-  import { areObjectsEqual, deepCopy } from './slices/utils/utils';
+  import type { SliceFilter, SliceSpec, VariableDefinition } from '../model';
+  import VariableEditorPanel from '../model_editor/VariableEditorPanel.svelte';
+  import { areObjectsEqual, deepCopy } from '../slices/utils/utils';
   import { faRotateRight } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
 

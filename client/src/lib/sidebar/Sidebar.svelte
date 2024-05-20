@@ -1,13 +1,13 @@
 <script lang="ts">
-  import type { ModelMetrics, ModelSummary } from './model';
-  import SidebarItem from './SidebarItem.svelte';
-  import SliceFeature from './slices/slice_table/SliceFeature.svelte';
+  import type { ModelMetrics, ModelSummary } from '../model';
+  import SidebarItem from '../SidebarItem.svelte';
+  import SliceFeature from '../slices/slice_table/SliceFeature.svelte';
   import type {
     Slice,
     SliceFeatureBase,
     SliceMetric,
-  } from './slices/utils/slice.type';
-  import { SidebarTableWidths } from './utils/sidebarwidths';
+  } from '../slices/utils/slice.type';
+  import { SidebarTableWidths } from '../utils/sidebarwidths';
   import {
     faPlus,
     faSort,
@@ -16,8 +16,8 @@
     faXmark,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
-  import { areObjectsEqual, areSetsEqual } from './slices/utils/utils';
-  import ActionMenuButton from './slices/utils/ActionMenuButton.svelte';
+  import { areObjectsEqual, areSetsEqual } from '../slices/utils/utils';
+  import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
   import { createEventDispatcher } from 'svelte';
 
   const dispatch = createEventDispatcher();

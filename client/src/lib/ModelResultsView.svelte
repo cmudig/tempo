@@ -4,7 +4,6 @@
     ModelTypeStrings,
     type ModelMetrics,
     type ModelSummary,
-    type VariableDefinition,
   } from './model';
   import Fa from 'svelte-fa/src/fa.svelte';
   import { createEventDispatcher, onDestroy } from 'svelte';
@@ -13,9 +12,7 @@
   import { checkTrainingStatus } from './training';
   import { faWarning, faXmarkCircle } from '@fortawesome/free-solid-svg-icons';
   import RocLineChart from './slices/charts/ROCLineChart.svelte';
-  import TableCellBar from './slices/metric_charts/TableCellBar.svelte';
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
-  import ModelDataSummaryElement from './ModelDataSummaryElement.svelte';
   import { MetricColors } from './colors';
   import Histogram2D from './slices/charts/Histogram2D.svelte';
   import Tooltip from './utils/Tooltip.svelte';
@@ -254,19 +251,6 @@
         {/if}
       </div>
     </div>
-    <!-- {#if !!metrics.data_summary}
-      <div
-        class="mb-2 rounded bg-slate-100 p-4 w-full flex-auto min-h-0 overflow-y-auto"
-        style="min-height: 300px;"
-      >
-        <div style="max-width: 500px;">
-          <div class="font-bold mb-4">Training Set Overview</div>
-          {#each metrics.data_summary.fields as field}
-            <ModelDataSummaryElement element={field} />
-          {/each}
-        </div>
-      </div>
-    {/if} -->
   {:else}
     <div class="w-full h-full flex flex-column items-center justify-center">
       <div class="text-slate-500">No metrics available for this model yet.</div>
