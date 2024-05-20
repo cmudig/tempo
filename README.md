@@ -2,7 +2,7 @@
 
 ## Installation
 
-To set up, `cd` into the main `timeseries_model_selection` directory, and run
+To set up, `cd` into the main `tempo` directory, and run
 `pip install -r requirements.txt`. Then `cd` into the `client` directory and run
 `npm install`.
 

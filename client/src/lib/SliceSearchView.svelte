@@ -126,12 +126,22 @@
     (r) => (savedSliceRequestResults = r)
   );
 
+  let oldSliceSpec = sliceSpec;
+  $: if (sliceSpec !== oldSliceSpec) {
+    sliceRequests = {};
+    savedSliceRequests = {};
+    savedSlices = {};
+  }
+
   async function requestSliceScores(
     requests: {
       [key: string]: SliceFeatureBase;
     },
     models: string[]
-  ) {
+  ): Promise<{ [key: string]: Slice }> {
+    if (Object.keys(requests).length == 0) {
+      return {};
+    }
     try {
       let results = await (
         await fetch(`/slices/${models.join(',')}/score`, {
@@ -360,7 +370,7 @@
           buttonClass="btn btn-slate"
           buttonTitle="Adjust weights for how slices are ranked"
           disabled={retrievingSlices}
-          menuWidth={400}
+          menuWidth={440}
           singleClick={false}
         >
           <span slot="button-content"

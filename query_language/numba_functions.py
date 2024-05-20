@@ -2,37 +2,37 @@ from numba import njit, jit
 import numpy as np
 
 @njit 
-def numba_sum(x, t0, t1): return np.nansum(x) if len(x[~np.isnan(x)]) else np.nan
+def numba_sum(x, t0, t1): return np.nansum(x) if len(x[x == x]) else np.nan
 @njit 
-def numba_mean(x, t0, t1): return np.nanmean(x) if len(x[~np.isnan(x)]) else np.nan
+def numba_mean(x, t0, t1): return np.nanmean(x) if len(x[x == x]) else np.nan
 @njit 
-def numba_median(x, t0, t1): return np.nanmedian(x) if len(x[~np.isnan(x)]) else np.nan
+def numba_median(x, t0, t1): return np.nanmedian(x) if len(x[x == x]) else np.nan
 @njit 
-def numba_min(x, t0, t1): return np.nanmin(x) if len(x[~np.isnan(x)]) else np.nan
+def numba_min(x, t0, t1): return np.nanmin(x) if len(x[x == x]) else np.nan
 @njit 
-def numba_max(x, t0, t1): return np.nanmax(x) if len(x[~np.isnan(x)]) else np.nan
+def numba_max(x, t0, t1): return np.nanmax(x) if len(x[x == x]) else np.nan
 @jit(nopython=False)
-def numba_first(x, t0, t1): return x[~np.isnan(x)][0] if (~np.isnan(x)).sum() else np.nan
+def numba_first(x, t0, t1): return x[x == x][0] if (x == x).sum() else np.nan
 @jit(nopython=False)
-def numba_last(x, t0, t1): return x[~np.isnan(x)][-1] if (~np.isnan(x)).sum() else np.nan
+def numba_last(x, t0, t1): return x[x == x][-1] if (x == x).sum() else np.nan
 @jit(nopython=False)
-def numba_any(x, t0, t1): return (1.0 if np.nansum(x) > 0 else 0.0) if len(x[~np.isnan(x)]) else np.nan
+def numba_any(x, t0, t1): return (1.0 if np.nansum(x) > 0 else 0.0) if len(x[x == x]) else np.nan
 @jit(nopython=False)
-def numba_all(x, t0, t1): return (1.0 if np.isnan(x).sum() == 0 and np.all(x) else 0.0) if len(x[~np.isnan(x)]) else np.nan
+def numba_all(x, t0, t1): return (1.0 if np.isnan(x).sum() == 0 and np.all(x) else 0.0) if len(x[x == x]) else np.nan
 @jit(nopython=False)
-def numba_all_nonnull(x, t0, t1): return (1.0 if np.all(x[~np.isnan(x)]) else 0.0) if len(x[~np.isnan(x)]) else np.nan
+def numba_all_nonnull(x, t0, t1): return (1.0 if np.all(x[x == x]) else 0.0) if len(x[x == x]) else np.nan
 @jit(nopython=False)
 def numba_exists(x, t0, t1): return 1.0 if len(x) else 0.0
 @jit(nopython=False)
-def numba_exists_nonnull(x, t0, t1): return 1.0 if len(x[~np.isnan(x)]) else 0.0
+def numba_exists_nonnull(x, t0, t1): return 1.0 if len(x[x == x]) else 0.0
 @jit(nopython=False)
 def numba_count(x, t0, t1): return len(x)
 @jit(nopython=False)
 def numba_count_distinct(x, t0, t1): return len(set(x))
 @jit(nopython=False)
-def numba_count_nonnull(x, t0, t1): return len(x[~np.isnan(x)])
+def numba_count_nonnull(x, t0, t1): return len(x[x == x])
 @jit(nopython=False)
-def numba_count_distinct_nonnull(x, t0, t1): return len(set(x[~np.isnan(x)]))
+def numba_count_distinct_nonnull(x, t0, t1): return len(set(x[x == x]))
 @njit
 def numba_integral(x, t0, t1): return np.nansum(x) * (t1 - t0) if len(x) else np.nan
     

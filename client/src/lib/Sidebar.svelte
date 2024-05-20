@@ -305,14 +305,14 @@
     >
   </div>
   {#if !!selectedSlice}
-    <div class="rounded bg-slate-100 px-3 pt-3 mx-2 mb-2">
+    <div class="rounded bg-slate-100 px-3 py-3 mx-2 mb-2">
       <div class="ml-2 flex text-xs font-bold text-slate-600">
         <div class="flex-auto">Within slice:</div>
         <button class="hover:opacity-50" on:click={() => (selectedSlice = null)}
           ><Fa icon={faXmark} /></button
         >
       </div>
-      <div class="overflow-x-scroll whitespace-nowrap">
+      <div class="overflow-x-auto whitespace-nowrap">
         <SliceFeature
           feature={selectedSlice}
           currentFeature={selectedSlice}
@@ -330,7 +330,7 @@
   {:else}
     <div class="px-2 overflow-auto flex-auto min-h-0">
       <div
-        class="text-sm text-left inline-flex align-top slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600"
+        class="text-sm text-left inline-flex align-top slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600 sticky top-0 z-1"
       >
         <div
           class="grow-0 shrink-0"

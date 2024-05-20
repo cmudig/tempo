@@ -340,7 +340,7 @@ class SliceHelper:
                 valid_acc = np.where(np.isnan(valid_outcomes), np.nan, valid_outcomes == valid_preds)
                 score_fns.update({
                     f"{model_name}_err": sf.scores.OutcomeRateScore(1 - valid_acc),
-                    f"{model_name}_err_low": sf.scores.OutcomeRateScore(1 - valid_acc),
+                    f"{model_name}_err_low": sf.scores.OutcomeRateScore(1 - valid_acc, inverse=True),
                 })
                 if preds.shape[1] <= 10:
                     # Add score functions for every single category

@@ -168,3 +168,7 @@ input[type='search'].flat-text-input {
 .flat-text-input-large:focus {
   @apply outline-none border-blue-600 bg-white;
 }
+
+.z-1 {
+  z-index: 1;
+}

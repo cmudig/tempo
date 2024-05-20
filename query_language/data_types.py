@@ -149,7 +149,7 @@ class Compilable:
         # Functions can use the times argument to access either the event times
         # or interval starts/ends for each row
         if False: # Debug mode
-            debug_str = f"print('values in wrapped fn:', ids, times, {', '.join(str(k) for k in self.leaves.keys())}); "
+            debug_str = f"print('values in wrapped fn:', ids, times, {', '.join('repr(' + str(k) + ')' for k in self.leaves.keys())}); "
         else:
             debug_str = ""
         function_string = f"def compiled_fn(ids, times, {', '.join(args)}): {debug_str} return {self.function_string(immediate)}"
@@ -198,7 +198,7 @@ class Compilable:
                 preaggregated_input_names.append(name)
                 preagg_values = value.get_values()
                 if not pd.api.types.is_numeric_dtype(preagg_values.dtype):
-                    preagg_values = np.array(preagg_values.replace(pd.NA, np.nan), dtype='object')
+                    preagg_values = np.where(pd.isna(preagg_values), np.nan, np.array(preagg_values, dtype='object'))
                 else:
                     preagg_values = preagg_values.astype(np.float64).values
                 preaggregated_inputs.append(preagg_values.reshape(-1, 1))
@@ -287,7 +287,7 @@ class Compilable:
             condition = Compilable.wrap(condition)
             
         return Compilable(lambda immediate: (
-            f"({self.function_string()}).where({condition.function_string(immediate)}, {other.function_string(immediate)})" 
+            f"({self.function_string()}).where(({condition.function_string(immediate)}).get_values().astype(bool), ({other.function_string(immediate)}).get_values())" 
             if immediate else 
             f"np.where({condition.function_string(immediate)}, {self.function_string(immediate)}, {other.function_string(immediate)})"),
                           leaves={**self.leaves, **condition.leaves, **other.leaves},
@@ -298,7 +298,7 @@ class Compilable:
             condition = Compilable.wrap(condition)
             
         return Compilable(lambda immediate: (
-            f"({self.function_string(immediate)}).where({condition.function_string(immediate)}, np.nan)"
+            f"({self.function_string(immediate)}).filter(({condition.function_string(immediate)}).get_values().astype(bool))"
             if immediate else f"({self.function_string(immediate)})[{condition.function_string(immediate)}]"),
                           leaves={**self.leaves, **condition.leaves},
                           time_expression=lambda immediate: f"({self.time_expression(immediate)})[{condition.function_string(immediate)}]")
@@ -307,17 +307,17 @@ class Compilable:
         if method == 'constant':
             return self.mono_parent(lambda immediate: (
                 f"({self.function_string(immediate)}).where(~({self.function_string(immediate)}).isna(), ({self.function_string(immediate)}).get_values().dtype.type({constant_value}))"
-                if immediate else f"np.where(np.isnan({self.function_string(immediate)}), {constant_value}, {self.function_string(immediate)})"
+                if immediate else f"np.where(({self.function_string(immediate)}) != ({self.function_string(immediate)}), {constant_value}, {self.function_string(immediate)})"
             ))
         return self.mono_parent(lambda immediate: (
                 f"({self.function_string(immediate)}).where(~({self.function_string(immediate)}).isna(), np.nan{method}({self.function_string(immediate)}))"
-                if immediate else f"np.where(np.isnan({self.function_string(immediate)}), np.nan{method}({self.function_string(immediate)}), {self.function_string(immediate)})"
+                if immediate else f"np.where(({self.function_string(immediate)}) != ({self.function_string(immediate)}), np.nan{method}({self.function_string(immediate)}), {self.function_string(immediate)})"
             ))
     
     def time(self):
         return self.mono_parent(lambda immediate: (
             f"({self.time_expression(immediate)}).where(~({self.function_string(immediate)}).isna())"
-            if immediate else f"np.where(np.isnan({self.function_string(immediate)}), np.nan, {self.time_expression(immediate)})"
+            if immediate else f"np.where(({self.function_string(immediate)}) != ({self.function_string(immediate)}), np.nan, {self.time_expression(immediate)})"
         ))
     
     def shift(self, offset):
@@ -330,6 +330,11 @@ class Compilable:
             raise NotImplementedError("Shift not supported yet for deferred computation")
         return op
         
+    def get_values(self):
+        return self.execute().get_values()
+    
+    def with_values(self, values):
+        return self.execute().with_values(values)
     # def starttime(self):
     #     return self.mono_parent(f"np.where(np.isnan({self.function_string()}), np.nan, {self.time_expression}[:,0])")
     # def endtime(self):
@@ -587,7 +592,7 @@ class Events(TimeSeriesQueryable):
     
     def filter(self, mask):
         """Returns a new Events with only steps for which the mask is True."""
-        if hasattr(mask, "get_values"): mask = mask.get_values()
+        if hasattr(mask, "get_values"): mask = mask.get_values().astype(bool)
         return Events(self.df[mask].reset_index(drop=True),
                       type_field=self.type_field,
                       time_field=self.time_field,
@@ -651,7 +656,7 @@ class Events(TimeSeriesQueryable):
             uniques = None
         else:
             if not pd.api.types.is_numeric_dtype(event_values.dtype):
-                event_values = np.array(event_values.replace(pd.NA, np.nan), dtype='object')
+                event_values = np.where(pd.isna(event_values), np.nan, np.array(event_values, dtype='object'))
             else:
                 event_values = event_values.values.astype(np.float64)
             uniques = None
@@ -787,7 +792,7 @@ class EventSet(TimeSeriesQueryable):
     
     def filter(self, mask):
         """Returns a new EventSet with only steps for which the mask is True."""
-        if hasattr(mask, "get_values"): mask = mask.get_values()
+        if hasattr(mask, "get_values"): mask = mask.get_values().astype(bool)
         return EventSet(self.df[mask].reset_index(drop=True),
                       type_field=self.type_field,
                       time_field=self.time_field,
@@ -855,7 +860,7 @@ class Intervals(TimeSeriesQueryable):
      
     def filter(self, mask):
         """Returns a new Intervals with only steps for which the mask is True."""
-        if hasattr(mask, "get_values"): mask = mask.get_values()
+        if hasattr(mask, "get_values"): mask = mask.get_values().astype(bool)
         return Intervals(self.df[mask].reset_index(drop=True),
                       type_field=self.type_field,
                       start_time_field=self.start_time_field,
@@ -957,7 +962,7 @@ class Intervals(TimeSeriesQueryable):
             uniques = None
         else:
             if not pd.api.types.is_numeric_dtype(interval_values.dtype):
-                interval_values = np.array(interval_values.replace(pd.NA, np.nan), dtype='object')
+                interval_values = np.where(pd.isna(interval_values), np.nan, np.array(interval_values, dtype='object'))
             else:
                 interval_values = interval_values.values.astype(np.float64)
             uniques = None
@@ -1097,7 +1102,7 @@ class IntervalSet(TimeSeriesQueryable):
     
     def filter(self, mask):
         """Returns a new Intervals with only steps for which the mask is True."""
-        if hasattr(mask, "get_values"): mask = mask.get_values()
+        if hasattr(mask, "get_values"): mask = mask.get_values().astype(bool)
         return IntervalSet(self.df[mask].reset_index(drop=True),
                       type_field=self.type_field,
                       start_time_field=self.start_time_field,
@@ -1231,7 +1236,7 @@ class TimeIndex(TimeSeriesQueryable):
     
     def filter(self, mask):
         """Returns a new time index with only steps for which the mask is True."""
-        if hasattr(mask, "get_values"): mask = mask.get_values()
+        if hasattr(mask, "get_values"): mask = mask.get_values().astype(bool)
         return TimeIndex(self.timesteps[mask].reset_index(drop=True), id_field=self.id_field, time_field=self.time_field)
         
     @staticmethod
@@ -1460,7 +1465,7 @@ class TimeSeries(TimeSeriesQueryable):
     def filter(self, mask):
         """Returns a new time series with an updated index and values with only
         values for which the mask is True."""
-        if hasattr(mask, "get_values"): mask = mask.get_values()
+        if hasattr(mask, "get_values"): mask = mask.get_values().astype(bool)
         return TimeSeries(self.index.filter(mask), self.series[mask].reset_index(drop=True))
         
     def __len__(self):
@@ -1641,7 +1646,7 @@ class TimeSeriesSet:
     def filter(self, mask):
         """Returns a new time series set with an updated index and values with only
         values for which the mask is True."""
-        if hasattr(mask, "get_values"): mask = mask.get_values()
+        if hasattr(mask, "get_values"): mask = mask.get_values().astype(bool)
         return TimeSeriesSet(self.index.filter(mask), self.values[mask].reset_index(drop=True))
         
     @staticmethod
