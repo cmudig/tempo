@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ModelMetrics, ModelSummary } from '../model';
-  import SidebarItem from '../SidebarItem.svelte';
+  import SidebarItem from './SidebarItem.svelte';
   import SliceFeature from '../slices/slice_table/SliceFeature.svelte';
   import type {
     Slice,
@@ -214,56 +214,6 @@
       );
     }
   }
-
-  function compareModels(
-    baseModel: ModelSummary,
-    otherModel: ModelSummary
-  ): string[] {
-    let results: string[] = [];
-    if (
-      (baseModel.timestep_definition ?? '') !=
-      (otherModel.timestep_definition ?? '')
-    )
-      results.push('timestep definition');
-
-    if (
-      !!baseModel.model_type &&
-      !!otherModel.model_type &&
-      baseModel.model_type != otherModel.model_type
-    )
-      results.push('model type');
-    if ((baseModel.outcome ?? '') != (otherModel.outcome ?? ''))
-      results.push('target');
-
-    if (
-      !!baseModel.variables &&
-      !!otherModel.variables &&
-      !areObjectsEqual(baseModel.variables, otherModel.variables)
-    ) {
-      let numDifferences =
-        Object.keys(baseModel.variables).filter(
-          (name) =>
-            !otherModel.variables[name] ||
-            baseModel.variables[name].query !=
-              otherModel.variables[name].query ||
-            baseModel.variables[name].enabled !=
-              otherModel.variables[name].enabled
-        ).length +
-        Object.keys(otherModel.variables).filter(
-          (name) => !baseModel.variables[name]
-        ).length;
-      if (numDifferences > 0)
-        results.push(
-          `${numDifferences} input${numDifferences != 1 ? 's' : ''}`
-        );
-      else results.push(`some inputs`);
-    }
-
-    if ((baseModel.cohort ?? '') != (otherModel.cohort ?? ''))
-      results.push('filter');
-
-    return results;
-  }
 </script>
 
 <div class="flex flex-col w-full h-full">
@@ -383,11 +333,6 @@
           {modelName}
           {metricToShow}
           {metricScales}
-          differences={activeModel !== null && activeModel === modelName
-            ? []
-            : !!models[activeModel]
-              ? compareModels(models[activeModel], model)
-              : []}
           customMetrics={sliceMetrics?.[modelName] ?? undefined}
           isActive={activeModel === modelName}
           isChecked={selectedModels.includes(modelName) ||

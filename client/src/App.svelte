@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { type ModelSummary, metricsHaveWarnings } from './lib/model';
-  import ModelEditor from './lib/ModelEditor.svelte';
+  import ModelEditor from './lib/model_editor/ModelEditor.svelte';
   import ModelResultsView from './lib/ModelResultsView.svelte';
-  import SlicesView from './lib/SlicesView.svelte';
+  import SlicesView from './lib/slices/SlicesView.svelte';
   import Sidebar from './lib/sidebar/Sidebar.svelte';
   import type { Slice, SliceFeatureBase } from './lib/slices/utils/slice.type';
   import {
