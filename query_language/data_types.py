@@ -1191,14 +1191,15 @@ class Duration(TimeSeriesQueryable):
     def __rxor__(self, other): return self._handle_binary_op("__rxor__", other)
     
 
+TIME_INDEX_TIME_FIELD = "__TimeIndexTime"
     
 class TimeIndex(TimeSeriesQueryable):
     def __init__(self, timesteps, id_field="id", time_field="time"):
         """timesteps: a dataframe with instance ID and whose values indicate
             times in the instance's trajectory."""
         self.timesteps = timesteps.sort_values(id_field, kind='stable')
-        self.id_field = id_field
         self.time_field = time_field
+        self.id_field = id_field
     
     def serialize(self):
         return {
@@ -1407,7 +1408,6 @@ class TimeIndex(TimeSeriesQueryable):
     def __mod__(self, other): return self.to_timeseries()._handle_binary_op("__mod__", other)
     def __mul__(self, other): return self.to_timeseries()._handle_binary_op("__mul__", other)
     def __pow__(self, other): return self.to_timeseries()._handle_binary_op("__pow__", other)
-    def __sub__(self, other): return self.to_timeseries()._handle_binary_op("__sub__", other)
     def __truediv__(self, other): return self.to_timeseries()._handle_binary_op("__truediv__", other)
 
     def __rdiv__(self, other): return self.to_timeseries()._handle_binary_op("__rdiv__", other)
@@ -1431,6 +1431,10 @@ class TimeSeries(TimeSeriesQueryable):
         """
         self.index = index
         self.series = series
+        if series.name in self.index.timesteps.columns:
+            # The series probably derives from the time index
+            self.series = self.series.rename(self.series.name + "_values")
+            assert self.series.name not in self.index.timesteps.columns, f"Series name '{self.series.name}' clashes with time index"
         self.name = self.series.name
         assert len(self.index) == len(self.series)
         
