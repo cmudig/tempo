@@ -120,7 +120,13 @@
     >
   </div>
   <div class="flex-auto w-full flex h-0">
-    <ResizablePanel rightResizable width={540} maxWidth={720} height="100%">
+    <ResizablePanel
+      rightResizable
+      width={540}
+      minWidth={300}
+      maxWidth={720}
+      height="100%"
+    >
       <Sidebar
         {models}
         bind:metricToShow

@@ -4,17 +4,21 @@
   import TableCellBar from './TableCellBar.svelte';
   import { cumulativeSum } from '../utils/utils';
 
-  export let width = 100;
+  export let width: number | null = 100;
   export let scale = null;
 
   export let value = 0.0;
   export let values = null;
   export let showFullBar = false;
+  export let showTooltip = true;
 
   export let colors = schemeCategory10;
   export let colorScale = interpolateViridis;
   export let color: string | null = null;
+  export let fullBarColor: string = '#e5e7eb';
   export let hoverable = false;
+  export let title: string | null = null;
+  export let horizontalLayout = false;
 
   let hoveringIndex = null;
 
@@ -24,51 +28,58 @@
   } else offsets = [];
 </script>
 
-<div
-  class="parent-bar relative mb-1 rounded-full overflow-hidden"
-  style="width: {width}px; height: 6px;"
->
-  {#if showFullBar}
-    <TableCellBar
-      absolutePosition
-      maxWidth={width}
-      fraction={1.0}
-      color="#cbd5e1"
-      {hoverable}
-      on:mouseenter={(e) => (hoveringIndex = -1)}
-      on:mouseleave={(e) => (hoveringIndex = null)}
-    />
+<div class:flex={horizontalLayout} class="items-center gap-1">
+  {#if !!title}
+    <div class="font-bold text-xs truncate text-right" style="width: 96px;">
+      {title}
+    </div>
   {/if}
-  {#if values != null}
-    {#each values as v, i}
+  <div
+    class="parent-bar relative rounded-full overflow-hidden"
+    class:mb-1={!horizontalLayout}
+    style="width: {width == null ? '100%' : `${width}px`}; height: 6px;"
+  >
+    {#if showFullBar}
       <TableCellBar
         absolutePosition
-        maxWidth={width}
-        leftFraction={i > 0 ? (scale || ((x) => x))(offsets[i - 1]) : 0}
-        fraction={(scale || ((x) => x))(v)}
-        color={colors[i]}
-        rounded={false}
+        fraction={1.0}
+        color={fullBarColor}
         {hoverable}
-        on:mouseenter={(e) => (hoveringIndex = i)}
+        on:mouseenter={(e) => (hoveringIndex = -1)}
         on:mouseleave={(e) => (hoveringIndex = null)}
       />
-    {/each}
-  {:else}
-    <TableCellBar
-      absolutePosition
-      maxWidth={width}
-      fraction={(scale || ((v) => v))(value)}
-      colorScale={!!color ? () => color : colorScale}
-      {hoverable}
-      on:mouseenter={(e) => (hoveringIndex = 0)}
-      on:mouseleave={(e) => (hoveringIndex = null)}
-    />
-  {/if}
-</div>
-<div class="text-xs text-slate-800 dark:text-slate-100">
-  {#if !$$slots.caption}
-    {format('.3')(value)}
-  {:else}
-    <slot name="caption" {hoveringIndex} />
+    {/if}
+    {#if values != null}
+      {#each values as v, i}
+        <TableCellBar
+          absolutePosition
+          leftFraction={i > 0 ? (scale || ((x) => x))(offsets[i - 1]) : 0}
+          fraction={(scale || ((x) => x))(v)}
+          color={colors[i]}
+          rounded={false}
+          {hoverable}
+          on:mouseenter={(e) => (hoveringIndex = i)}
+          on:mouseleave={(e) => (hoveringIndex = null)}
+        />
+      {/each}
+    {:else}
+      <TableCellBar
+        absolutePosition
+        fraction={(scale || ((v) => v))(value)}
+        colorScale={!!color ? () => color : colorScale}
+        {hoverable}
+        on:mouseenter={(e) => (hoveringIndex = 0)}
+        on:mouseleave={(e) => (hoveringIndex = null)}
+      />
+    {/if}
+  </div>
+  {#if showTooltip}
+    <div class="text-xs text-slate-800">
+      {#if !$$slots.caption}
+        {format('.3')(value)}
+      {:else}
+        <slot name="caption" {hoveringIndex} />
+      {/if}
+    </div>
   {/if}
 </div>

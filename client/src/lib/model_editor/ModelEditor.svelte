@@ -430,12 +430,10 @@
         <h2 class="text-lg font-bold">Edit {1 + otherModels.length} Models</h2>
       {/if}
     </div>
-    <h3 class="font-bold mt-3 mb-1">
-      Timestep Definition &nbsp;<Tooltip
-        title="Defines the points in time within each trajectory at which the model will be run."
-        position="right"
-      />
-    </h3>
+    <h3 class="font-bold mt-3">Timestep Definition</h3>
+    <div class="text-slate-500 text-xs mb-2">
+      Run the model at these time points in each trajectory:
+    </div>
     {#if timestepDefinition !== null}
       <textarea
         spellcheck={false}
@@ -469,12 +467,10 @@
       </select>
     {/if}
 
-    <h3 class="font-bold mt-3 mb-1">
-      Timestep Filter &nbsp;<Tooltip
-        title="A predicate that returns true for any timestep that should be evaluated by the model."
-        position="right"
-      />
-    </h3>
+    <h3 class="font-bold mt-3">Timestep Filter</h3>
+    <div class="text-slate-500 text-xs mb-2">
+      Only run the model for timesteps where:
+    </div>
     {#if patientCohort !== null}
       <VariableEditor
         varName="cohort"
@@ -513,14 +509,12 @@
     bind:value={patientCohort}
   /> -->
 
-    <h3 class="font-bold mt-2 mb-1">
-      Input Variables &nbsp;<Tooltip
-        title="Variables that are computed at each timestep defined by the Timestep Definition, to be used as inputs to the model."
-        position="right"
-      />
-    </h3>
+    <h3 class="font-bold mt-2 mb-1">Input Variables</h3>
+    <div class="text-slate-500 text-xs mb-2">
+      Calculate the following variables as inputs at each timestep:
+    </div>
     {#if !!inputVariables}
-      <div class="w-full" style="height: 368px;">
+      <div class="w-full" style="height: 420px;">
         <VariableEditorPanel
           {timestepDefinition}
           {dataFields}
@@ -551,12 +545,8 @@
         {/each}
       </select>
     {/if}
-    <h3 class="font-bold mt-3 mb-1">
-      Target Variable &nbsp;<Tooltip
-        title="The variable that the model will attempt to predict at each timestep defined by the Timestep Definition."
-        position="right"
-      />
-    </h3>
+    <h3 class="font-bold mt-3">Target Variable</h3>
+    <div class="text-slate-500 text-xs mb-2">Predict this value:</div>
     {#if outcomeVariable !== null}
       <VariableEditor
         varName="outcome"

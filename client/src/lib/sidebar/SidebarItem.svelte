@@ -12,7 +12,7 @@
   import { faWarning } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import { createEventDispatcher } from 'svelte';
-  import { MetricColors } from '../colors';
+  import { MetricColors, makeCategoricalColorScale } from '../colors';
   import SliceMetricHistogram from '../slices/metric_charts/SliceMetricHistogram.svelte';
   import SliceMetricCategoryBar from '../slices/metric_charts/SliceMetricCategoryBar.svelte';
   import Tooltip from '../utils/Tooltip.svelte';
@@ -79,32 +79,32 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
   on:click
-  class="inline-flex slice-row items-center py-4 cursor-pointer {isActive
+  class="w-full inline-flex slice-row items-center justify-center flex-wrap py-4 cursor-pointer {isActive
     ? 'bg-blue-100'
     : 'hover:bg-slate-100'} "
 >
-  {#if showCheckbox}
-    <div
-      class="grow-0 shrink-0"
-      style="width: {SidebarTableWidths.Checkbox}px;"
-    >
-      {#if !allowCheck && !!checkDisabledReason}
-        <Tooltip title={checkDisabledReason} position="right">
-          <Checkbox disabled={isActive || !allowCheck} checked={isChecked} />
-        </Tooltip>
-      {:else}
-        <Checkbox
-          disabled={isActive || !allowCheck}
-          checked={isChecked}
-          on:change={(e) => dispatch('toggle')}
-        />
-      {/if}
-    </div>
-  {/if}
   <div
-    class="font-mono p-2 grow-0 shrink-0 text-sm flex items-center"
-    style="width: {SidebarTableWidths.ModelName}px;"
+    class="font-mono p-2 text-sm flex grow shrink items-center gap-2"
+    style="flex-basis: 0; min-width: 240px;"
   >
+    {#if showCheckbox}
+      <div
+        class="grow-0 shrink-0"
+        style="width: {SidebarTableWidths.Checkbox}px;"
+      >
+        {#if !allowCheck && !!checkDisabledReason}
+          <Tooltip title={checkDisabledReason} position="right">
+            <Checkbox disabled={isActive || !allowCheck} checked={isChecked} />
+          </Tooltip>
+        {:else}
+          <Checkbox
+            disabled={isActive || !allowCheck}
+            checked={isChecked}
+            on:change={(e) => dispatch('toggle')}
+          />
+        {/if}
+      </div>
+    {/if}
     {#if model.training && !!model.status && model.status.state != 'error'}
       <div
         role="status"
@@ -151,6 +151,227 @@
     </div>
   </div>
   {#if !!metricValues}
+    <div
+      class="p-2 whitespace-nowrap grow-0 shrink-0 grid auto-rows-max text-xs gap-x-2 gap-y-0 items-center"
+      style="width: 40%; min-width: 300px; max-width: {SidebarTableWidths.AllMetrics}px; grid-template-columns: max-content auto 96px;"
+    >
+      <div class="font-bold text-right">Timesteps</div>
+      <SliceMetricBar
+        value={metricValues['Timesteps']?.mean ?? 0}
+        scale={metricScales['Timesteps'] ?? ((v) => v)}
+        showFullBar
+        horizontalLayout
+        showTooltip={false}
+        color={MetricColors.Timesteps}
+        width={null}
+      />
+      <div>
+        <strong>{countFormat(metricValues['Timesteps']?.mean ?? 0)}</strong>
+      </div>
+
+      <div class="font-bold text-right">Trajectories</div>
+      <SliceMetricBar
+        value={metricValues['Trajectories']?.mean ?? 0}
+        scale={metricScales['Trajectories'] ?? ((v) => v)}
+        horizontalLayout
+        showTooltip={false}
+        showFullBar
+        color={MetricColors.Trajectories}
+        width={null}
+      />
+      <div>
+        <strong>{countFormat(metricValues['Trajectories']?.mean ?? 0)}</strong>
+      </div>
+
+      {#if !metricValues[metricToShow] && !metricValues.Predictions}
+        <div class="col-span-full">
+          <Tooltip title="Not enough data"><span>&mdash;</span></Tooltip>
+        </div>
+      {:else if !!metricValues[metricToShow]}
+        {@const metric = metricValues[metricToShow]}
+        <div class="font-bold text-right">{metricToShow}</div>
+        <SliceMetricBar
+          value={metric?.value ?? 0}
+          scale={metricScales[metricToShow] ?? ((v) => v)}
+          color={MetricColors.Accuracy}
+          width={null}
+          showFullBar
+          horizontalLayout
+          showTooltip={false}
+        />
+        <div>
+          <strong
+            >{decimalMetrics.includes(metricToShow)
+              ? decimalFormat(metric?.value ?? 0)
+              : accuracyFormat(metric?.value ?? 0)}</strong
+          >
+        </div>
+      {:else}
+        <div class="col-span-full">&mdash;</div>
+      {/if}
+
+      {#if !!metricValues.Labels}
+        {@const metric = metricValues.Labels}
+        {#if metric.type == 'binary'}
+          <div class="font-bold text-right">Labels</div>
+          <SliceMetricBar
+            value={metric.mean}
+            color={MetricColors.Labels}
+            width={null}
+            showFullBar
+            horizontalLayout
+            showTooltip={false}
+          />
+          <div>
+            <strong>{d3.format('.1%')(metric?.mean ?? 0)}</strong> pos.
+          </div>
+        {:else if metric.type == 'numeric'}
+          <div class="font-bold text-right">Labels</div>
+          <SliceMetricBar
+            value={metric.value}
+            color={MetricColors.Labels}
+            width={null}
+            showFullBar
+            horizontalLayout
+            showTooltip={false}
+          />
+          <div>
+            <strong>{d3.format(',.3~')(metric?.value ?? 0)}</strong>
+          </div>
+        {:else if metric.type == 'continuous'}
+          <SliceMetricHistogram
+            noParent
+            title={'Labels'}
+            width={null}
+            horizontalLayout
+            mean={metric.mean}
+            color={MetricColors.Labels}
+            histValues={metric.hist ?? {}}
+          />
+        {:else if metric.type == 'categorical'}
+          <SliceMetricCategoryBar
+            noParent
+            width={null}
+            title={'Labels'}
+            horizontalLayout
+            colorScale={makeCategoricalColorScale(MetricColors.Labels)}
+            order={model.output_values ??
+              Object.keys(metric.counts ?? {}).sort()}
+            counts={metric.counts}
+          />
+        {/if}
+      {/if}
+
+      {#if !!metricValues.Predictions}
+        {@const metric = metricValues.Predictions}
+        {#if metric.type == 'binary'}
+          <div class="font-bold text-right">Predictions</div>
+          <SliceMetricBar
+            value={metric.mean}
+            color={MetricColors.Predictions}
+            width={null}
+            showFullBar
+            horizontalLayout
+            showTooltip={false}
+          />
+          <div>
+            <strong>{d3.format('.1%')(metric?.mean ?? 0)}</strong> pos.
+          </div>
+        {:else if metric.type == 'numeric'}
+          <div class="font-bold text-right">Predictions</div>
+          <SliceMetricBar
+            value={metric.value}
+            color={MetricColors.Predictions}
+            width={null}
+            showFullBar
+            horizontalLayout
+            showTooltip={false}
+          />
+          <div>
+            <strong>{d3.format(',.3~')(metric?.value ?? 0)}</strong>
+          </div>
+        {:else if metric.type == 'continuous'}
+          <SliceMetricHistogram
+            noParent
+            title={'Predictions'}
+            width={null}
+            horizontalLayout
+            mean={metric.mean}
+            color={MetricColors.Predictions}
+            histValues={metric.hist ?? {}}
+          />
+        {:else if metric.type == 'categorical'}
+          <SliceMetricCategoryBar
+            noParent
+            width={null}
+            title={'Predictions'}
+            horizontalLayout
+            colorScale={makeCategoricalColorScale(MetricColors.Predictions)}
+            order={model.output_values ??
+              Object.keys(metric.counts ?? {}).sort()}
+            counts={metric.counts}
+          />
+        {/if}
+      {/if}
+
+      <!-- {#each metricNames as name, i}
+    {@const metric = sliceForScores.metrics[name]}
+
+    {#if !!metricInfo[name] && metricInfo[name].visible}
+      {#if metric.type == 'binary'}
+        <div class="font-bold text-right">{name}</div>
+        <SliceMetricBar
+          value={metric.mean}
+          color={ColorWheel[i]}
+          width={null}
+          showFullBar
+          horizontalLayout
+          showTooltip={false}
+        />
+        <div>
+          <strong>{format('.1%')(metric.mean)}</strong>
+        </div>
+      {:else if metric.type == 'count'}
+        <div class="font-bold text-right">{name}</div>
+        <SliceMetricBar
+          value={metric.share}
+          width={null}
+          color={ColorWheel[i]}
+          showFullBar
+          horizontalLayout
+          showTooltip={false}
+        />
+        <div>
+          <strong>{format(',')(metric.count)}</strong>
+          <span style="font-size: 0.7rem;" class="italic text-gray-700"
+            >({format('.1%')(metric.share)})</span
+          >
+        </div>
+      {:else if metric.type == 'continuous'}
+        <SliceMetricHistogram
+          noParent
+          title={name}
+          width={null}
+          horizontalLayout
+          mean={metric.mean}
+          color={ColorWheel[i]}
+          histValues={metric.hist}
+        />
+      {:else if metric.type == 'categorical'}
+        <SliceMetricCategoryBar
+          noParent
+          width={null}
+          title={name}
+          horizontalLayout
+          colorScale={makeCategoricalColorScale(ColorWheel[i])}
+          order={metricInfo[name].order}
+          counts={metric.counts}
+        />
+      {/if}
+    {/if}
+  {/each}
+</div>
+
     <div
       class="p-2 grow-0 shrink-0"
       style="width: {SidebarTableWidths.Metric}px;"
@@ -292,7 +513,7 @@
             width={SidebarTableWidths.Metric - 20}
           />
         {/if}
-      {/if}
+      {/if}-->
     </div>
   {:else}
     {#each ['Timesteps', 'Trajectories', metricToShow, 'Labels', 'Predictions'] as label}
@@ -307,10 +528,4 @@
 </div>
 
 <style>
-  .slice-row {
-    min-width: 100%;
-  }
-  .slice-row > * {
-    flex: 0 0 auto;
-  }
 </style>

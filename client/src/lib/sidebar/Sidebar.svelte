@@ -16,7 +16,6 @@
     faXmark,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
-  import { areObjectsEqual, areSetsEqual } from '../slices/utils/utils';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
   import { createEventDispatcher } from 'svelte';
 
@@ -278,8 +277,8 @@
       <div>No models yet!</div>
     </div>
   {:else}
-    <div class="px-2 overflow-auto flex-auto min-h-0">
-      <div
+    <div class="px-2 overflow-y-auto flex-auto min-h-0">
+      <!-- <div
         class="text-sm text-left inline-flex align-top slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600 sticky top-0 z-1"
       >
         <div
@@ -325,7 +324,7 @@
             {/if}
           </button>
         {/each}
-      </div>
+      </div> -->
       {#each modelOrder as modelName (modelName)}
         {@const model = models[modelName]}
         <SidebarItem

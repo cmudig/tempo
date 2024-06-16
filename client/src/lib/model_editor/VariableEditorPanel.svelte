@@ -175,33 +175,23 @@
   }
 </script>
 
-<div class="w-full rounded bg-slate-100 flex gap-1" class:h-full={fillHeight}>
-  <div
-    class="w-1/5 pt-2 px-3 h-full flex flex-col shrink-0"
-    style="min-width: 280px; max-width: 400px;"
-  >
-    <div class="flex-auto min-h-0 overflow-auto">
-      {#if allCategories.length > 0}
+<div
+  class="flex flex-col w-full rounded bg-slate-100"
+  style={fillHeight ? '' : 'max-height: 400px;'}
+  class:h-full={fillHeight}
+>
+  <div class="w-full pt-2 px-3 flex justify-between items-center">
+    {#if allCategories.length > 0}
+      <select bind:value={visibleInputVariableCategory} class="flat-select">
         {#each allCategories as cat}
-          <button
-            class="w-full my-1 py-1 text-sm px-4 rounded {visibleInputVariableCategory ==
-            cat
-              ? 'bg-slate-600 text-white hover:bg-slate-700 font-bold'
-              : 'text-slate-800 hover:bg-slate-200'}"
-            on:click={() => (visibleInputVariableCategory = cat)}
-          >
+          <option value={cat}>
             {cat}
-          </button>
+          </option>
         {/each}
-      {:else}
-        <button
-          class="w-full my-1 py-1 text-sm px-4 rounded bg-slate-600 text-white hover:bg-slate-700 font-bold"
-        >
-          All
-        </button>
-      {/if}
-    </div>
-    <div class="my-2 flex w-full justify-center gap-2">
+      </select>
+    {/if}
+
+    <div class="my-2 flex justify-center gap-2">
       <button
         on:click={() => (showRaw = false)}
         disabled={!showRaw}
@@ -219,7 +209,7 @@
     </div>
   </div>
   {#if showRaw && rawRepresentation != null}
-    <div class="flex-auto flex flex-col h-full pr-3 pl-2 py-4">
+    <div class="flex flex-col flex-auto p-4">
       <div class="relative flex-auto w-full">
         <textarea
           class="flat-text-input-large w-full h-full font-mono"
@@ -260,7 +250,7 @@
       {/if}
     </div>
   {:else}
-    <div class="flex-auto max-h-full overflow-y-scroll pr-3 pl-2 py-4">
+    <div class="overflow-y-scroll p-4 flex-auto min-h-0">
       <div
         class="ml-2 pb-2 mb-2 flex items-center gap-1 border-b border-slate-300"
       >

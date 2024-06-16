@@ -3,7 +3,21 @@
 
   const dispatch = createEventDispatcher();
 
-  const { data, xGet, yGet, xScale, z } = getContext('LayerCake');
+  const {
+    data,
+    xGet,
+    yGet,
+    xRange,
+    x,
+    yRange,
+    xScale,
+    y,
+    height,
+    zGet,
+    zScale,
+    z,
+    custom,
+  } = getContext('LayerCake');
 
   let hoveredIndex = null;
 
@@ -17,12 +31,17 @@
 
 {#each $data as d, i}
   <span
-    class="bar absolute border-box"
+    class="bar absolute content-box"
     class:animated={loaded}
     class:border={hoveredIndex == d.index}
     class:border-black={hoveredIndex == d.index}
-    style="top: 0; left: {$xGet(d)}px; width: {$xScale($z(d)) -
-      $xGet(d)}px; background-color: {$yGet(d)};"
+    style="top: 0; left: {$xGet(d) *
+      ($xRange[1] <= 1.0 ? 100 : 1)}{$xRange[1] <= 1.0
+      ? '%'
+      : 'px'}; width: {($xScale($z(d)) - $xGet(d)) *
+      ($xRange[1] <= 1.0 ? 100 : 1)}{$xRange[1] <= 1.0
+      ? '%'
+      : 'px'}; background-color: {$yGet(d)};"
     on:mouseenter={() => {
       hoveredIndex = i;
       dispatch('hover', d);
