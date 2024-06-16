@@ -145,6 +145,7 @@ if __name__ == '__main__':
                             "model_type": model_spec.get("model_type", "binary_classification"),
                             "variables": model_spec["variables"],
                             "cohort": model_spec.get("cohort", ""),
+                            "description": model_spec.get("description", ""),
                             "metrics": json.load(file),
                             **({"output_values": model_spec["output_values"]} if "output_values" in model_spec else {})
                         }

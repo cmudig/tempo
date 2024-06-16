@@ -80,12 +80,14 @@ export type ModelSummary = {
   variables: { [key: string]: VariableDefinition };
   training?: boolean;
   timestep_definition: string;
+  description?: string;
   status?: { state: string; message: string };
   output_values?: string[];
 
   draft?: {
     outcome?: string;
     cohort: string;
+    description?: string;
     variables: { [key: string]: VariableDefinition };
     timestep_definition: string;
   };

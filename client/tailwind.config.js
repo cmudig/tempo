@@ -3,9 +3,25 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,svelte}'],
   darkMode: 'class',
   theme: {
-    extend: {},
+    extend: {
+      typography: {
+        DEFAULT: {
+          css: {
+            'max-width': '85ch',
+            'p, h1, h2, h3, li': {
+              'margin-top': 0,
+              'margin-bottom': '0.5em',
+              'line-height': '1.2em',
+            },
+          },
+        },
+      },
+    },
   },
-  plugins: [],
+  plugins: [
+    require('@tailwindcss/typography'),
+    require('@tailwindcss/line-clamp'),
+  ],
   safelist: [
     'bg-blue-200',
     'bg-violet-200',

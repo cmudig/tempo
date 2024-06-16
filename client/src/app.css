@@ -157,11 +157,11 @@ input[type='search'].flat-text-input {
 }
 
 .flat-text-input-large {
-  @apply bg-slate-200 appearance-none border-2 border-slate-200 rounded text-slate-700 font-mono text-sm p-2;
+  @apply bg-slate-200 appearance-none border-2 border-slate-200 rounded text-slate-700 font-mono text-sm p-2 caret-blue-600;
 }
 
 .flat-text-input {
-  @apply bg-slate-200 appearance-none border-2 border-slate-200 rounded text-slate-700 font-mono text-xs p-2 leading-tight;
+  @apply bg-slate-200 appearance-none border-2 border-slate-200 rounded text-slate-700 font-mono text-xs p-2 leading-tight caret-blue-600;
 }
 
 .flat-text-input:focus,
@@ -171,4 +171,32 @@ input[type='search'].flat-text-input {
 
 .z-1 {
   z-index: 1;
+}
+
+.carta-theme__tempo.carta-editor {
+  @apply rounded border border-slate-300;
+}
+
+.carta-theme__tempo .carta-toolbar {
+  @apply bg-slate-200 px-3 py-1;
+}
+
+.carta-theme__tempo .carta-renderer {
+  @apply prose;
+}
+
+.carta-theme__tempo textarea {
+  @apply caret-blue-600;
+}
+
+.carta-theme__tempo .carta-input {
+  @apply p-2;
+}
+
+.carta-theme__tempo .carta-renderer {
+  @apply p-2;
+}
+
+.carta-viewer.carta-theme__tempo-preview {
+  @apply prose;
 }

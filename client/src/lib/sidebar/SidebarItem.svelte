@@ -16,6 +16,7 @@
   import SliceMetricHistogram from '../slices/metric_charts/SliceMetricHistogram.svelte';
   import SliceMetricCategoryBar from '../slices/metric_charts/SliceMetricCategoryBar.svelte';
   import Tooltip from '../utils/Tooltip.svelte';
+  import removeMd from 'remove-markdown';
 
   const dispatch = createEventDispatcher();
 
@@ -142,6 +143,11 @@
         {/if}
         {modelName}
       </div>
+      {#if !!model.description}
+        <div class="text-slate-500 font-sans text-xs line-clamp-2">
+          {removeMd(model.description)}
+        </div>
+      {/if}
       {#if differences.length > 0}
         <div class="text-xs text-slate-500 font-sans">
           <strong>&Delta;:</strong>
@@ -515,15 +521,6 @@
         {/if}
       {/if}-->
     </div>
-  {:else}
-    {#each ['Timesteps', 'Trajectories', metricToShow, 'Labels', 'Predictions'] as label}
-      <div
-        class="p-2 grow-0 shrink-0 text-slate-500"
-        style="width: {SidebarTableWidths.Metric}px;"
-      >
-        &mdash;
-      </div>
-    {/each}
   {/if}
 </div>
 

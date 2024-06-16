@@ -7,14 +7,25 @@
   import VariableEditorPanel from './VariableEditorPanel.svelte';
   import Tooltip from '../utils/Tooltip.svelte';
   import { areObjectsEqual } from '../slices/utils/utils';
+  import { Carta, Markdown, MarkdownEditor } from 'carta-md';
+  import 'carta-md/default.css';
+  import DOMPurify from 'isomorphic-dompurify';
+  import Fa from 'svelte-fa';
+  import { faCheck, faPencil } from '@fortawesome/free-solid-svg-icons';
 
   const dispatch = createEventDispatcher();
+  const carta = new Carta({
+    // Remember to use a sanitizer to prevent XSS attacks!
+    // More on that below
+    sanitizer: DOMPurify.sanitize,
+  });
 
   export let inputVariables: { [key: string]: VariableDefinition } | null =
     null;
   export let outcomeVariable: string | null = null;
   export let patientCohort: string | null = null;
   export let timestepDefinition: string | null = null;
+  export let description: string | undefined = undefined;
 
   export let modelName: string | null = null;
   export let otherModels: string[] = [];
@@ -30,6 +41,8 @@
 
   let isLoadingSpecs: boolean = false;
   let isTraining: boolean = false;
+
+  let editingDescription: boolean = false;
 
   let oldModelName: string | null = null;
   let oldOtherModels: string[] = [];
@@ -54,7 +67,12 @@
   }
 
   function getModelField<
-    T extends 'outcome' | 'timestep_definition' | 'variables' | 'cohort',
+    T extends
+      | 'outcome'
+      | 'timestep_definition'
+      | 'variables'
+      | 'cohort'
+      | 'description',
   >(modelSummary: ModelSummary, field: T): ModelSummary[T] {
     if (!!modelSummary.draft)
       return modelSummary.draft[field] ?? modelSummary[field];
@@ -131,11 +149,21 @@
     )
       outcomeVariable = getModelField(allSpecs[0], 'outcome') ?? '';
     else outcomeVariable = null;
+    if (
+      allSpecs.every(
+        (s) =>
+          (getModelField(s, 'description') ?? '') ==
+          (getModelField(allSpecs[0], 'description') ?? '')
+      )
+    )
+      description = getModelField(allSpecs[0], 'description') ?? '';
+    else description = undefined;
     baseSpec = {
       variables: inputVariables,
       outcome: outcomeVariable,
       cohort: patientCohort,
       timestep_definition: timestepDefinition,
+      description,
     };
     console.log(timestepDefinition, outcomeVariable, patientCohort);
   }
@@ -214,6 +242,7 @@
               cohort: patientCohort ?? allSpecs[i].cohort,
               timestep_definition:
                 timestepDefinition ?? allSpecs[i].timestep_definition,
+              description: description ?? allSpecs[i].description,
             },
           }),
         });
@@ -240,7 +269,8 @@
     (!areObjectsEqual(baseSpec.variables, inputVariables) ||
       baseSpec.outcome != outcomeVariable ||
       baseSpec.cohort != patientCohort ||
-      baseSpec.timestep_definition != timestepDefinition)
+      baseSpec.timestep_definition != timestepDefinition ||
+      baseSpec.description != description)
   ) {
     console.log('saving draft');
     changesSaved = false;
@@ -260,6 +290,7 @@
             cohort: patientCohort ?? allSpecs[i].cohort,
             timestep_definition:
               timestepDefinition ?? allSpecs[i].timestep_definition,
+            description: description ?? allSpecs[i].description,
           };
           if (
             Object.keys(draft).every((field) =>
@@ -297,6 +328,7 @@
         outcome: outcomeVariable,
         cohort: patientCohort,
         timestep_definition: timestepDefinition,
+        description,
       };
     }, 5000);
   }
@@ -430,6 +462,26 @@
         <h2 class="text-lg font-bold">Edit {1 + otherModels.length} Models</h2>
       {/if}
     </div>
+    <h3 class="font-bold mt-3 mb-2">
+      Model Description <button
+        class="hover:opacity-50 text-slate-500 text-sm ml-2"
+        on:click={() => (editingDescription = !editingDescription)}
+        ><Fa
+          class="inline"
+          icon={editingDescription ? faCheck : faPencil}
+        /></button
+      >
+    </h3>
+    {#if editingDescription}
+      <MarkdownEditor
+        {carta}
+        theme={editingDescription ? 'tempo' : 'tempo-preview'}
+        bind:value={description}
+      />
+    {:else}
+      <Markdown {carta} theme={'tempo-preview'} value={description ?? ''} />
+    {/if}
+
     <h3 class="font-bold mt-3">Timestep Definition</h3>
     <div class="text-slate-500 text-xs mb-2">
       Run the model at these time points in each trajectory:
