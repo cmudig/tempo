@@ -12,6 +12,7 @@
   export let rightResizable: boolean = false;
   export let topResizable: boolean = false;
   export let bottomResizable: boolean = false;
+  export let collapsible: boolean = true;
 
   export let minWidth: number | string | null = 20;
   export let maxWidth: number | string | null = null;
@@ -28,7 +29,7 @@
   let lastX: number | null = null;
   let lastY: number | null = null;
   let draggingDirection: string | null = null;
-  let collapsed: boolean = false;
+  export let collapsed: boolean = false;
 
   function onMousedown(e: PointerEvent, direction: string) {
     lastX = e.pageX;
@@ -126,6 +127,19 @@
   }
 
   function collapseIfNeeded(w: number, h: number) {
+    if (!collapsible) {
+      if (
+        lessThanThreshold(w, minWidth, true) ||
+        lessThanThreshold(h, minHeight, false)
+      ) {
+        if ((leftResizable || rightResizable) && minWidth != null)
+          width = convertToNumerical(minWidth, true);
+        if ((topResizable || bottomResizable) && minHeight != null)
+          height = convertToNumerical(minHeight, false);
+      }
+      return;
+    }
+
     if (
       (lessThanThreshold(w, minWidth, true) ||
         lessThanThreshold(h, minHeight, false)) &&

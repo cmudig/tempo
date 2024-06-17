@@ -9,7 +9,10 @@
   import {
     faBook,
     faDatabase,
+    faBars,
     faWarning,
+    faCaretLeft,
+    faCaretRight,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import ResizablePanel from './lib/utils/ResizablePanel.svelte';
@@ -31,6 +34,8 @@
 
   let currentModel: string | null = null;
   let selectedModels: string[] = [];
+
+  let showSidebar: boolean = true;
 
   let sliceSpec = 'default';
   let metricToShow: string = 'AUROC';
@@ -104,6 +109,12 @@
   <div
     class="w-full h-12 grow-0 shrink-0 bg-slate-700 flex py-2 px-4 items-center"
   >
+    <button
+      class="mr-4 text-white hover:opacity-50"
+      on:click={() => (showSidebar = !showSidebar)}
+    >
+      <Fa icon={faBars} class="text-lg inline" />
+    </button>
     <div class="font-bold text-white h-full py-1">
       <img src={logoUrl} class="h-full" alt="Tempo" />
     </div>
@@ -120,23 +131,26 @@
     >
   </div>
   <div class="flex-auto w-full flex h-0">
-    <ResizablePanel
-      rightResizable
-      width={540}
-      minWidth={300}
-      maxWidth={720}
-      height="100%"
-    >
-      <Sidebar
-        {models}
-        bind:metricToShow
-        bind:activeModel={currentModel}
-        bind:selectedModels
-        bind:selectedSlice
-        {sliceSpec}
-        on:new={(e) => createModel(e.detail)}
-      />
-    </ResizablePanel>
+    {#if showSidebar}
+      <ResizablePanel
+        rightResizable
+        width={540}
+        minWidth={360}
+        maxWidth="50%"
+        collapsible={false}
+        height="100%"
+      >
+        <Sidebar
+          {models}
+          bind:metricToShow
+          bind:activeModel={currentModel}
+          bind:selectedModels
+          bind:selectedSlice
+          {sliceSpec}
+          on:new={(e) => createModel(e.detail)}
+        />
+      </ResizablePanel>
+    {/if}
     <div class="flex-auto h-full flex flex-col w-0" style="z-index: 1;">
       <div class="w-full px-4 py-2 flex gap-3 bg-slate-200">
         {#each [View.editor, View.results, View.slices] as view}
