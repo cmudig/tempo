@@ -429,7 +429,7 @@ class Attributes(TimeSeriesQueryable):
         return self.series.index
     
     def get_values(self):
-        return self.series
+        return self.series.reset_index(drop=True)
     
     def compress(self):
         """Returns a new TimeSeries with values compressed to the minimum size
@@ -437,7 +437,7 @@ class Attributes(TimeSeriesQueryable):
         return self.with_values(compress_series(self.get_values()))
         
     def with_values(self, new_values):
-        return Attributes(pd.Series(new_values, index=self.series.index, name=self.series.name))
+        return Attributes(pd.Series(np.array(new_values), index=self.series.index, name=self.series.name))
     
     def serialize(self):
         return {"type": "Attributes", "name": self.name}, pd.DataFrame(self.series)
@@ -1361,8 +1361,11 @@ class TimeIndex(TimeSeriesQueryable):
     def __repr__(self):
         return f"<TimeIndex: {len(self.timesteps[self.id_field].unique())} IDs, {len(self.timesteps)} steps>\n{repr(self.timesteps)}"
 
-    def with_times(self, new_times):
-        return TimeIndex(self.timesteps.assign(**{self.time_field: new_times}),
+    def preserve_nans(self, new_values):
+        return new_values.where(~pd.isna(self.get_times()), pd.NA)
+        
+    def with_times(self, new_times, preserve_nans=False):
+        return TimeIndex(self.timesteps.assign(**{self.time_field: self.preserve_nans(new_times) if preserve_nans else new_times}),
                          id_field=self.id_field,
                          time_field=self.time_field)
         
@@ -1395,7 +1398,7 @@ class TimeIndex(TimeSeriesQueryable):
 
     def _handle_binary_op(self, opname, other):
         if isinstance(other, Compilable): return NotImplemented
-        return TimeSeries(self, getattr(self.timesteps[self.time_field], opname)(make_aligned_value_series(self, other)))
+        return TimeSeries(self, self.preserve_nans(getattr(self.timesteps[self.time_field], opname)(make_aligned_value_series(self, other))))
     
     def __eq__(self, other): return self._handle_binary_op("__eq__", other)
     def __ge__(self, other): return self._handle_binary_op("__ge__", other)

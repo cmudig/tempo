@@ -487,7 +487,7 @@ class EvaluateExpression(lark.visitors.Transformer):
                 var_exp = var_exp.with_values(var_exp.get_values().astype(dtype.categories.dtype))
                 dtype = var_exp.get_values().dtype
             scalar = dtype.type(impute_method)
-            return var_exp.where(nan_mask, scalar)
+            return var_exp.with_values(var_exp.get_values().where(nan_mask, scalar))
             
     def _perform_binary_numpy_function(self, operands, function_name, numpy_func):
         if isinstance(operands[0], Compilable):
