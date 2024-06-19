@@ -7,7 +7,7 @@
 
   import BarSegment from './BarSegment.svelte';
 
-  export let width: number | null = 100;
+  export let width: number | null = null;
   export let title: string | null = null;
   export let horizontalLayout = false;
   export let noParent: boolean = false;

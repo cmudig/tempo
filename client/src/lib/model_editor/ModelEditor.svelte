@@ -12,6 +12,11 @@
   import DOMPurify from 'isomorphic-dompurify';
   import Fa from 'svelte-fa';
   import { faCheck, faPencil } from '@fortawesome/free-solid-svg-icons';
+  import TextareaAutocomplete from '../slices/utils/TextareaAutocomplete.svelte';
+  import {
+    getAutocompleteOptions,
+    performAutocomplete,
+  } from '../utils/query_autocomplete';
 
   const dispatch = createEventDispatcher();
   const carta = new Carta({
@@ -43,6 +48,8 @@
   let isTraining: boolean = false;
 
   let editingDescription: boolean = false;
+
+  let timestepEditor: HTMLElement;
 
   let oldModelName: string | null = null;
   let oldOtherModels: string[] = [];
@@ -491,6 +498,19 @@
         spellcheck={false}
         class="w-full font-mono flat-text-input"
         bind:value={timestepDefinition}
+        bind:this={timestepEditor}
+      />
+      <TextareaAutocomplete
+        ref={timestepEditor}
+        resolveFn={(query, prefix) =>
+          getAutocompleteOptions(dataFields, query, prefix)}
+        replaceFn={performAutocomplete}
+        triggers={['{', '#']}
+        delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
+        menuItemTextFn={(v) => v.value}
+        maxItems={3}
+        menuItemClass="p-2"
+        on:replace={(e) => (timestepDefinition = e.detail)}
       />
     {:else}
       <div class="text-sm text-slate-600 mb-1">

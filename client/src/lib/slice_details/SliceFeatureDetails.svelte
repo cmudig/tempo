@@ -52,7 +52,7 @@
         </div>
         <div class="flex-auto h-12 overflow-visible">
           <SliceMetricCategoryBar
-            width="100%"
+            width={null}
             order={valueComparison.values}
             counts={Object.fromEntries(
               valueComparison.values.map((v, i) => [v, valueComparison.base[i]])
@@ -68,7 +68,7 @@
         </div>
         <div class="flex-auto h-12 overflow-visible">
           <SliceMetricCategoryBar
-            width="100%"
+            width={null}
             order={valueComparison.values}
             counts={Object.fromEntries(
               valueComparison.values.map((v, i) => [
