@@ -57,11 +57,16 @@ class Model:
         result[apply_mask] = preds
         return result
     
-    def make_modeling_variables(self, dataset, variable_definitions, timestep_definition):
+    def make_modeling_variables(self, dataset, variable_definitions, timestep_definition, update_fn=None):
         """Creates the variables dataframe."""
         query = make_query(variable_definitions, timestep_definition)
         print(query)
-        modeling_variables = dataset.query(query)
+        if update_fn is not None:
+            def prog(num_completed, num_total):
+                update_fn({'message': f'Loading variables ({num_completed} / {num_total})', 'progress': num_completed / num_total})
+        else:
+            prog = None
+        modeling_variables = dataset.query(query, update_fn=prog)
         modeling_df = modeling_variables.values
 
         print("Before:", modeling_df.shape)
@@ -78,7 +83,7 @@ class Model:
     def make_model(self, dataset, spec, modeling_df=None, update_fn=None):
         if modeling_df is None:
             if update_fn is not None: update_fn({'message': 'Loading variables'})
-            modeling_df = self.make_modeling_variables(dataset, spec["variables"], spec["timestep_definition"])
+            modeling_df = self.make_modeling_variables(dataset, spec["variables"], spec["timestep_definition"], update_fn=update_fn)
             
         if update_fn is not None: update_fn({'message': 'Loading target variable'})
         outcome = dataset.query("(" + spec['outcome'] + 

@@ -595,13 +595,14 @@ class EvaluateExpression(lark.visitors.Transformer):
         
 
 class EvaluateQuery(lark.visitors.Interpreter):
-    def __init__(self, attributes, events, intervals, variable_transform=None, eventtype_macros=None, cache=None, verbose=False):
+    def __init__(self, attributes, events, intervals, variable_transform=None, eventtype_macros=None, cache=None, verbose=False, update_fn=None):
         super().__init__()
         self.attributes = attributes
         self.events = events
         self.intervals = intervals
         self.cache = cache
         self.eventtype_macros = eventtype_macros if eventtype_macros is not None else {}
+        self.update_fn = update_fn
         # If provided, this should be a tuple of (description, transform_fn, restore_fn). The
         # description should be a string uniquely identifying this transform,
         # and transform should be a function that will be called on any variable 
@@ -776,7 +777,14 @@ class EvaluateQuery(lark.visitors.Interpreter):
         time_index_tree = tree.children[-1] if len(tree.children) > 1 else None
         time_index = self.visit(tree.children[-1]) if len(tree.children) > 1 else None
         evaluator.time_index = time_index
-        pbar = tqdm.tqdm(tree.children[0].children) if self.verbose else tree.children[0].children
+        if self.update_fn is None:
+            pbar = tqdm.tqdm(tree.children[0].children) if self.verbose else tree.children[0].children
+        else:
+            def progress_iterable():
+                for i, c in enumerate(tree.children[0].children):
+                    yield c
+                    self.update_fn(i + 1, len(tree.children[0].children))
+            pbar = progress_iterable()
         variable_definitions = [self._parse_variable_expr(child, evaluator, time_index_tree=time_index_tree) for child in pbar]
         evaluator.time_index = None
         evaluator.index_value_placeholder = None
@@ -946,13 +954,14 @@ class TrajectoryDataset:
     def get_ids(self):
         return get_all_trajectory_ids(self.attributes, self.events, self.intervals)
     
-    def query(self, query_string, variable_transform=None, use_cache=True):
+    def query(self, query_string, variable_transform=None, use_cache=True, update_fn=None):
         query_evaluator = EvaluateQuery(self.attributes, 
                                         self.events, 
                                         self.intervals, 
                                         eventtype_macros=self.eventtype_macros, 
                                         variable_transform=variable_transform,
                                         cache=self.cache if use_cache else None, 
+                                        update_fn=update_fn,
                                         verbose=True)
         tree = self.parse(query_string)
         result = query_evaluator.visit(tree)

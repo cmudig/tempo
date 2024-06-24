@@ -142,9 +142,9 @@ class Dataset:
                                     eventtype_macros=macros)
         self.split_ids = (train_ids, val_ids, test_ids)
 
-    def query(self, query_string, variable_transform=None, use_cache=True):
+    def query(self, query_string, variable_transform=None, use_cache=True, update_fn=None):
         assert self.dataset is not None, "Need to load dataset before querying"
-        return self.dataset.query(query_string, variable_transform=variable_transform, use_cache=use_cache)
+        return self.dataset.query(query_string, variable_transform=variable_transform, use_cache=use_cache, update_fn=update_fn)
     
     def parse(self, query, keep_all_tokens=False):
         assert self.dataset is not None, "Need to load dataset before parsing"
