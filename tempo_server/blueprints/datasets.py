@@ -1,10 +1,22 @@
-from flask import Blueprint, jsonify
-from ..compute.run import get_worker
+from flask import Blueprint, jsonify, request
+from ..compute.run import get_worker, get_filesystem
+from ..compute.utils import Commands
 
 datasets_blueprint = Blueprint('datasets', __name__)
 
 # Dataset management
 
+@datasets_blueprint.get("/datasets")
+def list_datasets():
+    """
+    Returns: JSON array of the format [
+        { "name": "dataset name" },
+        ...
+    ]
+    """
+    fs = get_filesystem()
+    return jsonify([{ "name": n } for n in fs.list_files("datasets")])
+    
 @datasets_blueprint.get("/datasets/<dataset_name>/spec")
 def get_dataset_spec(dataset_name):
     """
@@ -13,7 +25,11 @@ def get_dataset_spec(dataset_name):
     
     Returns: JSON containing the spec of the dataset
     """
-    pass
+    fs = get_filesystem()
+    if not fs.exists("datasets", dataset_name, "spec.json"):
+        return "Dataset not found", 404
+    
+    return fs.read_file("datasets", dataset_name, "spec.json", format='json')
 
 @datasets_blueprint.post("/datasets/<dataset_name>/spec")
 def update_dataset_spec(dataset_name):
@@ -23,7 +39,17 @@ def update_dataset_spec(dataset_name):
     
     Request body: JSON with format { "spec": { dataset spec } }
     
-    Returns: Plain-text success message if successfully updated
+    Returns: JSON of the format { "task_id": task id } representing the task
+        for updating the dataset
     """
-    pass
+    body = request.json
+    if "spec" not in body:
+        return f"Update spec requires a request body with a 'spec' field", 400
+    worker = get_worker()
+    task_id = worker.submit_task({
+        "cmd": Commands.BUILD_DATASET,
+        "name": dataset_name,
+        "spec": body["spec"]
+    })
 
+    return jsonify({ "task_id": task_id })

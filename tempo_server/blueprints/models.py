@@ -1,7 +1,40 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
+from ..compute.run import get_worker, get_filesystem
+from ..compute.utils import Commands
+from ..compute.model import Model
 
 models_blueprint = Blueprint('models', __name__)
 
+def is_training_model(dataset_name, model_name):
+    """
+    Returns True if the model is being trained in a waiting or running job.
+    """
+    worker = get_worker()
+    return any(
+        w['info']['cmd'] == Commands.TRAIN_MODEL 
+        and w['info']['dataset_name'] == dataset_name
+        and w['info']['model_name'] == model_name
+        for w in worker.current_jobs()
+    )
+    
+def model_training_job_info(dataset_name, model_name):
+    """
+    Returns an info dictionary of the format {
+        'id': job id,
+        'info': task info,
+        'status': status (waiting, running, etc.),
+        'status_info': an optional status message
+    } if the model is training, or None otherwise.
+    """
+    worker = get_worker()
+    print(worker.current_jobs())
+    return next((
+        status for status in worker.current_jobs()
+        if status['info']['cmd'] == Commands.TRAIN_MODEL 
+        and status['info']['dataset_name'] == dataset_name
+        and status['info']['model_name'] == model_name
+    ), None)
+    
 @models_blueprint.route('/datasets/<dataset_name>/models', methods=["GET"])
 def get_models(dataset_name):
     """
@@ -14,21 +47,50 @@ def get_models(dataset_name):
         ...
     }}
     """
-    pass
+    fs = get_filesystem().subdirectory("datasets", dataset_name)
+    try:
+        fs = fs.subdirectory("models")
+    except:
+        return f"Dataset is incorrectly formatted", 400
+    try:
+        contents = fs.list_files()
+    except:
+        return f"Dataset does not exist", 404
+    else:
+        return jsonify({ "models": {
+            m: Model(fs.subdirectory(m)).get_spec()
+            for m in contents
+        }})
 
 @models_blueprint.route("/datasets/<dataset_name>/models/<model_name>/spec")
-def get_model_definition(dataset_name, model_name):
+def get_model_spec(dataset_name, model_name):
     """
     Parameters:
     * dataset_name: Name of the dataset in which to return models
     * model_name: The name of the model to return the spec for
     
-    Returns: JSON representing the model spec
+    Returns: JSON of the format {
+        "name": "model name",
+        "spec": { model spec }
+    }
     """
-    return f"get model definition for {dataset_name}, {model_name}"
+    fs = get_filesystem().subdirectory("datasets", dataset_name, "models", model_name)
+    print(fs.base_path)
+    if not fs.exists():
+        return f"Model does not exist", 404
+
+    try:
+        return jsonify({
+            "name": model_name,
+            "spec": Model(fs).get_spec()
+        })
+    except Exception as e:
+        print('error reading spec:', e)
+        return "Could not read spec", 400
+
 
 @models_blueprint.post("/datasets/<dataset_name>/models/new/<reference_name>")
-def make_new_model_spec(dataset_name, reference_name):
+def make_new_model_spec(dataset_name, reference_name=""):
     """
     Parameters:
     * dataset_name: Name of the dataset in which to return models
@@ -41,7 +103,32 @@ def make_new_model_spec(dataset_name, reference_name):
         "spec": { model spec }
     }
     """
-    pass
+    if reference_name == "default":
+        base_spec = Model.blank_spec()
+        base_name = "Untitled"
+    else:
+        fs = get_filesystem().subdirectory("datasets", dataset_name)
+        if not fs.exists():
+            return "Dataset does not exist", 404
+        
+        try:
+            base_spec = Model(fs.subdirectory("models", reference_name)).get_spec()
+        except:
+            return "Reference model does not exist", 404
+        base_name = reference_name
+        
+    increment_index = None
+    final_name = base_name
+    while fs.exists("models", final_name):
+        if increment_index is None:
+            increment_index = 2
+        else:
+            increment_index += 1
+        final_name = f"{base_name} {increment_index}"
+
+    fs.write_file(base_spec, "models", final_name, "spec.json")
+    return jsonify({"name": final_name, "spec": base_spec})
+
 
 @models_blueprint.delete("/datasets/<dataset_name>/models/<model_name>")
 def delete_model(dataset_name, model_name):
@@ -52,7 +139,20 @@ def delete_model(dataset_name, model_name):
     
     Returns: plain-text "Success" if the model was deleted
     """
-    pass
+    fs = get_filesystem().subdirectory("datasets", dataset_name)
+    if not fs.exists():
+        return "Dataset does not exist", 404
+    
+    model_dir = fs.subdirectory("models", model_name)
+    if not model_dir.exists():
+        return "Model does not exist", 404
+    try:
+        model_dir.delete()
+    except:
+        return "Model could not be deleted", 400
+
+    return "Success"
+    
 
 @models_blueprint.route("/datasets/<dataset_name>/models/<model_name>/metrics")
 def get_model_metrics(dataset_name, model_name):
@@ -61,9 +161,21 @@ def get_model_metrics(dataset_name, model_name):
     * dataset_name: Name of the dataset in which to find the model
     * model_name: The name of the model to return metrics for
     
-    Returns: JSON containing the metrics for the given model
+    Returns: JSON containing the metrics for the given model. Returns a 400 error
+        code if the model is being trained.
     """
-    pass
+    fs = get_filesystem().subdirectory("datasets", dataset_name, "models", model_name)
+    if not fs.exists():
+        return f"Model does not exist", 404
+
+    if is_training_model(dataset_name, model_name):
+        return "Model is being trained", 400
+    
+    try:
+        return jsonify(Model(fs).get_metrics())
+    except Exception as e:
+        print('error reading spec:', e)
+        return "Metrics not available", 400
 
 @models_blueprint.route("/datasets/<dataset_name>/models", methods=["POST"])
 def generate_model(dataset_name):
@@ -77,26 +189,52 @@ def generate_model(dataset_name):
         "spec" (optional): { model spec }
     }. Either "draft" or "spec" is required.
     
-    Returns: plain-text success message if model started training successfully.
+    Returns: If saving draft, a plain text success message. If training model,
+        JSON of the task status representing the training task.
     """
-    pass
+    fs = get_filesystem().subdirectory("datasets", dataset_name)
+    if not fs.exists():
+        return "Dataset does not exist", 404
+
+    body = request.json
+    if "name" not in body:
+        return "Model 'name' key required", 400
+    model_name = body["name"]
+    if "draft" in body:
+        model = Model(fs.subdirectory("models", model_name))
+        try:
+            model.write_draft_spec(body["draft"])
+        except Exception as e:
+            print("Error writing draft:", e)
+            return "Error saving draft", 400
+
+        return "Draft saved"
+    
+    if "spec" not in body:
+        return "Model 'spec' key required", 400
+    spec = body["spec"]
+    if not spec.get("timestep_definition", None):
+        return "Timestep definition is required", 400
+    if not spec.get("outcome", None):
+        return "Outcome is required", 400
+    
+    worker = get_worker()
+    worker.submit_task({
+        'cmd': Commands.TRAIN_MODEL,
+        'dataset_name': dataset_name,
+        'model_name': model_name,
+        'spec': spec
+    })
         
-@models_blueprint.route("/datasets/<dataset_name>/models/status/<model_name>")
-def model_training_status(model_name):
-    """
-    Parameters:
-    * dataset_name: Name of the dataset in which to search for the model
-    * model_name: Name of the model to check status of
-    
-    Returns: JSON of the format {
-        "state": string,
-        "message": string
-    }
-    """
-    pass
-    
+    # with evaluator_lock:
+    #     if evaluator is not None:
+    #         # Mark that the model's metrics have changed
+    #         evaluator.rescore_model(model_name, meta["timestep_definition"])
+    return jsonify(model_training_job_info(dataset_name, model_name))
+
+            
 @models_blueprint.route("/datasets/<dataset_name>/models/stop_training/<model_name>", methods=["POST"])
-def stop_model_training(model_name):
+def stop_model_training(dataset_name, model_name):
     """
     Parameters:
     * dataset_name: Name of the dataset in which to search for the model
@@ -104,5 +242,11 @@ def stop_model_training(model_name):
     
     Returns: plain-text success message if stopped training
     """
-    pass
+    if not is_training_model(dataset_name, model_name):
+        return "Model is not being trained", 400
+    worker = get_worker()
+    job_info = model_training_job_info(dataset_name, model_name)
+    if job_info is not None:
+        worker.cancel_task(job_info['id'])
+    return "Success"
             

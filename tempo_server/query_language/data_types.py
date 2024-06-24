@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import random
-from query_language.numba_functions import *
+from .numba_functions import *
 from numba.typed import List
 from numba import njit, jit
 
@@ -1664,8 +1664,7 @@ class TimeSeriesSet:
             raise ValueError("Need at least 1 time series")
         for series in time_series:
             assert (isinstance(series, TimeSeries) and 
-                    (series.index.get_ids().values == time_series[0].index.get_ids().values).all() and
-                    (series.index.get_times().values == time_series[0].index.get_times().values).all()), "TimeSeries must be identically indexed"
+                    (series.index.get_ids().values == time_series[0].index.get_ids().values).all()), f"TimeSeries must be identically indexed"
         return TimeSeriesSet(time_series[0].index, 
                              pd.DataFrame({series.name or i: series.series for i, series in enumerate(time_series)}))
         

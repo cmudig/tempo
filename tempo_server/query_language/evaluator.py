@@ -2,12 +2,13 @@ import lark
 import re
 import csv
 import datetime
-from query_language.data_types import *
+from .data_types import *
 import json
 import os
 import random
 import tqdm
 import slice_finding as sf
+from ..compute.filesystem import LocalFilesystem
 
 GRAMMAR = """
 start: variable_expr | variable_list
@@ -854,18 +855,16 @@ class QueryResultCache:
     def __init__(self, cache_dir):
         super().__init__()
         assert cache_dir is not None, "Cache directory must be provided"
-        self.cache_dir = cache_dir
+        self.cache_dir = LocalFilesystem(cache_dir) if isinstance(cache_dir, str) else cache_dir
         self._query_cache = {}
         self._in_memory_cache = {} # for items to be stored in memory instead of loaded from disk every time
     
     def load_cache(self):
         if not self.cache_dir: return
-        if not os.path.exists(self.cache_dir): os.mkdir(self.cache_dir)
         
         # Load cache information
-        if os.path.exists(os.path.join(self.cache_dir, "query_cache.json")):
-            with open(os.path.join(self.cache_dir, "query_cache.json"), "r") as file:
-                self._query_cache = json.load(file)
+        if self.cache_dir.exists("query_cache.json"):
+            self._query_cache = self.cache_dir.read_file("query_cache.json")
         else:
             self._query_cache = {}
             
@@ -887,9 +886,8 @@ class QueryResultCache:
                 index = self.lookup("time_index_" + result_info["time_index_tree"], time_index_tree=None, save_in_memory=True)
             else:
                 index = None
-            fpath = os.path.join(self.cache_dir, result_info["fname"])
-            if not os.path.exists(fpath): return
-            df = pd.read_feather(fpath)
+            if not self.cache_dir.exists(result_info["fname"]): return
+            df = self.cache_dir.read_file(result_info["fname"], format="feather")
             result = TimeSeriesQueryable.deserialize(result_info["meta"], df, **({"index": index} if index is not None else {}))
             if transform_info is not None:
                 result = (result, result_info.get("transform_data", None))
@@ -920,13 +918,12 @@ class QueryResultCache:
         }
         if transform_data is not None:
             self._query_cache[query_cache_name]["transform_data"] = sf.utils.convert_to_native_types(transform_data)
-        df.to_feather(os.path.join(self.cache_dir, fname))
-        with open(os.path.join(self.cache_dir, "query_cache.json"), "w") as file:
-            json.dump(self._query_cache, file)
+        self.cache_dir.write_file(df, fname, format='feather')
+        self.cache_dir.write_file(self._query_cache, "query_cache.json")
 
     
 class TrajectoryDataset:
-    def __init__(self, attributes, events, intervals, eventtype_macros=None, cache_dir=None):
+    def __init__(self, attributes, events, intervals, eventtype_macros=None, cache_fs=None):
         self.attributes = attributes if attributes is not None else AttributeSet(pd.DataFrame([]))
         self.events = events if events is not None else EventSet(pd.DataFrame({
             "id": [],
@@ -943,7 +940,7 @@ class TrajectoryDataset:
         }))
         self.parser = lark.Lark(GRAMMAR, parser="earley")
         self.eventtype_macros = eventtype_macros
-        if cache_dir is not None: self.cache = QueryResultCache(cache_dir)
+        if cache_fs is not None: self.cache = QueryResultCache(cache_fs)
         else: self.cache = None
         
     def get_ids(self):

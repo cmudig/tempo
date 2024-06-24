@@ -21,6 +21,7 @@ from werkzeug.middleware.profiler import ProfilerMiddleware
 from tempo_server.blueprints.data import data_blueprint
 from tempo_server.blueprints.models import models_blueprint
 from tempo_server.blueprints.datasets import datasets_blueprint
+from tempo_server.blueprints.tasks import tasks_blueprint
 from tempo_server.compute.run import setup_worker
 from tempo_server.compute.filesystem import LocalFilesystem
 
@@ -34,6 +35,7 @@ if __name__ == '__main__':
     parser.add_argument('--public', action='store_true', default=False, help='Open the server to public network traffic')
     parser.add_argument('--profile', action='store_true', default=False, help='Print cProfile performance logs for each API call')
     parser.add_argument('--single-thread', action='store_true', default=False, help='Disable multithreading for slice finding')
+    parser.add_argument('--debug', action='store_true', default=False, help='Print detailed logging messages')
     
     args = parser.parse_args()
 
@@ -41,6 +43,7 @@ if __name__ == '__main__':
     app.register_blueprint(data_blueprint)
     app.register_blueprint(models_blueprint)
     app.register_blueprint(datasets_blueprint)
+    app.register_blueprint(tasks_blueprint)
     
     # Path for our main Svelte page
     @app.route("/")
@@ -59,7 +62,7 @@ if __name__ == '__main__':
     
     if os.environ.get("TEMPO_PRODUCTION") == "1" or is_running_from_reloader():
         print("Starting a worker")
-        worker = setup_worker(LocalFilesystem(args.base_path))
+        worker = setup_worker(LocalFilesystem(args.base_path), verbose=args.debug)
         worker.start()
     
     def close_running_threads():

@@ -8,6 +8,7 @@ import os
 import threading
 import _thread
 import uuid
+import traceback
 
 from functools import partial
 
@@ -49,7 +50,7 @@ def start_worker(task_runner, interrupt_event, request_queue, status, verbose=Fa
     while True:
         task_id, task_info = request_queue.get()
         try:
-            if status[task_id][0] == TaskStatus.CANCELING:
+            if task_id in status and status[task_id][0] == TaskStatus.CANCELING:
                 if verbose:
                     print(f"[background_worker] Aborting task {task_id}")
                 status[task_id] = (TaskStatus.CANCELED, None)
@@ -67,6 +68,9 @@ def start_worker(task_runner, interrupt_event, request_queue, status, verbose=Fa
                     print("[background_worker] Received interrupt")
                 status[task_id] = (TaskStatus.CANCELED, None)
             except Exception as e:
+                if verbose:
+                    print("[background_worker] Exception raised")
+                    print(traceback.format_exc())
                 status[task_id] = (TaskStatus.ERROR, str(e))
             else:
                 status[task_id] = (TaskStatus.COMPLETE, result)
@@ -111,9 +115,9 @@ class BackgroundWorker:
         with self.task_lock:
             task_id = uuid.uuid4().hex
             task_summary = (task_id, task_info)
-            self.request_queue.put(task_summary)
-            self.task_cache[task_id] = task_summary
+            self.task_cache[task_id] = task_info
             self.task_status[task_id] = (TaskStatus.WAITING, None)
+            self.request_queue.put(task_summary)
             return task_id
     
     def status(self, task_id):
@@ -126,14 +130,16 @@ class BackgroundWorker:
         return [{
             'id': id, 
             'info': self.task_cache[id], 
-            'status': status
+            'status': status[0],
+            **({'status_info': status[1]} if status[1] is not None else {})
         } for id, status in self.task_status.items() if status[0] in (TaskStatus.WAITING, TaskStatus.RUNNING)]
         
     def all_jobs(self):
         return [{
             'id': id, 
             'info': self.task_cache[id], 
-            'status': status
+            'status': status[0],
+            **({'status_info': status[1]} if status[1] is not None else {})
         } for id, status in self.task_status.items()]
         
     def cancel_task(self, task_id):
