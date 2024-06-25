@@ -6,13 +6,13 @@
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import VariableEditor from './VariableEditor.svelte';
-  import { type VariableDefinition } from './model';
-  import Checkbox from './utils/Checkbox.svelte';
-  import TextareaAutocomplete from './slices/utils/TextareaAutocomplete.svelte';
+  import { type VariableDefinition } from '../model';
+  import Checkbox from '../utils/Checkbox.svelte';
+  import TextareaAutocomplete from '../slices/utils/TextareaAutocomplete.svelte';
   import {
     getAutocompleteOptions,
     performAutocomplete,
-  } from './utils/query_autocomplete';
+  } from '../utils/query_autocomplete';
 
   export let timestepDefinition: string;
   export let inputVariables: { [key: string]: VariableDefinition } = {};

@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { type VariableDefinition } from './model';
-  import Checkbox from './utils/Checkbox.svelte';
+  import { type VariableDefinition } from '../model';
+  import Checkbox from '../utils/Checkbox.svelte';
   import { createEventDispatcher } from 'svelte';
-  import QueryResultView from './QueryResultView.svelte';
-  import { areObjectsEqual } from './slices/utils/utils';
-  import TextareaAutocomplete from './slices/utils/TextareaAutocomplete.svelte';
+  import QueryResultView from '../QueryResultView.svelte';
+  import { areObjectsEqual } from '../slices/utils/utils';
+  import TextareaAutocomplete from '../slices/utils/TextareaAutocomplete.svelte';
   import {
     getAutocompleteOptions,
     performAutocomplete,
-  } from './utils/query_autocomplete';
+  } from '../utils/query_autocomplete';
 
   const dispatch = createEventDispatcher();
 

@@ -5,16 +5,16 @@
     faPlus,
     faXmark,
   } from '@fortawesome/free-solid-svg-icons';
-  import { type ModelSummary, type VariableDefinition } from './model';
-  import Checkbox from './utils/Checkbox.svelte';
+  import { type ModelSummary, type VariableDefinition } from '../model';
+  import Checkbox from '../utils/Checkbox.svelte';
   import Fa from 'svelte-fa/src/fa.svelte';
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import VariableEditor from './VariableEditor.svelte';
-  import ModelTrainingView from './ModelTrainingView.svelte';
-  import { checkTrainingStatus } from './training';
+  import ModelTrainingView from '../ModelTrainingView.svelte';
+  import { checkTrainingStatus } from '../training';
   import VariableEditorPanel from './VariableEditorPanel.svelte';
-  import Tooltip from './utils/Tooltip.svelte';
-  import { areObjectsEqual } from './slices/utils/utils';
+  import Tooltip from '../utils/Tooltip.svelte';
+  import { areObjectsEqual } from '../slices/utils/utils';
 
   const dispatch = createEventDispatcher();
 

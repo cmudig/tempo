@@ -3,19 +3,19 @@
     type ModelSummary,
     decimalMetrics,
     metricsHaveWarnings,
-  } from './model';
+  } from '../model';
   import * as d3 from 'd3';
-  import { SidebarTableWidths } from './utils/sidebarwidths';
-  import Checkbox from './utils/Checkbox.svelte';
-  import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
-  import type { SliceMetric } from './slices/utils/slice.type';
+  import { SidebarTableWidths } from '../utils/sidebarwidths';
+  import Checkbox from '../utils/Checkbox.svelte';
+  import SliceMetricBar from '../slices/metric_charts/SliceMetricBar.svelte';
+  import type { SliceMetric } from '../slices/utils/slice.type';
   import { faWarning } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import { createEventDispatcher } from 'svelte';
-  import { MetricColors } from './colors';
-  import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
-  import SliceMetricCategoryBar from './slices/metric_charts/SliceMetricCategoryBar.svelte';
-  import Tooltip from './utils/Tooltip.svelte';
+  import { MetricColors } from '../colors';
+  import SliceMetricHistogram from '../slices/metric_charts/SliceMetricHistogram.svelte';
+  import SliceMetricCategoryBar from '../slices/metric_charts/SliceMetricCategoryBar.svelte';
+  import Tooltip from '../utils/Tooltip.svelte';
 
   const dispatch = createEventDispatcher();
 

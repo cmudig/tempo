@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ModelMetrics, ModelSummary } from '../model';
-  import SidebarItem from '../SidebarItem.svelte';
+  import SidebarItem from './SidebarItem.svelte';
   import SliceFeature from '../slices/slice_table/SliceFeature.svelte';
   import type {
     Slice,
