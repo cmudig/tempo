@@ -75,7 +75,6 @@ export type ModelSummary = {
   outcome?: string;
   model_type?: ModelType;
   likely_trivial?: boolean;
-  metrics?: ModelMetrics;
   cohort: string;
   variables: { [key: string]: VariableDefinition };
   training?: boolean;
@@ -83,6 +82,7 @@ export type ModelSummary = {
   description?: string;
   status?: { state: string; message: string };
   output_values?: string[];
+  error?: string;
 
   draft?: {
     outcome?: string;

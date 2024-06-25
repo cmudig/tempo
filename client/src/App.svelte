@@ -19,6 +19,10 @@
   import DatasetInfoView from './lib/DatasetInfoView.svelte';
   import logoUrl from './assets/logo_dark.svg';
   import QueryLanguageReferenceView from './lib/QueryLanguageReferenceView.svelte';
+  import ModelTrainingView from './lib/ModelTrainingView.svelte';
+
+  let currentDataset: string | null = null;
+  let datasetOptions: { name: string }[] = [];
 
   let models: { [key: string]: ModelSummary } = {};
 
@@ -47,11 +51,26 @@
   let savedSlices: { [key: string]: { [key: string]: SliceFeatureBase } } = {};
 
   onMount(async () => {
+    await refreshDatasets();
     await refreshModels();
   });
 
+  async function refreshDatasets() {
+    datasetOptions = await (await fetch('/datasets')).json();
+    if (
+      (currentDataset == null ||
+        !datasetOptions.find((d) => d.name == currentDataset)) &&
+      datasetOptions.length > 0
+    ) {
+      currentDataset = window.localStorage.getItem('currentDataset');
+      if (!currentDataset) currentDataset = datasetOptions[0].name;
+    }
+  }
+
   async function refreshModels() {
-    let result = await fetch('/models');
+    if (currentDataset == null) return;
+
+    let result = await fetch(`/datasets/${currentDataset}/models`);
     models = (await result.json()).models;
     console.log('models:', models);
     if (Object.keys(models).length > 0) {
@@ -93,16 +112,72 @@
   async function createModel(reference: string) {
     try {
       let newModel = await (
-        await fetch(`/models/new/${reference}`, { method: 'POST' })
+        await fetch(`/datasets/${currentDataset}/models/new/${reference}`, {
+          method: 'POST',
+        })
       ).json();
       currentModel = newModel.name;
       selectedModels = [];
       currentView = View.editor;
+      setTimeout(() => {
+        if (!!sidebar && !!currentModel) sidebar?.editModelName(currentModel);
+      }, 100);
     } catch (e) {
       console.error('error creating new model:', e);
     }
     refreshModels();
   }
+
+  async function renameModel(modelName: string, newName: string) {
+    try {
+      let result = await fetch(`/datasets/${currentDataset}/models/${newName}`);
+      if (result.status == 200) {
+        alert('A model with that name already exists.');
+        return;
+      }
+    } catch (e) {}
+
+    try {
+      await fetch(`/datasets/${currentDataset}/models/${modelName}/rename`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newName,
+        }),
+      });
+      await refreshModels();
+      currentModel = newName;
+    } catch (e) {
+      console.error('error renaming model:', e);
+    }
+  }
+
+  async function deleteModels(modelNames: string[]) {
+    try {
+      await Promise.all(
+        modelNames.map((m) =>
+          fetch(`/datasets/${currentDataset}/models/${m}`, { method: 'DELETE' })
+        )
+      );
+    } catch (e) {
+      console.error('error deleting model:', e);
+    }
+    refreshModels();
+  }
+
+  let oldDataset: string | null = null;
+  $: if (oldDataset !== currentDataset) {
+    refreshModels();
+    window.localStorage.setItem('currentDataset', currentDataset!);
+    oldDataset = currentDataset;
+  }
+
+  let sidebar: Sidebar;
+
+  let trainingBar: ModelTrainingView;
+  let refreshKey: any = {}; // set to a different object when need to refresh the main page
 </script>
 
 <main class="w-screen h-screen flex flex-col">
@@ -119,6 +194,11 @@
       <img src={logoUrl} class="h-full" alt="Tempo" />
     </div>
     <div class="flex-auto" />
+    <select class="flat-select py-1 mr-3 font-mono" bind:value={currentDataset}>
+      {#each datasetOptions as d}
+        <option value={d.name}>{d.name}</option>
+      {/each}
+    </select>
     <button
       class="mr-3 btn btn-dark-slate"
       on:click={() => (showingQueryReference = true)}
@@ -142,12 +222,15 @@
       >
         <Sidebar
           {models}
+          bind:this={sidebar}
           bind:metricToShow
           bind:activeModel={currentModel}
           bind:selectedModels
           bind:selectedSlice
           {sliceSpec}
           on:new={(e) => createModel(e.detail)}
+          on:rename={(e) => renameModel(e.detail.old, e.detail.new)}
+          on:delete={(e) => deleteModels(e.detail)}
         />
       </ResizablePanel>
     {/if}
@@ -167,51 +250,68 @@
           >
         {/each}
       </div>
-      <div
-        class="w-full flex-auto"
-        class:overflow-y-auto={currentView != View.slices}
-      >
-        {#if currentView == View.results}
-          {#each !!currentModel ? Array.from(new Set( [currentModel, ...selectedModels] )) : [] as model}
-            <ModelResultsView modelName={model} modelSummary={models[model]} />
-          {/each}
-        {:else if currentView == View.slices}
-          <SlicesView
-            bind:selectedSlice
-            bind:sliceSpec
-            bind:savedSlices
-            bind:metricToShow
-            modelName={currentModel}
-            timestepDefinition={models[currentModel ?? '']
-              ?.timestep_definition ?? ''}
-            modelsToShow={!!currentModel
-              ? Array.from(new Set([...selectedModels, currentModel]))
-              : []}
-          />
-        {:else if currentView == View.editor}
-          <ModelEditor
-            modelName={currentModel}
-            otherModels={selectedModels.filter((m) => m != currentModel)}
-            on:viewmodel={(e) => {
-              currentView = View.results;
-              currentModel = e.detail;
-            }}
-            on:train={async (e) => {
-              await refreshModels();
-              currentModel = e.detail;
-              selectedModels = [];
-            }}
-            on:delete={async () => {
-              await refreshModels();
-              currentView = View.results;
-            }}
-            on:finish={(e) => {
-              refreshModels();
-              if (e.detail.success) currentView = View.results;
-            }}
-          />
-        {/if}
-      </div>
+      {#if !!currentModel}
+        <ModelTrainingView
+          bind:this={trainingBar}
+          datasetName={currentDataset}
+          modelNames={[currentModel, ...selectedModels]}
+          on:finish={(e) => {
+            refreshModels();
+            if (e.detail) currentView = View.results;
+            else refreshKey = {};
+          }}
+        />
+      {/if}
+      {#key refreshKey}
+        <div
+          class="w-full flex-auto"
+          class:overflow-y-auto={currentView != View.slices}
+        >
+          {#if currentView == View.results}
+            {#each !!currentModel ? Array.from(new Set( [currentModel, ...selectedModels] )) : [] as model}
+              <ModelResultsView
+                {currentDataset}
+                modelName={model}
+                modelSummary={models[model]}
+              />
+            {/each}
+          {:else if currentView == View.slices}
+            <SlicesView
+              {currentDataset}
+              bind:selectedSlice
+              bind:sliceSpec
+              bind:savedSlices
+              bind:metricToShow
+              modelName={currentModel}
+              timestepDefinition={models[currentModel ?? '']
+                ?.timestep_definition ?? ''}
+              modelsToShow={!!currentModel
+                ? Array.from(new Set([...selectedModels, currentModel]))
+                : []}
+            />
+          {:else if currentView == View.editor}
+            <ModelEditor
+              {currentDataset}
+              modelName={currentModel}
+              otherModels={selectedModels.filter((m) => m != currentModel)}
+              on:viewmodel={(e) => {
+                currentView = View.results;
+                currentModel = e.detail;
+              }}
+              on:train={async (e) => {
+                if (!!trainingBar) trainingBar.pollTrainingStatus();
+                await refreshModels();
+                currentModel = e.detail;
+                selectedModels = [];
+              }}
+              on:delete={async () => {
+                await refreshModels();
+                currentView = View.results;
+              }}
+            />
+          {/if}
+        </div>
+      {/key}
     </div>
   </div>
   {#if showingDatasetInfo}

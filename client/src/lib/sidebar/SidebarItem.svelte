@@ -3,13 +3,19 @@
     type ModelSummary,
     decimalMetrics,
     metricsHaveWarnings,
+    type ModelMetrics,
   } from '../model';
   import * as d3 from 'd3';
   import { SidebarTableWidths } from '../utils/sidebarwidths';
   import Checkbox from '../utils/Checkbox.svelte';
   import SliceMetricBar from '../slices/metric_charts/SliceMetricBar.svelte';
   import type { SliceMetric } from '../slices/utils/slice.type';
-  import { faWarning } from '@fortawesome/free-solid-svg-icons';
+  import {
+    faCheck,
+    faEllipsisV,
+    faWarning,
+    faXmark,
+  } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import { createEventDispatcher } from 'svelte';
   import { MetricColors, makeCategoricalColorScale } from '../colors';
@@ -17,10 +23,12 @@
   import SliceMetricCategoryBar from '../slices/metric_charts/SliceMetricCategoryBar.svelte';
   import Tooltip from '../utils/Tooltip.svelte';
   import removeMd from 'remove-markdown';
+  import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
 
   const dispatch = createEventDispatcher();
 
   export let model: ModelSummary;
+  export let metrics: ModelMetrics;
   export let modelName: string;
   export let isActive: boolean;
   export let isChecked: boolean;
@@ -33,10 +41,13 @@
   export let differences: string[] = [];
 
   export let metricScales: { [key: string]: (v: number) => number } = {};
+  export let isEditingName: boolean = false;
 
   const accuracyFormat = d3.format('.1~%');
   const decimalFormat = d3.format(',.2~');
   const countFormat = d3.format(',');
+
+  let hovering = false;
 
   let metricValues: { [key: string]: SliceMetric | null } | undefined;
   $: if (!!customMetrics)
@@ -53,27 +64,40 @@
       Labels: customMetrics['Labels'] ?? null,
       Predictions: customMetrics['Predictions'] ?? null,
     };
-  else if (!!model && !!model.metrics)
+  else if (!!model && !!metrics)
     metricValues = {
       Timesteps: {
         type: 'binary',
-        mean: model.metrics?.n_test.instances ?? 0,
+        mean: metrics.n_test.instances ?? 0,
       },
       Trajectories: {
         type: 'binary',
-        mean: model.metrics?.n_test.trajectories ?? 0,
+        mean: metrics.n_test.trajectories ?? 0,
       },
       [metricToShow]:
-        model.metrics?.performance[metricToShow] !== undefined
+        metrics.performance[metricToShow] !== undefined
           ? {
               type: 'numeric',
-              value: model.metrics?.performance[metricToShow],
+              value: metrics.performance[metricToShow],
             }
           : null,
-      Labels: model.metrics?.labels ?? null,
-      Predictions: model.metrics?.predictions ?? null,
+      Labels: metrics.labels ?? null,
+      Predictions: metrics.predictions ?? null,
     };
   else metricValues = undefined;
+
+  let newName: string | null = null;
+  $: if (isEditingName && newName == null) newName = modelName;
+  else if (!isEditingName) newName = null;
+  let oldEditBox: HTMLInputElement;
+  let editBox: HTMLInputElement;
+  $: if (editBox !== oldEditBox) {
+    if (!!editBox) {
+      editBox.focus();
+      editBox.select();
+    }
+    oldEditBox = editBox;
+  }
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -83,6 +107,8 @@
   class="w-full inline-flex slice-row items-center justify-center flex-wrap py-4 cursor-pointer {isActive
     ? 'bg-blue-100'
     : 'hover:bg-slate-100'} "
+  on:mouseenter={() => (hovering = true)}
+  on:mouseleave={() => (hovering = false)}
 >
   <div
     class="font-mono p-2 text-sm flex grow shrink items-center gap-2"
@@ -106,43 +132,46 @@
         {/if}
       </div>
     {/if}
-    {#if model.training && !!model.status && model.status.state != 'error'}
-      <div
-        role="status"
-        title={model.status.message}
-        class="grow-0 shrink-0 flex items-center justify-center mr-2"
-      >
-        <svg
-          aria-hidden="true"
-          class="text-gray-200 animate-spin stroke-blue-600 w-4 h-4 align-middle"
-          viewBox="-0.5 -0.5 99.5 99.5"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <ellipse
-            cx="50"
-            cy="50"
-            rx="45"
-            ry="45"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="10"
-          />
-          <path
-            d="M 50 5 A 45 45 0 0 1 95 50"
-            stroke-width="10"
-            stroke-linecap="round"
-            fill="none"
-          />
-        </svg>
-      </div>
-    {/if}
     <div class="flex-auto min-w-0">
-      <div class="whitespace-nowrap truncate">
-        {#if !!model && !!model.metrics && metricsHaveWarnings(model.metrics)}
-          <Fa class="text-orange-300 inline" icon={faWarning} />
-        {/if}
-        {modelName}
-      </div>
+      {#if isEditingName}
+        <form
+          class="w-full"
+          on:submit|preventDefault={() =>
+            dispatch('rename', { old: modelName, new: newName })}
+        >
+          <div class="flex w-full items-center gap-2">
+            <input
+              type="text"
+              class="flat-text-input flex-auto"
+              bind:value={newName}
+              bind:this={editBox}
+              on:blur={() => setTimeout(() => dispatch('canceledit'), 100)}
+            />
+            <button
+              class="bg-transparent hover:opacity-60 text-slate-600 text-lg"
+              type="button"
+              on:mousedown|preventDefault|stopPropagation={() => {}}
+              on:click|stopPropagation={() => {
+                dispatch('canceledit');
+              }}
+              title="Cancel the rename"><Fa icon={faXmark} /></button
+            >
+            <button
+              class="bg-transparent hover:opacity-60 text-slate-600 text-lg disabled:opacity-50"
+              type="submit"
+              disabled={!newName || newName.length == 0}
+              title="Save the renamed model"><Fa icon={faCheck} /></button
+            >
+          </div>
+        </form>
+      {:else}
+        <div class="whitespace-nowrap truncate">
+          {#if !!metrics && metricsHaveWarnings(metrics)}
+            <Fa class="text-orange-300 inline" icon={faWarning} />
+          {/if}
+          {modelName}
+        </div>
+      {/if}
       {#if !!model.description}
         <div class="text-slate-500 font-sans text-xs line-clamp-2">
           {removeMd(model.description)}
@@ -156,6 +185,44 @@
       {/if}
     </div>
   </div>
+  {#if hovering && !isEditingName}
+    <div
+      class="grow-0 shrink-0"
+      style="width: {SidebarTableWidths.Checkbox}px;"
+    >
+      <ActionMenuButton
+        buttonClass="bg-transparent px-1 hover:opacity-40"
+        align="right"
+      >
+        <span slot="button-content"
+          ><Fa icon={faEllipsisV} class="inline" /></span
+        >
+        <div slot="options">
+          <a
+            href="#"
+            tabindex="0"
+            role="menuitem"
+            title="Duplicate this model"
+            on:click={() => dispatch('duplicate', modelName)}>Duplicate</a
+          >
+          <a
+            href="#"
+            tabindex="0"
+            role="menuitem"
+            title="Rename this model"
+            on:click={() => dispatch('editname', modelName)}>Rename...</a
+          >
+          <a
+            href="#"
+            tabindex="0"
+            role="menuitem"
+            title="Permanently delete this model"
+            on:click={() => dispatch('delete', modelName)}>Delete</a
+          >
+        </div>
+      </ActionMenuButton>
+    </div>
+  {/if}
   {#if !!metricValues}
     <div
       class="p-2 whitespace-nowrap grow-0 shrink-0 grid auto-rows-max text-xs gap-x-2 gap-y-0 items-center"

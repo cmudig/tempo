@@ -15,7 +15,7 @@ def list_datasets():
     ]
     """
     fs = get_filesystem()
-    return jsonify([{ "name": n } for n in fs.list_files("datasets")])
+    return jsonify([{ "name": n } for n in sorted(fs.list_files("datasets"))])
     
 @datasets_blueprint.get("/datasets/<dataset_name>/spec")
 def get_dataset_spec(dataset_name):

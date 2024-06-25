@@ -19,13 +19,12 @@
 
   const dispatch = createEventDispatcher();
 
+  export let currentDataset: string | null = null;
   export let modelName: string | null = null;
   export let modelSummary: ModelSummary | null = null;
   let metrics: ModelMetrics | null = null;
 
   let selectedThreshold: number | null = null;
-
-  let isTraining: boolean = false;
 
   $: if (!!modelName) {
     loadModelResults();
@@ -34,27 +33,16 @@
   async function loadModelResults() {
     if (!modelName) return;
     try {
-      let trainingStatus = await checkTrainingStatus(modelName);
-      if (!!trainingStatus && trainingStatus.state != 'error') {
-        isTraining = true;
-        return;
-      }
-      isTraining = false;
-      let result = await fetch(`/models/${modelName}/metrics`);
+      let result = await fetch(
+        `/datasets/${currentDataset}/models/${modelName}/metrics`
+      );
       metrics = await result.json();
       selectedThreshold = null;
       console.log(metrics);
     } catch (e) {
       console.error('error loading model metrics:', e);
-      trainingStatusTimer = setTimeout(checkTrainingStatus, 1000);
     }
   }
-
-  let trainingStatusTimer: any | null = null;
-
-  onDestroy(() => {
-    if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
-  });
 
   const percentageFormat = d3.format('.1~%');
   const decimalFormat = d3.format(',.3~');
@@ -83,9 +71,7 @@
 </script>
 
 <div class="w-full pt-4 px-4 flex flex-col">
-  {#if isTraining && !!modelName}
-    <ModelTrainingView {modelName} on:finish={loadModelResults} />
-  {:else if !!metrics}
+  {#if !!metrics}
     <div class="text-lg font-bold mb-3 w-full flex items-center gap-2">
       <div class="font-mono">{modelName}</div>
       {#if !!modelSummary && !!modelSummary.model_type}

@@ -32,6 +32,7 @@
   export let timestepDefinition: string | null = null;
   export let description: string | undefined = undefined;
 
+  export let currentDataset: string | null = null;
   export let modelName: string | null = null;
   export let otherModels: string[] = [];
 
@@ -45,7 +46,6 @@
   let newModelName: string | null = modelName;
 
   let isLoadingSpecs: boolean = false;
-  let isTraining: boolean = false;
 
   let editingDescription: boolean = false;
 
@@ -94,23 +94,11 @@
 
     if (!modelName) return;
 
-    isTraining = false;
     isLoadingSpecs = true;
     let loadedSpecs = await Promise.all(
       allModels.map(async (model) => {
         let spec = await loadModelSpec(model);
         if (!spec) return null;
-
-        if (spec.training) {
-          let status = await checkTrainingStatus(model);
-          if (!!status) {
-            if (status.state == 'error') saveError = status.message;
-            else {
-              saveError = null;
-              isTraining = true;
-            }
-          }
-        }
         return spec;
       })
     );
@@ -165,6 +153,16 @@
     )
       description = getModelField(allSpecs[0], 'description') ?? '';
     else description = undefined;
+
+    if (allSpecs.some((s) => !!s.error))
+      saveError =
+        '<p>' +
+        allSpecs
+          .map((s) => s.error)
+          .filter((e) => !!e)
+          .join('</p><p>') +
+        '</p>';
+    else saveError = null;
     baseSpec = {
       variables: inputVariables,
       outcome: outcomeVariable,
@@ -179,8 +177,8 @@
     if (!model) return null;
     try {
       saveError = null;
-      let result = await fetch(`/models/${model}/spec`);
-      let spec = await result.json();
+      let result = await fetch(`/datasets/${currentDataset}/models/${model}`);
+      let spec = (await result.json()).spec;
       return spec;
     } catch (e) {
       console.error('error loading models:', e);
@@ -189,11 +187,11 @@
   }
 
   async function reset() {
-    if (!modelName) return;
+    if (!modelName || !currentDataset) return;
     newModelName = modelName;
     await Promise.all(
       [newModelName, ...otherModels].map((m) =>
-        fetch('/models', {
+        fetch(`/datasets/${currentDataset}/models`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -212,7 +210,7 @@
     try {
       await Promise.all(
         [modelName, ...otherModels].map((m) =>
-          fetch(`/models/${m}`, { method: 'DELETE' })
+          fetch(`/datasets/${currentDataset}/models/${m}`, { method: 'DELETE' })
         )
       );
     } catch (e) {
@@ -236,14 +234,14 @@
     try {
       let modelsToSave = [newModelName, ...otherModels];
       for (let i = 0; i < modelsToSave.length; i++) {
-        let result = await fetch('/models', {
+        let result = await fetch(`/datasets/${currentDataset}/models`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             name: modelsToSave[i],
-            meta: {
+            spec: {
               variables: inputVariables ?? allSpecs[i].variables,
               outcome: outcomeVariable ?? allSpecs[i].outcome,
               cohort: patientCohort ?? allSpecs[i].cohort,
@@ -255,10 +253,8 @@
         });
         if (result.status == 200) {
           saveError = null;
-          isTraining = true;
         } else {
           saveError = await result.text();
-          isTraining = false;
           break;
         }
       }
@@ -266,7 +262,7 @@
       console.error('error saving model:', e);
       saveError = `${e}`;
     }
-    if (isTraining) dispatch('train', newModelName);
+    if (!saveError) dispatch('train', newModelName);
   }
 
   let saveDraftTimer: NodeJS.Timeout | null = null;
@@ -309,7 +305,7 @@
             anyKeepsDraft = true;
           }
 
-          let result = await fetch('/models', {
+          let result = await fetch(`/datasets/${currentDataset}/models`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -348,7 +344,7 @@
       return;
     }
     try {
-      let result = await fetch(`/models/${newName}/metrics`);
+      let result = await fetch(`/datasets/${currentDataset}/models/${newName}`);
       if (result.status == 200) {
         saveError = 'A model with that name already exists.';
         return;
@@ -356,7 +352,7 @@
     } catch (e) {}
     newModelName = newName!;
     // reset the existing model (remove any drafts)
-    await fetch('/models', {
+    await fetch(`/datasets/${currentDataset}/models`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -372,7 +368,9 @@
   let dataFields: string[] = [];
   onMount(
     async () =>
-      (dataFields = (await (await fetch('/data/fields')).json()).fields)
+      (dataFields = (
+        await (await fetch(`/datasets/${currentDataset}/data/fields`)).json()
+      ).fields)
   );
 
   async function downloadModelData() {
@@ -382,7 +380,7 @@
         .filter((v) => v[1].enabled ?? true)
         .map(([varName, varObj]) => `${varName}: ${varObj.query}`)
         .join(',\n\t');
-      let response = await fetch(`/data/download`, {
+      let response = await fetch(`/datasets/${currentDataset}/data/download`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -440,31 +438,17 @@
   </div>
 {:else if allSpecs.length > 0}
   <div class="w-full py-4 px-4">
-    {#if isTraining && !!modelName}
-      <ModelTrainingView
-        {modelName}
-        on:finish={(e) => {
-          if (!e.detail.success && modelName != null)
-            setupModels(modelName, otherModels);
-          dispatch('finish', e.detail);
-        }}
-      />
-    {/if}
     {#if !!saveError}
-      <div class="rounded my-2 p-3 text-red-500 bg-red-50">
-        Training error: <span class="font-mono">{saveError}</span>
+      <div class="rounded my-2 p-3 text-red-500 bg-red-50 font-mono">
+        {@html saveError}
       </div>
     {/if}
 
     <div class="mb-3 flex items-center">
       {#if otherModels.length == 0}
-        <h2 class="text-lg font-bold">Edit Model</h2>
-        <input
-          type="text"
-          placeholder="Model Name"
-          class="flex-auto font-mono ml-2 flat-text-input"
-          bind:value={newModelName}
-        />
+        <h2 class="text-lg font-bold">
+          Edit Model <span class="font-mono">{modelName}</span>
+        </h2>
       {:else}
         <h2 class="text-lg font-bold">Edit {1 + otherModels.length} Models</h2>
       {/if}
@@ -682,15 +666,6 @@
           Download Data
         </button>
       {/if}
-      <button
-        class="my-1 btn text-slate-800 bg-red-200 hover:bg-red-300"
-        on:click={async () => {
-          await deleteModels();
-          dispatch('delete', modelName);
-        }}
-      >
-        {#if otherModels.length > 0}Delete All{:else}Delete Model{/if}
-      </button>
     </div>
   </div>
 {/if}

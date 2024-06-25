@@ -42,8 +42,8 @@ def get_models(dataset_name):
     * dataset_name: Name of the dataset in which to return models
     
     Returns: JSON of the format { "models": {
-        "model_1": { model_spec },
-        "model_2": { model_spec },
+        "model_1": { "spec": model_spec, "metrics": metrics },
+        "model_2": { "spec": model_spec, "metrics": metrics },
         ...
     }}
     """
@@ -57,12 +57,19 @@ def get_models(dataset_name):
     except:
         return f"Dataset does not exist", 404
     else:
-        return jsonify({ "models": {
-            m: Model(fs.subdirectory(m)).get_spec()
-            for m in contents
-        }})
+        results = {}
+        for m in contents:
+            model = Model(fs.subdirectory(m))
+            results[m] = {
+                "spec": model.get_spec()
+            }
+            try:
+                results[m]["metrics"] = model.get_metrics()
+            except:
+                pass
+        return jsonify({ "models": results})
 
-@models_blueprint.route("/datasets/<dataset_name>/models/<model_name>/spec")
+@models_blueprint.route("/datasets/<dataset_name>/models/<model_name>")
 def get_model_spec(dataset_name, model_name):
     """
     Parameters:
@@ -153,6 +160,35 @@ def delete_model(dataset_name, model_name):
 
     return "Success"
     
+@models_blueprint.post("/datasets/<dataset_name>/models/<model_name>/rename")
+def rename_model(dataset_name, model_name):
+    """
+    Parameters:
+    * dataset_name: Name of the dataset in which to delete the model
+    * model_name: The name of the model to rename
+    
+    Request body: JSON of the format { 'name': new name }
+    
+    Returns: plain-text "Success" if the model was renamed
+    """
+    fs = get_filesystem().subdirectory("datasets", dataset_name)
+    if not fs.exists():
+        return "Dataset does not exist", 404
+    
+    body = request.json
+    if "name" not in body:
+        return "rename requires a 'name' field in the request body", 400
+    
+    model_dir = fs.subdirectory("models", model_name)
+    if not model_dir.exists():
+        return "Model does not exist", 404
+    try:
+        model_dir.rename(fs.subdirectory("models", body["name"]))
+    except:
+        return "Model could not be renamed", 400
+
+    return "Success"
+    
 
 @models_blueprint.route("/datasets/<dataset_name>/models/<model_name>/metrics")
 def get_model_metrics(dataset_name, model_name):
@@ -217,6 +253,14 @@ def generate_model(dataset_name):
         return "Timestep definition is required", 400
     if not spec.get("outcome", None):
         return "Outcome is required", 400
+    
+    # First save a draft of the model
+    try:
+        model = Model(fs.subdirectory("models", model_name))
+        model.write_draft_spec(spec)
+    except Exception as e:
+        print("Error writing draft:", e)
+        return "Error saving draft", 400    
     
     worker = get_worker()
     worker.submit_task({

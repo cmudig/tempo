@@ -48,12 +48,12 @@ if __name__ == '__main__':
     # Path for our main Svelte page
     @app.route("/")
     def client():
-        return send_from_directory('client/dist', 'index.html')
+        return send_from_directory('../client/dist', 'index.html')
 
     # Route to add static files (CSS and JS)
     @app.route("/<path:path>")
     def base(path):
-        return send_from_directory('client/dist', path)
+        return send_from_directory('../client/dist', path)
     
     if args.profile:
         app.wsgi_app = ProfilerMiddleware(app.wsgi_app, sort_by=["cumtime"], restrictions=[100])

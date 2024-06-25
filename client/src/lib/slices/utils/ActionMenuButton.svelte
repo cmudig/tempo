@@ -9,6 +9,7 @@
     'bg-transparent hover:opacity-60 text-slate-600 py-2 px-1 mr-2';
   export let buttonTitle = 'Show more actions';
   export let buttonStyle = '';
+  export let align: 'left' | 'center' | 'right' = 'left';
 
   export let menuWidth = 240;
 
@@ -60,24 +61,29 @@
     aria-haspopup="true"
   >
     <slot name="button-content">
-      <Fa icon={faEllipsisVertical} />
+      <Fa icon={faEllipsisVertical} class="inline text-center" />
     </slot>
   </button>
   {#if visible}
     <div
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full"
       style="z-index: 999;"
-      on:click={hideOptionsMenu}
+      on:click|stopPropagation={hideOptionsMenu}
       on:keydown={(e) => {}}
     />
     <div
       class="absolute left-0 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none transition-opacity duration-200"
-      style="opacity: {optionsMenuOpacity}; width: {menuWidth}px; z-index: 1000;"
+      style="opacity: {optionsMenuOpacity}; width: {menuWidth}px; transform: translateX({align ==
+      'right'
+        ? '-100%'
+        : align == 'center'
+          ? '-50%'
+          : '0'}); z-index: 1000;"
       role="menu"
       aria-orientation="vertical"
       aria-labelledby="menu-button"
       bind:this={optionsMenu}
-      on:click={singleClick ? hideOptionsMenu : () => {}}
+      on:click|stopPropagation={singleClick ? hideOptionsMenu : () => {}}
       on:keydown={(e) => {}}
     >
       <div class="menu-options py-1" role="none">

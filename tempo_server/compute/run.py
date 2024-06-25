@@ -26,13 +26,19 @@ def task_runner(filesystem, task_info, update_fn):
         update_fn({'message': 'Loading variables'})
         
         # Train model in a temp directory first
-        model = Model(filesystem.make_temporary_directory())
-        model.make_model(dataset, spec, update_fn=update_fn)
-        
-        # Transfer model to the target directory
         dest_path = dataset.fs.subdirectory("models", model_name)
-        if dest_path.exists(): dest_path.delete()
-        model.fs.copy_directory_contents(dest_path)
+        try:
+            model = Model(filesystem.make_temporary_directory())
+            model.make_model(dataset, spec, update_fn=update_fn)
+        except Exception as e:
+            # Save model spec with an error associated with it
+            error_model = Model(dest_path)
+            error_model.write_spec({**spec, "error": str(e)})
+            raise e
+        else:
+            # Transfer model to the target directory
+            if dest_path.exists(): dest_path.delete()
+            model.fs.copy_directory_contents(dest_path)
 
     return "Success"
     

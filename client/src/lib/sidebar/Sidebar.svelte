@@ -1,3 +1,5 @@
+<svelte:options accessors />
+
 <script lang="ts">
   import type { ModelMetrics, ModelSummary } from '../model';
   import SidebarItem from './SidebarItem.svelte';
@@ -18,10 +20,13 @@
   import Fa from 'svelte-fa/src/fa.svelte';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
   import { createEventDispatcher } from 'svelte';
+  import { active } from 'd3';
 
   const dispatch = createEventDispatcher();
 
-  export let models: { [key: string]: ModelSummary } = {};
+  export let models: {
+    [key: string]: { spec: ModelSummary; metrics?: ModelMetrics };
+  } = {};
   export let activeModel: string | undefined;
   export let selectedModels: string[] = [];
   export let selectedSlice: SliceFeatureBase | null = null;
@@ -149,8 +154,8 @@
   ): boolean {
     if (!models[modelName] || !models[otherModelName]) return false;
     return (
-      models[modelName].timestep_definition ==
-      models[otherModelName].timestep_definition
+      models[modelName].spec.timestep_definition ==
+      models[otherModelName].spec.timestep_definition
     );
   }
 
@@ -213,10 +218,16 @@
       );
     }
   }
+
+  let editingModelName: string | null = null;
+
+  export function editModelName(modelName: string) {
+    editingModelName = modelName;
+  }
 </script>
 
 <div class="flex flex-col w-full h-full">
-  <div class="my-2 px-4 flex items-center grow-0 shrink-0">
+  <div class="my-2 px-4 flex items-center grow-0 shrink-0 gap-2">
     <div class="text-lg font-bold whitespace-nowrap shrink-1 overflow-hidden">
       Models
     </div>
@@ -229,10 +240,8 @@
         {/each}
       </select>
     {/if}
-    <ActionMenuButton buttonClass="btn btn-blue ml-2 shrink-0 whitespace-nowrap"
-      ><span slot="button-content"
-        ><Fa icon={faPlus} class="inline" /> New...</span
-      >
+    <ActionMenuButton buttonClass="bg-transparent px-1 hover:opacity-40"
+      ><span slot="button-content"><Fa icon={faPlus} class="inline" /></span>
       <div slot="options">
         <a
           href="#"
@@ -252,6 +261,31 @@
         {/if}
       </div></ActionMenuButton
     >
+    <ActionMenuButton
+      buttonClass="bg-transparent px-1 hover:opacity-40"
+      align="right"
+    >
+      <div slot="options">
+        {#if selectedModels.length == 0}
+          <a
+            href="#"
+            tabindex="0"
+            role="menuitem"
+            title="Rename this model"
+            on:click={() => (editingModelName = activeModel ?? null)}
+            >Rename...</a
+          >
+        {/if}
+        <a
+          href="#"
+          tabindex="0"
+          role="menuitem"
+          title="Permanently delete these models"
+          on:click={() => dispatch('delete', [activeModel, ...selectedModels])}
+          >Delete</a
+        >
+      </div>
+    </ActionMenuButton>
   </div>
   {#if !!selectedSlice}
     <div class="rounded bg-slate-100 px-3 py-3 mx-2 mb-2">
@@ -328,10 +362,12 @@
       {#each modelOrder as modelName (modelName)}
         {@const model = models[modelName]}
         <SidebarItem
-          {model}
+          model={model.spec}
+          metrics={model.metrics}
           {modelName}
           {metricToShow}
           {metricScales}
+          isEditingName={editingModelName == modelName}
           customMetrics={sliceMetrics?.[modelName] ?? undefined}
           isActive={activeModel === modelName}
           isChecked={selectedModels.includes(modelName) ||
@@ -350,6 +386,14 @@
               ];
             else selectedModels = [...selectedModels, modelName];
           }}
+          on:duplicate={(e) => dispatch('new', e.detail)}
+          on:editname={(e) => (editingModelName = e.detail)}
+          on:canceledit={(e) => (editingModelName = null)}
+          on:rename={(e) => {
+            editingModelName = null;
+            dispatch('rename', e.detail);
+          }}
+          on:delete={(e) => dispatch('delete', [e.detail])}
         />
       {/each}
       {#if modelOrder.length > 1}

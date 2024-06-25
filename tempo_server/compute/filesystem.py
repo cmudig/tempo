@@ -89,10 +89,18 @@ class LocalFilesystem:
         return LocalFilesystem(os.path.join(self.base_path, *path), self.readonly)
     
     def copy_directory_contents(self, dest_fs):
-        """Transfers the contents of the tree rooted in this object to the given destination filesystem."""
+        """Copies the contents of the tree rooted in this object to the given destination filesystem."""
         if not isinstance(dest_fs, LocalFilesystem):
             raise ValueError(f"Unknown destination filesystem {dest_fs}")
         shutil.copytree(self.base_path, dest_fs.base_path)
+        
+    def rename(self, dest_fs):
+        """Moves the contents of the tree rooted in this object to the given destination filesystem,
+        and returns that filesystem."""
+        if not isinstance(dest_fs, LocalFilesystem):
+            raise ValueError(f"Unknown destination filesystem {dest_fs}")
+        shutil.move(self.base_path, dest_fs.base_path)
+        return dest_fs
         
     def make_temporary_directory(self):
         tempdir = tempfile.TemporaryDirectory()

@@ -1,19 +1,23 @@
-import type { Slice } from './slices/utils/slice.type';
-
 export type TrainingStatus = {
-  state: string;
-  message: string;
+  id: string;
+  info: any;
+  status: string;
+  status_info?: null | {
+    message: string;
+    progress?: number;
+  };
 };
 
 export async function checkTrainingStatus(
-  modelName: string
-): Promise<TrainingStatus | null> {
-  let trainingStatus = await (
-    await fetch(`/models/status/${modelName}`)
+  datasetName: string,
+  modelNames: string[]
+): Promise<TrainingStatus[] | null> {
+  let taskStatuses: TrainingStatus[] = await (
+    await fetch(`/tasks?cmd=train_model&dataset_name=${datasetName}`)
   ).json();
-  if (trainingStatus!.state == 'none' || trainingStatus!.state == 'complete')
-    trainingStatus = null;
-  return trainingStatus;
+  return taskStatuses.filter((task) =>
+    modelNames.includes(task.info.model_name)
+  );
 }
 
 export type SliceFindingStatus = {

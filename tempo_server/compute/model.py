@@ -17,7 +17,10 @@ class Model:
         return self.fs.read_file("spec.json")
     
     def write_draft_spec(self, draft):
-        meta = self.get_spec()
+        try:
+            meta = self.get_spec()
+        except:
+            meta = draft
             
         if not len(draft):
             # Delete the draft
@@ -26,6 +29,9 @@ class Model:
                 self.fs.write_file(meta, "spec.json")
         else:
             self.fs.write_file({**meta, "draft": draft}, "spec.json")          
+        
+    def write_spec(self, new_spec):
+        self.fs.write_file(new_spec, "spec.json")
         
     def get_metrics(self):
         return self.fs.read_file("metrics.json")
