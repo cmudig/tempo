@@ -27,7 +27,6 @@ def model_training_job_info(dataset_name, model_name):
     } if the model is training, or None otherwise.
     """
     worker = get_worker()
-    print(worker.current_jobs())
     return next((
         status for status in worker.current_jobs()
         if status['info']['cmd'] == Commands.TRAIN_MODEL 
@@ -275,22 +274,3 @@ def generate_model(dataset_name):
     #         # Mark that the model's metrics have changed
     #         evaluator.rescore_model(model_name, meta["timestep_definition"])
     return jsonify(model_training_job_info(dataset_name, model_name))
-
-            
-@models_blueprint.route("/datasets/<dataset_name>/models/stop_training/<model_name>", methods=["POST"])
-def stop_model_training(dataset_name, model_name):
-    """
-    Parameters:
-    * dataset_name: Name of the dataset in which to search for the model
-    * model_name: Name of the model to stop training
-    
-    Returns: plain-text success message if stopped training
-    """
-    if not is_training_model(dataset_name, model_name):
-        return "Model is not being trained", 400
-    worker = get_worker()
-    job_info = model_training_job_info(dataset_name, model_name)
-    if job_info is not None:
-        worker.cancel_task(job_info['id'])
-    return "Success"
-            

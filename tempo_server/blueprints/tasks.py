@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from ..compute.run import get_worker
+from ..compute.worker import TaskStatus
 
 tasks_blueprint = Blueprint('tasks', __name__)
 
@@ -46,4 +47,23 @@ def task_status(task_id):
         return "Task does not exist", 404
     else:
         return jsonify({ "status": status[0], "status_info": status[1] })
+    
+@tasks_blueprint.post("/tasks/<task_id>/stop")
+def stop_task(task_id):
+    """
+    Parameters:
+    * task_id: the ID of the task to stop
+    
+    Returns: plain text message if the task was stopped successfully
+    """
+    worker = get_worker()
+    try:
+        status = worker.status(task_id)
+        if status[0] not in (TaskStatus.WAITING, TaskStatus.RUNNING):
+            return "Task is not pending", 400
+    except:
+        return "Task does not exist", 404
+    else:
+        worker.cancel_task(task_id)
+        return "Success"
     

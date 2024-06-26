@@ -6,7 +6,7 @@
   import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
   import * as d3 from 'd3';
   import { faDownload } from '@fortawesome/free-solid-svg-icons';
-  import { getContext } from 'svelte';
+  import { getContext, onMount } from 'svelte';
   import type { Writable } from 'svelte/store';
   import { base64ToBlob } from './slices/utils/utils';
 
@@ -17,26 +17,17 @@
   export let evaluateQuery: boolean = true;
   export let delayEvaluation: boolean = false;
   export let showName: boolean = false;
+  export let compact: boolean = false;
 
   let evaluationTimer: number | null = null;
 
-  $: if (evaluateQuery) {
-    if (query.length == 0) {
-      loadingSummary = false;
-      summaryIsStale = false;
-      evaluationError = null;
-      evaluationSummary = null;
-    }
-    if (delayEvaluation) {
-      summaryIsStale = true;
-      if (!!evaluationTimer) clearTimeout(evaluationTimer);
-      if (query.length > 0)
-        evaluationTimer = setTimeout(liveEvaluateQuery, 2000);
-    } else if (query.length > 0) {
-      summaryIsStale = true;
-      liveEvaluateQuery(query);
-    }
-  }
+  let mounted = false;
+  onMount(() => {
+    mounted = true;
+  });
+
+  $: if (evaluateQuery) evaluateIfNeeded(query);
+
   export let metricWidth = 176;
 
   export let evaluationSummary: QueryResult | null = null;
@@ -46,6 +37,22 @@
   let loadingSummary: boolean = false;
   let summaryIsStale: boolean = false;
 
+  function evaluateIfNeeded(q: string) {
+    if (q.length == 0) {
+      loadingSummary = false;
+      summaryIsStale = false;
+      evaluationError = null;
+      evaluationSummary = null;
+    }
+    if (delayEvaluation && mounted) {
+      summaryIsStale = true;
+      if (!!evaluationTimer) clearTimeout(evaluationTimer);
+      if (q.length > 0) evaluationTimer = setTimeout(liveEvaluateQuery, 2000);
+    } else if (q.length > 0) {
+      summaryIsStale = true;
+      liveEvaluateQuery(q);
+    }
+  }
   async function liveEvaluateQuery(q: string) {
     if ($currentDataset == null) {
       console.warn('cannot live evaluate query without a currentDataset prop');
@@ -159,7 +166,7 @@
       <div class="mb-2 font-mono">
         {evaluationSummary.name}
       </div>
-    {:else}
+    {:else if !compact}
       <div class="mb-1 text-slate-500 text-xs flex justify-between">
         <div class="font-bold">Query Result</div>
         <button
@@ -170,13 +177,13 @@
         >
       </div>
     {/if}
-    {#if !!evaluatedType}
+    {#if !!evaluatedType && !compact}
       <div class="mb-2 text-slate-600 text-xs">
         {evaluatedType}
         {#if evaluatedLength != null}with {d3.format(',')(evaluatedLength)} values{/if}
       </div>
     {/if}
-    {#if !!evaluationSummary.occurrences}
+    {#if !!evaluationSummary.occurrences && !compact}
       {@const values = evaluationSummary.occurrences}
       {#if showHeaders}<div class="mb-1 text-xs text-slate-500">
           Occurrences per Trajectory
@@ -212,7 +219,7 @@
         {/if}
       </div>
     {/if}
-    {#if !!evaluationSummary.durations}
+    {#if !!evaluationSummary.durations && !compact}
       {@const values = evaluationSummary.durations}
       {#if showHeaders}<div class="mb-1 text-xs text-slate-500">
           Durations

@@ -51,13 +51,16 @@
     );
   }
 
-  async function stopTraining(modelName: string) {
+  async function stopTraining(taskID: string) {
     if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
     try {
-      let result = await fetch(`/models/stop_training/${modelName}`, {
+      let result = await fetch(`/tasks/${taskID}/stop`, {
         method: 'POST',
       });
-      if (result.status == 200) dispatch('finish');
+      if (result.status == 200) {
+        console.log('canceled!');
+        pollTrainingStatus();
+      }
     } catch (e) {
       console.error('error stopping training:', e);
     }
@@ -98,7 +101,7 @@
       </div>
       <button
         class="btn bg-blue-200 hover:bg-blue-300"
-        on:click={() => stopTraining(modelName)}>Stop</button
+        on:click={() => stopTraining(task.id)}>Stop</button
       >
     </div>
   {/each}

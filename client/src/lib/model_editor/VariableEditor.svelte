@@ -50,7 +50,7 @@
 {#if !!varInfo && !!varName}
   <div
     class:mx-4={showTableControls}
-    class="mb-1 grid items-center"
+    class="mb-1 grid items-center {$$props.class ?? ''}"
     class:gap-2={showTableControls}
     style="grid-template-columns: max-content auto max-content;"
   >
@@ -82,6 +82,15 @@
               : 'line-through text-slate-400'}"
             on:click={() => dispatch('edit')}>{varName}</button
           >
+          <div class="text-sm w-48 shrink-0 grow-0">
+            <QueryResultView
+              delayEvaluation
+              compact
+              query={!!varInfo.query
+                ? `${varInfo.query} ${timestepDefinition}`
+                : ''}
+            />
+          </div>
         {/if}
         {#if editing && showButtons}
           <button

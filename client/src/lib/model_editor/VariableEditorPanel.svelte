@@ -409,23 +409,25 @@
         </div>
       </div>
       {#each visibleVariables as [varName, varInfo] (varName)}
-        {#if currentEditingVariableName == null || currentEditingVariableName == varName}
-          <VariableEditor
-            {varName}
-            {varInfo}
-            {dataFields}
-            {timestepDefinition}
-            editing={currentEditingVariableName == varName}
-            isChecked={selectedVariables.includes(varName)}
-            on:cancel={() => (currentEditingVariableName = null)}
-            on:edit={() => (currentEditingVariableName = varName)}
-            on:save={(e) => saveVariableEdits(e.detail.name, e.detail.query)}
-            on:toggle={(e) => toggleVariables([varName], e.detail)}
-            on:select={(e) => toggleSelection(varName, e.detail)}
-            on:duplicate={(e) => duplicateVariables([varName])}
-            on:delete={(e) => deleteVariables([e.detail])}
-          />
-        {/if}
+        <VariableEditor
+          class={currentEditingVariableName == null ||
+          currentEditingVariableName == varName
+            ? ''
+            : 'hidden'}
+          {varName}
+          {varInfo}
+          {dataFields}
+          {timestepDefinition}
+          editing={currentEditingVariableName == varName}
+          isChecked={selectedVariables.includes(varName)}
+          on:cancel={() => (currentEditingVariableName = null)}
+          on:edit={() => (currentEditingVariableName = varName)}
+          on:save={(e) => saveVariableEdits(e.detail.name, e.detail.query)}
+          on:toggle={(e) => toggleVariables([varName], e.detail)}
+          on:select={(e) => toggleSelection(varName, e.detail)}
+          on:duplicate={(e) => duplicateVariables([varName])}
+          on:delete={(e) => deleteVariables([e.detail])}
+        />
       {/each}
     </div>
   {/if}

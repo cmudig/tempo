@@ -21,9 +21,11 @@ class TaskStatus:
     CANCELED = "canceled"
 
 def interrupt_handler(interrupt_event):
-    interrupt_event.wait()
-    print("[background_worker_interrupt] Interrupting")
-    _thread.interrupt_main()
+    while True:
+        interrupt_event.wait()
+        print("[background_worker_interrupt] Interrupting")
+        _thread.interrupt_main()
+        interrupt_event.clear()
 
 def start_worker(task_runner, interrupt_event, request_queue, status, verbose=False):
     """
@@ -154,6 +156,7 @@ class BackgroundWorker:
                 print(f"[cancel_task]: Task {task_id} not in list of tasks")
                 return
             current_status = self.task_status[task_id][0]
+            print(f"[cancel_task]: Task {task_id} status: {current_status}")
             if current_status == TaskStatus.RUNNING:
                 self.interrupt_event.set()
             elif current_status == TaskStatus.WAITING:
