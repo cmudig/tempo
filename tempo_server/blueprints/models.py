@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from ..compute.run import get_worker, get_filesystem
+from ..compute.dataset import Dataset
 from ..compute.utils import Commands
 from ..compute.model import Model
 
@@ -46,22 +47,16 @@ def get_models(dataset_name):
         ...
     }}
     """
-    fs = get_filesystem().subdirectory("datasets", dataset_name)
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name))
     try:
-        fs = fs.subdirectory("models")
-    except:
-        return f"Dataset is incorrectly formatted", 400
-    try:
-        contents = fs.list_files()
-    except:
+        contents = dataset.get_models()
+    except Exception as e:
+        print("Error listing models:", str(e))
         return f"Dataset does not exist", 404
     else:
         results = {}
-        for m in contents:
-            model = Model(fs.subdirectory(m))
-            results[m] = {
-                "spec": model.get_spec()
-            }
+        for m, model in contents.items():
+            results[m] = { "spec": model.get_spec() }
             try:
                 results[m]["metrics"] = model.get_metrics()
             except:
@@ -109,6 +104,8 @@ def make_new_model_spec(dataset_name, reference_name=""):
         "spec": { model spec }
     }
     """
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name))
+    
     if reference_name == "default":
         base_spec = Model.blank_spec()
         base_name = "Untitled"
@@ -132,7 +129,7 @@ def make_new_model_spec(dataset_name, reference_name=""):
             increment_index += 1
         final_name = f"{base_name} {increment_index}"
 
-    fs.write_file(base_spec, "models", final_name, "spec.json")
+    Model(dataset.model_spec_dir(final_name)).write_spec(base_spec)
     return jsonify({"name": final_name, "spec": base_spec})
 
 
@@ -145,17 +142,21 @@ def delete_model(dataset_name, model_name):
     
     Returns: plain-text "Success" if the model was deleted
     """
-    fs = get_filesystem().subdirectory("datasets", dataset_name)
-    if not fs.exists():
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name))
+    if not dataset.fs.exists():
         return "Dataset does not exist", 404
     
-    model_dir = fs.subdirectory("models", model_name)
+    model_dir = dataset.model_spec_dir(model_name)
     if not model_dir.exists():
         return "Model does not exist", 404
     try:
         model_dir.delete()
     except:
         return "Model could not be deleted", 400
+    
+    cache_dir = dataset.model_cache_dir(model_name)
+    if cache_dir.exists():
+        cache_dir.delete()
 
     return "Success"
     
@@ -170,21 +171,25 @@ def rename_model(dataset_name, model_name):
     
     Returns: plain-text "Success" if the model was renamed
     """
-    fs = get_filesystem().subdirectory("datasets", dataset_name)
-    if not fs.exists():
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name))
+    if not dataset.fs.exists():
         return "Dataset does not exist", 404
     
     body = request.json
     if "name" not in body:
         return "rename requires a 'name' field in the request body", 400
     
-    model_dir = fs.subdirectory("models", model_name)
+    model_dir = dataset.model_spec_dir(model_name)
     if not model_dir.exists():
         return "Model does not exist", 404
     try:
-        model_dir.rename(fs.subdirectory("models", body["name"]))
+        model_dir.rename(dataset.model_spec_dir(body["name"]))
     except:
         return "Model could not be renamed", 400
+    
+    cache_dir = dataset.model_cache_dir(model_name)
+    if cache_dir.exists():
+        cache_dir.rename(dataset.model_spec_dir(body["name"]))
 
     return "Success"
     
@@ -199,15 +204,15 @@ def get_model_metrics(dataset_name, model_name):
     Returns: JSON containing the metrics for the given model. Returns a 400 error
         code if the model is being trained.
     """
-    fs = get_filesystem().subdirectory("datasets", dataset_name, "models", model_name)
-    if not fs.exists():
-        return f"Model does not exist", 404
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name))
+    if not dataset.fs.exists():
+        return f"Dataset does not exist", 404
 
     if is_training_model(dataset_name, model_name):
         return "Model is being trained", 400
     
     try:
-        return jsonify(Model(fs).get_metrics())
+        return jsonify(dataset.get_model(model_name).get_metrics())
     except Exception as e:
         print('error reading spec:', e)
         return "Metrics not available", 400
@@ -227,8 +232,8 @@ def generate_model(dataset_name):
     Returns: If saving draft, a plain text success message. If training model,
         JSON of the task status representing the training task.
     """
-    fs = get_filesystem().subdirectory("datasets", dataset_name)
-    if not fs.exists():
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name))
+    if not dataset.fs.exists():
         return "Dataset does not exist", 404
 
     body = request.json
@@ -236,7 +241,7 @@ def generate_model(dataset_name):
         return "Model 'name' key required", 400
     model_name = body["name"]
     if "draft" in body:
-        model = Model(fs.subdirectory("models", model_name))
+        model = dataset.get_model(model_name)
         try:
             model.write_draft_spec(body["draft"])
         except Exception as e:
@@ -255,7 +260,7 @@ def generate_model(dataset_name):
     
     # First save a draft of the model
     try:
-        model = Model(fs.subdirectory("models", model_name))
+        model = dataset.get_model(model_name)
         model.write_draft_spec(spec)
     except Exception as e:
         print("Error writing draft:", e)

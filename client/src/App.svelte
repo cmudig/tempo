@@ -273,8 +273,10 @@
         />
       {/if}
       {#key refreshKey}
-        <!-- class:overflow-y-auto={currentView != View.slices} -->
-        <div class="w-full flex-auto h-0">
+        <div
+          class="w-full flex-auto h-0"
+          class:overflow-y-auto={currentView != View.slices}
+        >
           {#if currentView == View.results}
             {#each !!currentModel ? Array.from(new Set( [currentModel, ...selectedModels] )) : [] as model}
               <ModelResultsView
@@ -306,8 +308,6 @@
               on:train={async (e) => {
                 if (!!trainingBar) trainingBar.pollTrainingStatus();
                 await refreshModels();
-                currentModel = e.detail;
-                selectedModels = [];
               }}
               on:delete={async () => {
                 await refreshModels();

@@ -31,7 +31,8 @@ def task_runner(filesystem, task_info, update_fn):
         update_fn({'message': 'Loading variables'})
         
         # Train model in a temp directory first
-        dest_path = dataset.fs.subdirectory("models", model_name)
+        dest_path = dataset.model_spec_dir(model_name)
+        dest_cache_path = dataset.model_cache_dir(model_name)
         try:
             model = Model(filesystem.make_temporary_directory())
             model.make_model(dataset, spec, update_fn=update_fn)
@@ -43,7 +44,8 @@ def task_runner(filesystem, task_info, update_fn):
         else:
             # Transfer model to the target directory
             if dest_path.exists(): dest_path.delete()
-            model.fs.copy_directory_contents(dest_path)
+            if dest_cache_path.exists(): dest_cache_path.delete()
+            model.copy_to(dest_path, dest_cache_path)
     elif cmd == Commands.SUMMARIZE_DATASET:        
         if cache_worker_sample_dataset is None or cache_worker_sample_dataset[1] != task_info['dataset_name']:
             update_fn({'message': 'Loading data'})

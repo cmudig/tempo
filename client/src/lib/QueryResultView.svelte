@@ -6,13 +6,14 @@
   import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
   import * as d3 from 'd3';
   import { faDownload } from '@fortawesome/free-solid-svg-icons';
-  import { getContext, onMount } from 'svelte';
+  import { getContext, onDestroy, onMount } from 'svelte';
   import type { Writable } from 'svelte/store';
   import { base64ToBlob } from './slices/utils/utils';
 
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
 
+  export let container: HTMLElement;
   export let query: string = '';
   export let evaluateQuery: boolean = true;
   export let delayEvaluation: boolean = false;
@@ -22,11 +23,28 @@
   let evaluationTimer: number | null = null;
 
   let mounted = false;
+  let visible = false;
+  let observer: IntersectionObserver;
   onMount(() => {
     mounted = true;
   });
 
-  $: if (evaluateQuery) evaluateIfNeeded(query);
+  $: if (!observer && !!container) {
+    observer = new IntersectionObserver((entries) => {
+      visible = entries[0].isIntersecting;
+    });
+    observer.observe(container);
+  }
+
+  onDestroy(() => {
+    if (!!observer) observer.unobserve(container);
+  });
+
+  let oldQuery: string = '';
+  $: if (evaluateQuery && visible && oldQuery != query) {
+    evaluateIfNeeded(query);
+    oldQuery = query;
+  }
 
   export let metricWidth = 176;
 
@@ -150,7 +168,11 @@
   }
 </script>
 
-<div class="text-sm w-full" class:opacity-50={summaryIsStale}>
+<div
+  class="text-sm w-full"
+  class:opacity-50={summaryIsStale}
+  bind:this={container}
+>
   {#if !!downloadProgress}
     <div class="mb-1 text-slate-500 text-xs">
       Preparing download ({downloadProgress})

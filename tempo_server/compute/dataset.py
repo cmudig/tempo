@@ -6,6 +6,7 @@ import zipfile
 from io import BytesIO
 import time
 import uuid
+from tempo_server.compute.model import Model
 
 DEFAULT_SPLIT = {"train": 0.5, "val": 0.25, "test": 0.25}
 
@@ -18,10 +19,6 @@ class Dataset:
         self.spec = self.fs.read_file("spec.json")
         self.split = split
         
-        self.data_fs = self.fs.subdirectory("data")
-        self.model_fs = self.fs.subdirectory("models")
-        self.slices_fs = self.fs.subdirectory("slices")
-        
         self.global_cache_dir = self.fs.subdirectory("_cache")
         if split is not None:
             self.split_cache_dir = self.global_cache_dir.subdirectory(f"_{split}")
@@ -33,6 +30,21 @@ class Dataset:
         self.id_uniques = None
         self.split_ids = None # tuple (train, val, test) ids
         
+    def model_cache_dir(self, model_name):
+        return self.global_cache_dir.subdirectory("models", model_name)
+    
+    def model_spec_dir(self, model_name):
+        return self.fs.subdirectory("models", model_name)        
+
+    def get_models(self):
+        """Returns a dictionary of model name to Model objects."""
+        model_dir = self.fs.subdirectory("models")
+        return {model_name: self.get_model(model_name)
+                for model_name in model_dir.list_files()}
+    
+    def get_model(self, model_name):
+        return Model(self.model_spec_dir(model_name), self.model_cache_dir(model_name))
+    
     def assign_numerical_ids(self, ids):
         """
         Converts IDs to integers if they are not already.
@@ -54,7 +66,7 @@ class Dataset:
         data_config = self.spec.get("data", {})
         attrib_config = data_config.get("attributes", {})
         if "path" in attrib_config:
-            df = self.data_fs.read_file(attrib_config["path"])
+            df = self.fs.read_file(attrib_config["path"])
             id_field = attrib_config.get("id_field", "id")
             if id_field in df.columns:
                 df = df.set_index(id_field, drop=True)
@@ -66,7 +78,7 @@ class Dataset:
             attributes = None
         event_config = data_config.get("events", {})
         if "path" in event_config:
-            df = self.data_fs.read_file(event_config["path"])
+            df = self.fs.read_file(event_config["path"])
             id_field = event_config.get("id_field", "id")
             df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
             events = EventSet(df,
@@ -78,7 +90,7 @@ class Dataset:
             events = None
         interval_config = data_config.get("intervals", {})
         if "path" in interval_config:
-            df = self.data_fs.read_file(interval_config["path"])
+            df = self.fs.read_file(interval_config["path"])
             id_field = interval_config.get("id_field", "id")
             # prev_unique = len(df[id_field].unique())
             df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
@@ -133,7 +145,7 @@ class Dataset:
                 intervals = intervals.filter(intervals.get_ids().isin(split_ids))
 
         if "macros" in data_config:
-            macros = self.data_fs.read_file(data_config["macros"]["path"]
+            macros = self.fs.read_file(data_config["macros"]["path"]
                                             if "path" in data_config["macros"] 
                                             else "macros.json")
         else:

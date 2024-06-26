@@ -9,9 +9,10 @@ from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve
 from divisi.utils import convert_to_native_types
 
 class Model:
-    def __init__(self, model_fs):
+    def __init__(self, model_fs, result_fs=None):
         super().__init__()
         self.fs = model_fs
+        self.result_fs = result_fs if result_fs is not None else model_fs
         
     def get_spec(self):
         return self.fs.read_file("spec.json")
@@ -34,7 +35,7 @@ class Model:
         self.fs.write_file(new_spec, "spec.json")
         
     def get_metrics(self):
-        return self.fs.read_file("metrics.json")
+        return self.result_fs.read_file("metrics.json")
     
     @classmethod
     def blank_spec(cls):
@@ -48,6 +49,15 @@ class Model:
             "outcome": "",
             "description": "",
         }
+        
+    def copy_to(self, model_fs, result_fs=None):
+        """Copies the contents to the given new locations, and returns a Model at the new locations."""
+        if self.fs.exists("spec.json"):
+            self.fs.copy_file(model_fs, "spec.json")
+        for fname in ["metrics.json", "model.json", "preds.pkl"]:
+            if self.result_fs.exists(fname):
+                self.result_fs.copy_file(result_fs, fname)
+        return Model(model_fs, result_fs)
         
     def _compute_predictions(self, model, model_type, X):
         if model_type == "regression":
@@ -143,17 +153,17 @@ class Model:
                            indent=2)
         
         # Save out the metrics    
-        self.fs.write_file(convert_to_native_types(metrics),
+        self.result_fs.write_file(convert_to_native_types(metrics),
                            "metrics.json")
             
         # Save out the model itself and its predictions
         with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
             model.save_model(model_file.name)
             model_file.seek(0)
-            self.fs.write_file(model_file.read(), "model.json")
+            self.result_fs.write_file(model_file.read(), "model.json")
         
         # Save out the true values and prediction (probabilities)
-        self.fs.write_file(predictions, "preds.pkl")
+        self.result_fs.write_file(predictions, "preds.pkl")
         
         return model, metrics, predictions
         
