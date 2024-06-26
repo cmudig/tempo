@@ -7,7 +7,7 @@ from .filesystem import LocalFilesystem
 from .dataset import Dataset
 from .model import Model
 from .utils import Commands, make_query_result_summary
-import slice_finding as sf
+from divisi.utils import convert_to_native_types
 
 # these variables are only used in the worker
 cache_dataset = None # tuple (name, Dataset)
@@ -63,7 +63,7 @@ def task_runner(filesystem, task_info, update_fn):
         result["intervals"] = {eventtype: make_query_result_summary(dataset, dataset.intervals.get(eventtype))
                             for eventtype in dataset.intervals.get_types().unique()}
         update_fn({'message': 'Generating report'})
-        data_summary = sf.utils.convert_to_native_types(result)
+        data_summary = convert_to_native_types(result)
         cache_worker_sample_dataset[1].split_cache_dir.write_file(data_summary, "summary.json")
     elif cmd == Commands.GENERATE_QUERY_DOWNLOAD:
         if cache_dataset is None or cache_dataset[1] != task_info['dataset_name']:

@@ -6,7 +6,7 @@ from .utils import make_series_summary, make_query
 import xgboost
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve, f1_score
-import slice_finding as sf
+from divisi.utils import convert_to_native_types
 
 class Model:
     def __init__(self, model_fs):
@@ -138,12 +138,12 @@ class Model:
             early_stopping_rounds=3)
     
         # Save out the metadata
-        self.fs.write_file(sf.utils.convert_to_native_types(spec),
+        self.fs.write_file(convert_to_native_types(spec),
                            "spec.json",
                            indent=2)
         
         # Save out the metrics    
-        self.fs.write_file(sf.utils.convert_to_native_types(metrics),
+        self.fs.write_file(convert_to_native_types(metrics),
                            "metrics.json")
             
         # Save out the model itself and its predictions

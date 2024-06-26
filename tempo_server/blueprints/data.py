@@ -4,7 +4,7 @@ from ..compute.utils import Commands, QUERY_RESULT_TYPENAMES, make_query_result_
 import base64
 import datetime
 import lark
-import slice_finding as sf
+from divisi.utils import convert_to_native_types
 
 data_blueprint = Blueprint('data', __name__)
 
@@ -76,7 +76,7 @@ def list_data_fields(dataset_name):
         *sample_dataset.events.get_types().unique(),
         *sample_dataset.intervals.get_types().unique()
     ]
-    return jsonify({"fields": sf.utils.convert_to_native_types(result)})
+    return jsonify({"fields": convert_to_native_types(result)})
     
 @data_blueprint.route("/datasets/<dataset_name>/data/query")
 def query_dataset(dataset_name):

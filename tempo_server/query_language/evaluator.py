@@ -7,7 +7,7 @@ import json
 import os
 import random
 import tqdm
-import slice_finding as sf
+from divisi.utils import convert_to_native_types
 from ..compute.filesystem import LocalFilesystem
 
 GRAMMAR = """
@@ -928,7 +928,7 @@ class QueryResultCache:
             **({"time_index_tree": str(time_index_tree)} if time_index_tree is not None else {})
         }
         if transform_data is not None:
-            self._query_cache[query_cache_name]["transform_data"] = sf.utils.convert_to_native_types(transform_data)
+            self._query_cache[query_cache_name]["transform_data"] = convert_to_native_types(transform_data)
         self.cache_dir.write_file(df, fname, format='feather')
         self.cache_dir.write_file(self._query_cache, "query_cache.json")
 
