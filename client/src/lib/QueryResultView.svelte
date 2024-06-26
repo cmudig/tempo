@@ -6,6 +6,12 @@
   import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
   import * as d3 from 'd3';
   import { faDownload } from '@fortawesome/free-solid-svg-icons';
+  import { getContext } from 'svelte';
+  import type { Writable } from 'svelte/store';
+  import { base64ToBlob } from './slices/utils/utils';
+
+  let { currentDataset }: { currentDataset: Writable<string | null> } =
+    getContext('dataset');
 
   export let query: string = '';
   export let evaluateQuery: boolean = true;
@@ -41,10 +47,16 @@
   let summaryIsStale: boolean = false;
 
   async function liveEvaluateQuery(q: string) {
+    if ($currentDataset == null) {
+      console.warn('cannot live evaluate query without a currentDataset prop');
+      return;
+    }
     loadingSummary = true;
     let encodedQuery = encodeURIComponent(query);
     try {
-      let result = await (await fetch(`/data/query?q=${encodedQuery}`)).json();
+      let result = await (
+        await fetch(`/datasets/${$currentDataset}/data/query?q=${encodedQuery}`)
+      ).json();
       if (result.error) {
         evaluationError = result.error;
         evaluatedLength = null;
@@ -69,10 +81,74 @@
   $: if (!!evaluationSummary)
     showHeaders =
       !!evaluationSummary.occurrences || !!evaluationSummary.durations;
+
+  let downloadProgress: string | null = null;
+  let downloadTaskID: string | null = null;
+  async function pollDownload() {
+    if (!downloadTaskID) return;
+    try {
+      let result = await (await fetch(`/tasks/${downloadTaskID}`)).json();
+      if (result.status == 'complete') {
+        evaluationError = null;
+        downloadProgress = null;
+        downloadTaskID = null;
+        downloadQueryResult();
+      } else if (result.status == 'error') {
+        downloadProgress = null;
+        evaluationError = result.status_info;
+        downloadTaskID = null;
+      } else {
+        evaluationError = null;
+        downloadProgress =
+          result.status_info?.message ?? result.status_info ?? result.status;
+        setTimeout(pollDownload, 1000);
+      }
+    } catch (e) {
+      console.error('error checking task status:', e);
+      evaluationError = `${e}`;
+      downloadProgress = null;
+      downloadTaskID = null;
+    }
+  }
+  async function downloadQueryResult() {
+    downloadProgress = 'starting';
+    try {
+      let result = await (
+        await fetch(
+          `/datasets/${$currentDataset}/data/query?q=${encodeURIComponent(query)}&dl=1`
+        )
+      ).json();
+      if (result.blob) {
+        downloadProgress = null;
+        let blob = base64ToBlob(result.blob, 'application/zip');
+        let url = window.URL.createObjectURL(blob);
+        let a = document.createElement('a');
+        document.body.appendChild(a);
+        a.style.display = 'none';
+        a.href = url;
+        a.download = result.filename;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } else {
+        downloadTaskID = result.id;
+        downloadProgress =
+          result.status_info?.message ?? result.status_info ?? result.status;
+        setTimeout(pollDownload, 1000);
+      }
+    } catch (e) {
+      console.error('error downloading query result:', e);
+      evaluationError = `${e}`;
+      downloadProgress = null;
+    }
+  }
 </script>
 
 <div class="text-sm w-full" class:opacity-50={summaryIsStale}>
-  {#if loadingSummary}
+  {#if !!downloadProgress}
+    <div class="mb-1 text-slate-500 text-xs">
+      Preparing download ({downloadProgress})
+    </div>
+  {:else if loadingSummary}
     <div class="mb-1 text-slate-500 text-xs">Loading...</div>
   {:else if !!evaluationError}
     <div class="text-red-600">
@@ -86,11 +162,11 @@
     {:else}
       <div class="mb-1 text-slate-500 text-xs flex justify-between">
         <div class="font-bold">Query Result</div>
-        <a
+        <button
           class="hover:opacity-50 ml-2"
           title="Download query result for all data splits"
-          href="/data/query?q={encodeURIComponent(query)}&dl=1"
-          target="_blank"><Fa icon={faDownload} class="inline" /></a
+          on:click={downloadQueryResult}
+          ><Fa icon={faDownload} class="inline" /></button
         >
       </div>
     {/if}

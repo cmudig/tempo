@@ -1,12 +1,17 @@
 <script lang="ts">
   import { type ModelSummary, type VariableDefinition } from '../model';
-  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+  import {
+    createEventDispatcher,
+    getContext,
+    onDestroy,
+    onMount,
+  } from 'svelte';
   import VariableEditor from './VariableEditor.svelte';
   import ModelTrainingView from '../ModelTrainingView.svelte';
   import { checkTrainingStatus } from '../training';
   import VariableEditorPanel from './VariableEditorPanel.svelte';
   import Tooltip from '../utils/Tooltip.svelte';
-  import { areObjectsEqual } from '../slices/utils/utils';
+  import { areObjectsEqual, base64ToBlob } from '../slices/utils/utils';
   import { Carta, Markdown, MarkdownEditor } from 'carta-md';
   import 'carta-md/default.css';
   import DOMPurify from 'isomorphic-dompurify';
@@ -17,6 +22,11 @@
     getAutocompleteOptions,
     performAutocomplete,
   } from '../utils/query_autocomplete';
+  import type { Writable } from 'svelte/store';
+  import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
+
+  let { currentDataset }: { currentDataset: Writable<string | null> } =
+    getContext('dataset');
 
   const dispatch = createEventDispatcher();
   const carta = new Carta({
@@ -32,7 +42,6 @@
   export let timestepDefinition: string | null = null;
   export let description: string | undefined = undefined;
 
-  export let currentDataset: string | null = null;
   export let modelName: string | null = null;
   export let otherModels: string[] = [];
 
@@ -177,7 +186,7 @@
     if (!model) return null;
     try {
       saveError = null;
-      let result = await fetch(`/datasets/${currentDataset}/models/${model}`);
+      let result = await fetch(`/datasets/${$currentDataset}/models/${model}`);
       let spec = (await result.json()).spec;
       return spec;
     } catch (e) {
@@ -187,11 +196,11 @@
   }
 
   async function reset() {
-    if (!modelName || !currentDataset) return;
+    if (!modelName || !$currentDataset) return;
     newModelName = modelName;
     await Promise.all(
       [newModelName, ...otherModels].map((m) =>
-        fetch(`/datasets/${currentDataset}/models`, {
+        fetch(`/datasets/${$currentDataset}/models`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -210,7 +219,9 @@
     try {
       await Promise.all(
         [modelName, ...otherModels].map((m) =>
-          fetch(`/datasets/${currentDataset}/models/${m}`, { method: 'DELETE' })
+          fetch(`/datasets/${$currentDataset}/models/${m}`, {
+            method: 'DELETE',
+          })
         )
       );
     } catch (e) {
@@ -234,7 +245,7 @@
     try {
       let modelsToSave = [newModelName, ...otherModels];
       for (let i = 0; i < modelsToSave.length; i++) {
-        let result = await fetch(`/datasets/${currentDataset}/models`, {
+        let result = await fetch(`/datasets/${$currentDataset}/models`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -277,63 +288,65 @@
   ) {
     console.log('saving draft');
     changesSaved = false;
-    saveDraft();
+    scheduleSaveDraft();
   }
 
-  function saveDraft() {
+  function scheduleSaveDraft() {
     if (!!saveDraftTimer) clearTimeout(saveDraftTimer);
-    saveDraftTimer = setTimeout(async () => {
-      let anyKeepsDraft = false;
-      try {
-        let modelsToSave = [modelName, ...otherModels];
-        for (let i = 0; i < modelsToSave.length; i++) {
-          let draft: any = {
-            variables: inputVariables ?? allSpecs[i].variables,
-            outcome: outcomeVariable ?? allSpecs[i].outcome,
-            cohort: patientCohort ?? allSpecs[i].cohort,
-            timestep_definition:
-              timestepDefinition ?? allSpecs[i].timestep_definition,
-            description: description ?? allSpecs[i].description,
-          };
-          if (
-            Object.keys(draft).every((field) =>
-              areObjectsEqual(draft[field] as any, (allSpecs[i] as any)[field])
-            )
-          ) {
-            draft = {};
-          } else {
-            anyKeepsDraft = true;
-          }
+    saveDraftTimer = setTimeout(saveDraft, 5000);
+  }
 
-          let result = await fetch(`/datasets/${currentDataset}/models`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              name: modelsToSave[i],
-              draft,
-            }),
-          });
-          if (result.status != 200) {
-            saveError = await result.text();
-            break;
-          }
+  async function saveDraft() {
+    let anyKeepsDraft = false;
+    try {
+      let modelsToSave = [modelName, ...otherModels];
+      for (let i = 0; i < modelsToSave.length; i++) {
+        let draft: any = {
+          variables: inputVariables ?? allSpecs[i].variables,
+          outcome: outcomeVariable ?? allSpecs[i].outcome,
+          cohort: patientCohort ?? allSpecs[i].cohort,
+          timestep_definition:
+            timestepDefinition ?? allSpecs[i].timestep_definition,
+          description: description ?? allSpecs[i].description,
+        };
+        if (
+          Object.keys(draft).every((field) =>
+            areObjectsEqual(draft[field] as any, (allSpecs[i] as any)[field])
+          )
+        ) {
+          draft = {};
+        } else {
+          anyKeepsDraft = true;
         }
-      } catch (e) {
-        console.error('error saving model:', e);
-        saveError = `${e}`;
+
+        let result = await fetch(`/datasets/${$currentDataset}/models`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: modelsToSave[i],
+            draft,
+          }),
+        });
+        if (result.status != 200) {
+          saveError = await result.text();
+          break;
+        }
       }
-      changesSaved = true;
-      hasDraft = anyKeepsDraft;
-      baseSpec = {
-        variables: inputVariables,
-        outcome: outcomeVariable,
-        cohort: patientCohort,
-        timestep_definition: timestepDefinition,
-        description,
-      };
-    }, 5000);
+    } catch (e) {
+      console.error('error saving model:', e);
+      saveError = `${e}`;
+    }
+    changesSaved = true;
+    hasDraft = anyKeepsDraft;
+    baseSpec = {
+      variables: inputVariables,
+      outcome: outcomeVariable,
+      cohort: patientCohort,
+      timestep_definition: timestepDefinition,
+      description,
+    };
   }
 
   async function saveAsNewModel() {
@@ -344,7 +357,9 @@
       return;
     }
     try {
-      let result = await fetch(`/datasets/${currentDataset}/models/${newName}`);
+      let result = await fetch(
+        `/datasets/${$currentDataset}/models/${newName}`
+      );
       if (result.status == 200) {
         saveError = 'A model with that name already exists.';
         return;
@@ -352,7 +367,7 @@
     } catch (e) {}
     newModelName = newName!;
     // reset the existing model (remove any drafts)
-    await fetch(`/datasets/${currentDataset}/models`, {
+    await fetch(`/datasets/${$currentDataset}/models`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -369,9 +384,38 @@
   onMount(
     async () =>
       (dataFields = (
-        await (await fetch(`/datasets/${currentDataset}/data/fields`)).json()
+        await (await fetch(`/datasets/${$currentDataset}/data/fields`)).json()
       ).fields)
   );
+
+  let downloadProgress: string | null = null;
+  let downloadTaskID: string | null = null;
+  async function pollDownload() {
+    if (!downloadTaskID) return;
+    try {
+      let result = await (await fetch(`/tasks/${downloadTaskID}`)).json();
+      if (result.status == 'complete') {
+        saveError = null;
+        downloadProgress = null;
+        downloadTaskID = null;
+        downloadModelData();
+      } else if (result.status == 'error') {
+        downloadProgress = null;
+        saveError = result.status_info;
+        downloadTaskID = null;
+      } else {
+        saveError = null;
+        downloadProgress =
+          result.status_info?.message ?? result.status_info ?? result.status;
+        setTimeout(pollDownload, 1000);
+      }
+    } catch (e) {
+      console.error('error checking task status:', e);
+      saveError = `${e}`;
+      downloadProgress = null;
+      downloadTaskID = null;
+    }
+  }
 
   async function downloadModelData() {
     if (!inputVariables) return;
@@ -380,7 +424,7 @@
         .filter((v) => v[1].enabled ?? true)
         .map(([varName, varObj]) => `${varName}: ${varObj.query}`)
         .join(',\n\t');
-      let response = await fetch(`/datasets/${currentDataset}/data/download`, {
+      let response = await fetch(`/datasets/${$currentDataset}/data/download`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -399,15 +443,22 @@
         return;
       }
       saveError = null;
-      let blob = await response.blob();
-      let url = window.URL.createObjectURL(blob);
-      let a = document.createElement('a');
-      document.body.appendChild(a);
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `${newModelName}.zip`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      let result = await response.json();
+      if (!!result.blob) {
+        let blob = base64ToBlob(result.blob, 'application/zip');
+        let url = window.URL.createObjectURL(blob);
+        let a = document.createElement('a');
+        document.body.appendChild(a);
+        a.style.display = 'none';
+        a.href = url;
+        a.download = result.filename;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } else {
+        downloadTaskID = result.id;
+        downloadProgress = 'Preparing download';
+        setTimeout(pollDownload, 1000);
+      }
     } catch (e) {
       console.error('Error downloading model data:', e);
     }
@@ -437,27 +488,88 @@
     </div>
   </div>
 {:else if allSpecs.length > 0}
-  <div class="w-full py-4 px-4">
+  <div class="w-full pb-4 px-4 relative">
     {#if !!saveError}
       <div class="rounded my-2 p-3 text-red-500 bg-red-50 font-mono">
         {@html saveError}
       </div>
     {/if}
 
-    <div class="mb-3 flex items-center">
+    <div
+      class="py-3 mb-3 flex items-center flex-wrap sticky top-0 bg-white z-10"
+    >
       {#if otherModels.length == 0}
-        <h2 class="text-lg font-bold">
+        <h2 class="text-lg font-bold flex-auto">
           Edit Model <span class="font-mono">{modelName}</span>
         </h2>
       {:else}
-        <h2 class="text-lg font-bold">Edit {1 + otherModels.length} Models</h2>
+        <h2 class="text-lg font-bold flex-auto">
+          Edit {1 + otherModels.length} Models
+        </h2>
       {/if}
+      <div class="flex gap-2 items-center">
+        {#if !!downloadProgress}
+          <div class="text-slate-500 text-sm">{downloadProgress}</div>
+        {/if}
+        <button class="btn btn-blue" on:click={() => trainModel(false)}>
+          {#if otherModels.length > 0}Save All{:else}Save and Train{/if}
+        </button>
+        {#if hasDraft || !changesSaved}
+          <button class="my-1 btn btn-slate" on:click={reset}> Revert </button>
+        {/if}
+        {#if otherModels.length == 0}
+          <ActionMenuButton
+            buttonClass="bg-transparent px-2 py-1 hover:opacity-40"
+            align="right"
+          >
+            <div slot="options">
+              <a href="#" tabindex="0" role="menuitem" on:click={saveAsNewModel}
+                >Save As...</a
+              >
+              <a
+                href="#"
+                tabindex="0"
+                role="menuitem"
+                title="Download the training, validation, and test data for the model inputs and outputs."
+                on:click={downloadModelData}>Download Data</a
+              >
+            </div></ActionMenuButton
+          >
+        {/if}
+      </div>
     </div>
+    {#if hasDraft || !changesSaved}
+      <div
+        class="flex items-center rounded {changesSaved
+          ? 'bg-sky-100 text-sky-600'
+          : 'bg-orange-100 text-orange-700'} transition-colors duration-300 px-3 text-sm my-2"
+      >
+        <div class="flex-auto py-2">
+          {#if changesSaved}<strong>Draft saved&nbsp;</strong> Changes have not
+            yet been reflected in the trained model{otherModels.length > 0
+              ? 's'
+              : ''}.
+          {:else}
+            <strong>Unsaved changes&nbsp;</strong> A draft will be saved automatically...{/if}
+        </div>
+        {#if !changesSaved}
+          <div class="shrink-0">
+            <button
+              class="btn-sm bg-orange-200 hover:bg-orange-300 text-orange-700"
+              on:click={saveDraft}>Save Draft</button
+            >
+          </div>
+        {/if}
+      </div>
+    {/if}
     <h3 class="font-bold mt-3 mb-2">
       Model Description <button
         class="hover:opacity-50 text-slate-500 text-sm ml-2"
         on:click={() => (editingDescription = !editingDescription)}
-        ><Fa
+        >{#if !editingDescription && (description ?? '').length == 0}<span
+            class="font-normal text-xs mr-2"
+            >Click to add a free-text description.</span
+          >{/if}<Fa
           class="inline"
           icon={editingDescription ? faCheck : faPencil}
         /></button
@@ -532,7 +644,7 @@
         varName="cohort"
         varInfo={{ query: patientCohort, category: '', enabled: true }}
         {timestepDefinition}
-        showCheckbox={false}
+        showTableControls={false}
         showButtons={false}
         autosave
         showName={false}
@@ -608,7 +720,7 @@
         varName="outcome"
         varInfo={{ query: outcomeVariable, category: '', enabled: true }}
         {timestepDefinition}
-        showCheckbox={false}
+        showTableControls={false}
         showButtons={false}
         autosave
         showName={false}
@@ -643,29 +755,5 @@
     class="flat-text-input w-full font-mono"
     bind:value={outcomeVariable}
   /> -->
-    {#if hasDraft || !changesSaved}
-      <div class="text-sm text-slate-500 mt-2">
-        {#if changesSaved}<strong>Draft saved.&nbsp;</strong>{/if}Changes have
-        not yet been reflected in the trained model{otherModels.length > 0
-          ? 's'
-          : ''}.
-      </div>
-    {/if}
-    <div class="mt-2 flex gap-2">
-      <button class="my-1 btn btn-blue" on:click={() => trainModel(false)}>
-        {#if otherModels.length > 0}Save All{:else}Save and Train{/if}
-      </button>
-      {#if otherModels.length == 0}
-        <button class="my-1 btn btn-slate" on:click={saveAsNewModel}>
-          Save As...
-        </button>
-      {/if}
-      <button class="my-1 btn btn-slate" on:click={reset}> Revert </button>
-      {#if otherModels.length == 0}
-        <button class="my-1 btn btn-slate" on:click={downloadModelData}>
-          Download Data
-        </button>
-      {/if}
-    </div>
   </div>
 {/if}

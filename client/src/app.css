@@ -11,6 +11,9 @@
 .btn {
   @apply py-1.5 text-sm px-4 rounded font-bold;
 }
+.btn-sm {
+  @apply py-1 text-xs px-3 rounded font-bold;
+}
 .btn-blue {
   @apply text-slate-800 bg-blue-100;
 }
@@ -116,7 +119,9 @@ button[disabled] {
   pointer-events: none;
 }
 
-select.flat-select {
+select.flat-select,
+select.flat-select-sm,
+select.flat-select-dark {
   -webkit-appearance: none;
   -moz-appearance: none;
   -ms-appearance: none;
@@ -129,7 +134,17 @@ select.flat-select {
 }
 
 select {
-  @apply bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded p-1.5;
+  @apply bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg p-1.5;
+}
+
+select.flat-select-dark {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg aria-hidden='true' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 10 6'%3E%3Cpath stroke='%23FFFFFF' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m1 1 4 4 4-4'/%3E%3C/svg%3E");
+  @apply bg-slate-600 text-white text-sm rounded p-1.5 pl-2 border-0;
+  padding-right: 2.5rem;
+}
+
+select.flat-select-sm {
+  @apply rounded text-xs p-1;
 }
 
 select:focus {
@@ -157,7 +172,7 @@ input[type='search'].flat-text-input {
 }
 
 .flat-text-input-large {
-  @apply bg-slate-200 appearance-none border-2 border-slate-200 rounded text-slate-700 font-mono text-sm p-2 caret-blue-600;
+  @apply bg-slate-200 appearance-none border-2 border-slate-200 rounded text-slate-700 font-mono text-sm p-2 caret-blue-600 leading-relaxed;
 }
 
 .flat-text-input {

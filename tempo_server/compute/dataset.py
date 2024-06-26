@@ -2,6 +2,10 @@ import pandas as pd
 from tempo_server.query_language.data_types import *
 from tempo_server.query_language.evaluator import TrajectoryDataset, get_all_trajectory_ids
 from sklearn.model_selection import train_test_split
+import zipfile
+from io import BytesIO
+import time
+import uuid
 
 DEFAULT_SPLIT = {"train": 0.5, "val": 0.25, "test": 0.25}
 
@@ -20,9 +24,9 @@ class Dataset:
         
         self.global_cache_dir = self.fs.subdirectory("_cache")
         if split is not None:
-            self.split_cache_dir = self.fs.subdirectory(f"_cache_{split}")
+            self.split_cache_dir = self.global_cache_dir.subdirectory(f"_{split}")
         else:
-            self.split_cache_dir = self.global_cache_dir
+            self.split_cache_dir = self.global_cache_dir.subdirectory(f"_all")
             
         self.dataset = None
         
@@ -138,7 +142,7 @@ class Dataset:
         self.dataset = TrajectoryDataset(attributes, 
                                     events, 
                                     intervals, 
-                                    cache_fs=self.split_cache_dir, 
+                                    cache_fs=self.split_cache_dir.subdirectory("variables"), 
                                     eventtype_macros=macros)
         self.split_ids = (train_ids, val_ids, test_ids)
 
@@ -150,3 +154,101 @@ class Dataset:
         assert self.dataset is not None, "Need to load dataset before parsing"
         return self.dataset.parse(query, keep_all_tokens=keep_all_tokens)
     
+    def get_summary(self):
+        if not self.split_cache_dir.exists("summary.json"): return None
+        return self.split_cache_dir.read_file("summary.json")
+    
+    def read_downloadable_query_result(self, path):
+        return self.global_cache_dir.read_file("query_downloads", path, format='bytes')
+    
+    def get_downloadable_query(self, query):
+        try:
+            cache = self.global_cache_dir.read_file("query_downloads", "cache.json")
+        except:
+            cache = []
+        cache_hit = next((item for item in cache if item['query'] == query), None)
+        if cache_hit is not None:
+            return cache_hit['path']
+        return None
+    
+    def generate_downloadable_query(self, query, update_fn=None):
+        """
+        Generates a ZIP file containing the result of a given query and saves it
+        into the global cache directory. Returns the name of a file in the 
+        query_downloads subdirectory of the global cache directory that contains
+        the result.
+        """
+        if (path := self.get_downloadable_query(query)) is not None:
+            return path
+        
+        train_ids, val_ids, test_ids = self.split_ids
+
+        if update_fn is not None: update_fn({'message': 'Running query'})
+        result = self.query(query, use_cache=False)
+
+        if update_fn is not None: update_fn({'message': 'Saving results'})
+        memory_file = BytesIO()
+        with zipfile.ZipFile(memory_file, 'w') as zf:
+            data = zipfile.ZipInfo(f'query.txt')
+            data.date_time = time.localtime(time.time())[:6]
+            data.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(data, query)
+            for filename, ids in (("train", train_ids), ("val", val_ids), ("test", test_ids)):
+                data = zipfile.ZipInfo(f'{filename}.csv')
+                data.date_time = time.localtime(time.time())[:6]
+                data.compress_type = zipfile.ZIP_DEFLATED
+                zf.writestr(data, result.filter(result.get_ids().isin(ids)).to_csv())
+        memory_file.seek(0)
+        path = f"{uuid.uuid4().hex}.zip"
+        self.global_cache_dir.subdirectory("query_downloads").write_file(memory_file.getvalue(), path, format='bytes')
+        
+        # Save to cache
+        try:
+            cache = self.global_cache_dir.read_file("query_downloads", "cache.json")
+        except:
+            cache = []
+        cache.append({ "query": query, "path": path })
+        self.global_cache_dir.write_file(cache, "query_downloads", "cache.json")
+        return path
+
+    def generate_downloadable_batch_queries(self, queries, update_fn=None):
+        """
+        Same as generate_downloadable_query but generates one ZIP file
+        containing several queries.
+        """
+        if (path := self.get_downloadable_query(queries)) is not None:
+            return path
+        
+        train_ids, val_ids, test_ids = self.split_ids
+
+        memory_file = BytesIO()
+        with zipfile.ZipFile(memory_file, 'w') as zf:
+            data = zipfile.ZipInfo(f'queries.txt')
+            data.date_time = time.localtime(time.time())[:6]
+            data.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(data, "\n\n".join(f"{name}\n{query}" for name, query in queries.items()))
+            for i, (query_name, query) in enumerate(queries.items()):
+                prog_message = f'Running query {i + 1} of {len(queries)}'
+                if update_fn is not None: update_fn({'message': prog_message})
+                
+                def prog_fn(curr, tot):
+                    if update_fn is not None: update_fn({'message': f'{prog_message}: variable {curr} of {tot}'})
+                result = self.query(query, update_fn=prog_fn)
+                for filename, ids in (("train", train_ids), ("val", val_ids), ("test", test_ids)):
+                    data = zipfile.ZipInfo(f'{query_name}_{filename}.csv')
+                    data.date_time = time.localtime(time.time())[:6]
+                    data.compress_type = zipfile.ZIP_DEFLATED
+                    zf.writestr(data, result.filter(result.get_ids().isin(ids)).to_csv())
+        memory_file.seek(0)
+
+        path = f"{uuid.uuid4().hex}.zip"
+        self.global_cache_dir.subdirectory("query_downloads").write_file(memory_file.getvalue(), path, format='bytes')
+        
+        # Save to cache
+        try:
+            cache = self.global_cache_dir.read_file("query_downloads", "cache.json")
+        except:
+            cache = []
+        cache.append({ "query": queries, "path": path })
+        self.global_cache_dir.write_file(cache, "query_downloads", "cache.json")
+        return path

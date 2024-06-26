@@ -5,7 +5,7 @@ import tempfile
 import shutil
 import pandas as pd
 
-BINARY_FILE_TYPES = ('pickle', 'feather')
+BINARY_FILE_TYPES = ('pickle', 'feather', 'bytes')
 
 FILE_TYPE_EXTENSIONS = {
     "txt": "str",
@@ -15,7 +15,8 @@ FILE_TYPE_EXTENSIONS = {
     "pkl": "pickle",
     "p": "pickle",
     "arrow": "feather",
-    "feather": "feather"
+    "feather": "feather",
+    "zip": "bytes"
 }
 
 class LocalFilesystem:
@@ -48,7 +49,7 @@ class LocalFilesystem:
             except:
                 raise ValueError(f"Unknown format for path {path[-1]}")
         with open(os.path.join(self.base_path, *path), 'rb' if format in BINARY_FILE_TYPES else 'r') as file:
-            if format.lower() == 'str':
+            if format.lower() in ('str', 'bytes'):
                 return file.read()
             elif format.lower() == 'json':
                 return json.load(file, **kwargs)
@@ -72,7 +73,7 @@ class LocalFilesystem:
                 raise ValueError(f"Unknown format for path {path[-1]}")
             
         with open(dest_path, 'wb' if format in BINARY_FILE_TYPES else 'w') as file:
-            if format.lower() == 'str':
+            if format.lower() in ('str', 'bytes'):
                 file.write(content)
             elif format.lower() == 'json':
                 json.dump(content, file, **kwargs)

@@ -690,6 +690,9 @@ class EvaluateQuery(lark.visitors.Interpreter):
         
     def _parse_variable_expr(self, tree, evaluator, time_index_tree=None, cache_only=False):            
         # Parse where clauses first (these require top-down processing in case of a value placeholder)
+        if not isinstance(tree, lark.Tree):
+            return tree
+
         tree_desc = str(tree.children[1])
         options_desc = str(tree.children[2]) if len(tree.children) > 2 else ''
         

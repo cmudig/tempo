@@ -227,65 +227,73 @@
 </script>
 
 <div class="flex flex-col w-full h-full">
-  <div class="my-2 px-4 flex items-center grow-0 shrink-0 gap-2">
-    <div class="text-lg font-bold whitespace-nowrap shrink-1 overflow-hidden">
-      Models
-    </div>
-    <div class="flex-auto" />
-    <div class="shrink-0 text-xs mr-2 text-slate-600">Display metric:</div>
-    {#if metricOptions.length > 0}
-      <select class="flat-select my-1 shrink-0" bind:value={metricToShow}>
-        {#each metricOptions as metricName}
-          <option value={metricName}>{metricName}</option>
-        {/each}
-      </select>
-    {/if}
-    <ActionMenuButton buttonClass="bg-transparent px-1 hover:opacity-40"
-      ><span slot="button-content"><Fa icon={faPlus} class="inline" /></span>
-      <div slot="options">
-        <a
-          href="#"
-          tabindex="0"
-          role="menuitem"
-          on:click={() => dispatch('new', 'default')}
-          >From Default Specification</a
-        >
-        {#if !!activeModel}
-          <a
-            href="#"
-            tabindex="0"
-            role="menuitem"
-            on:click={() => dispatch('new', activeModel)}
-            >From <span class="font-mono">{activeModel}</span></a
-          >
-        {/if}
-      </div></ActionMenuButton
-    >
-    <ActionMenuButton
-      buttonClass="bg-transparent px-1 hover:opacity-40"
-      align="right"
-    >
-      <div slot="options">
-        {#if selectedModels.length == 0}
-          <a
-            href="#"
-            tabindex="0"
-            role="menuitem"
-            title="Rename this model"
-            on:click={() => (editingModelName = activeModel ?? null)}
-            >Rename...</a
-          >
-        {/if}
-        <a
-          href="#"
-          tabindex="0"
-          role="menuitem"
-          title="Permanently delete these models"
-          on:click={() => dispatch('delete', [activeModel, ...selectedModels])}
-          >Delete</a
-        >
+  <div class="w-full sticky top-0">
+    <div class="py-2 px-4 flex items-center grow-0 shrink-0 gap-2">
+      <div class="text-lg font-bold whitespace-nowrap shrink-1 overflow-hidden">
+        Models
       </div>
-    </ActionMenuButton>
+      <div class="flex-auto" />
+      <ActionMenuButton buttonClass="bg-transparent px-1 hover:opacity-40"
+        ><span slot="button-content"><Fa icon={faPlus} class="inline" /></span>
+        <div slot="options">
+          <a
+            href="#"
+            tabindex="0"
+            role="menuitem"
+            on:click={() => dispatch('new', 'default')}
+            >From Default Specification</a
+          >
+          {#if !!activeModel}
+            <a
+              href="#"
+              tabindex="0"
+              role="menuitem"
+              on:click={() => dispatch('new', activeModel)}
+              >From <span class="font-mono">{activeModel}</span></a
+            >
+          {/if}
+        </div></ActionMenuButton
+      >
+      <ActionMenuButton
+        buttonClass="bg-transparent px-1 hover:opacity-40"
+        align="right"
+      >
+        <div slot="options">
+          {#if selectedModels.length == 0}
+            <a
+              href="#"
+              tabindex="0"
+              role="menuitem"
+              title="Rename this model"
+              on:click={() => (editingModelName = activeModel ?? null)}
+              >Rename...</a
+            >
+          {/if}
+          <a
+            href="#"
+            tabindex="0"
+            role="menuitem"
+            title="Permanently delete these models"
+            on:click={() =>
+              dispatch('delete', [activeModel, ...selectedModels])}>Delete</a
+          >
+        </div>
+      </ActionMenuButton>
+    </div>
+    <div class="flex px-4 my-2 items-center w-full">
+      <div class="shrink-0 text-xs mr-2 text-slate-600">Display metric:</div>
+      {#if metricOptions.length > 0}
+        <select
+          class="flat-select-sm"
+          style="min-width: 120px;"
+          bind:value={metricToShow}
+        >
+          {#each metricOptions as metricName}
+            <option value={metricName}>{metricName}</option>
+          {/each}
+        </select>
+      {/if}
+    </div>
   </div>
   {#if !!selectedSlice}
     <div class="rounded bg-slate-100 px-3 py-3 mx-2 mb-2">
@@ -311,7 +319,7 @@
       <div>No models yet!</div>
     </div>
   {:else}
-    <div class="px-2 overflow-y-auto flex-auto min-h-0">
+    <div class="overflow-y-auto flex-auto min-h-0">
       <!-- <div
         class="text-sm text-left inline-flex align-top slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600 sticky top-0 z-1"
       >

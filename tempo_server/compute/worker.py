@@ -124,7 +124,13 @@ class BackgroundWorker:
         return self.task_status[task_id]
     
     def task_info(self, task_id):
-        return self.task_cache[task_id]
+        status = self.task_status[task_id]
+        return {
+            'id': task_id, 
+            'info': self.task_cache[task_id], 
+            'status': status[0],
+            **({'status_info': status[1]} if status[0] is not None else {})
+        }
         
     def current_jobs(self):
         return [{

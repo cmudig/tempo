@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, setContext } from 'svelte';
   import { type ModelSummary, metricsHaveWarnings } from './lib/model';
   import ModelEditor from './lib/model_editor/ModelEditor.svelte';
   import ModelResultsView from './lib/ModelResultsView.svelte';
@@ -20,8 +20,11 @@
   import logoUrl from './assets/logo_dark.svg';
   import QueryLanguageReferenceView from './lib/QueryLanguageReferenceView.svelte';
   import ModelTrainingView from './lib/ModelTrainingView.svelte';
+  import { writable, type Writable } from 'svelte/store';
 
-  let currentDataset: string | null = null;
+  let currentDataset: Writable<string | null> = writable(null);
+  setContext('dataset', { currentDataset });
+
   let datasetOptions: { name: string }[] = [];
 
   let models: { [key: string]: ModelSummary } = {};
@@ -58,19 +61,19 @@
   async function refreshDatasets() {
     datasetOptions = await (await fetch('/datasets')).json();
     if (
-      (currentDataset == null ||
-        !datasetOptions.find((d) => d.name == currentDataset)) &&
+      ($currentDataset == null ||
+        !datasetOptions.find((d) => d.name == $currentDataset)) &&
       datasetOptions.length > 0
     ) {
-      currentDataset = window.localStorage.getItem('currentDataset');
-      if (!currentDataset) currentDataset = datasetOptions[0].name;
+      $currentDataset = window.localStorage.getItem('currentDataset');
+      if (!$currentDataset) $currentDataset = datasetOptions[0].name;
     }
   }
 
   async function refreshModels() {
-    if (currentDataset == null) return;
+    if ($currentDataset == null) return;
 
-    let result = await fetch(`/datasets/${currentDataset}/models`);
+    let result = await fetch(`/datasets/${$currentDataset}/models`);
     models = (await result.json()).models;
     console.log('models:', models);
     if (Object.keys(models).length > 0) {
@@ -112,7 +115,7 @@
   async function createModel(reference: string) {
     try {
       let newModel = await (
-        await fetch(`/datasets/${currentDataset}/models/new/${reference}`, {
+        await fetch(`/datasets/${$currentDataset}/models/new/${reference}`, {
           method: 'POST',
         })
       ).json();
@@ -130,7 +133,9 @@
 
   async function renameModel(modelName: string, newName: string) {
     try {
-      let result = await fetch(`/datasets/${currentDataset}/models/${newName}`);
+      let result = await fetch(
+        `/datasets/${$currentDataset}/models/${newName}`
+      );
       if (result.status == 200) {
         alert('A model with that name already exists.');
         return;
@@ -138,7 +143,7 @@
     } catch (e) {}
 
     try {
-      await fetch(`/datasets/${currentDataset}/models/${modelName}/rename`, {
+      await fetch(`/datasets/${$currentDataset}/models/${modelName}/rename`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -158,7 +163,9 @@
     try {
       await Promise.all(
         modelNames.map((m) =>
-          fetch(`/datasets/${currentDataset}/models/${m}`, { method: 'DELETE' })
+          fetch(`/datasets/${$currentDataset}/models/${m}`, {
+            method: 'DELETE',
+          })
         )
       );
     } catch (e) {
@@ -168,10 +175,10 @@
   }
 
   let oldDataset: string | null = null;
-  $: if (oldDataset !== currentDataset) {
+  $: if (oldDataset !== $currentDataset) {
     refreshModels();
-    window.localStorage.setItem('currentDataset', currentDataset!);
-    oldDataset = currentDataset;
+    window.localStorage.setItem('currentDataset', $currentDataset!);
+    oldDataset = $currentDataset;
   }
 
   let sidebar: Sidebar;
@@ -194,7 +201,10 @@
       <img src={logoUrl} class="h-full" alt="Tempo" />
     </div>
     <div class="flex-auto" />
-    <select class="flat-select py-1 mr-3 font-mono" bind:value={currentDataset}>
+    <select
+      class="flat-select-dark py-1 mr-3 font-mono"
+      bind:value={$currentDataset}
+    >
       {#each datasetOptions as d}
         <option value={d.name}>{d.name}</option>
       {/each}
@@ -253,7 +263,7 @@
       {#if !!currentModel}
         <ModelTrainingView
           bind:this={trainingBar}
-          datasetName={currentDataset}
+          datasetName={$currentDataset}
           modelNames={[currentModel, ...selectedModels]}
           on:finish={(e) => {
             refreshModels();
@@ -263,21 +273,17 @@
         />
       {/if}
       {#key refreshKey}
-        <div
-          class="w-full flex-auto"
-          class:overflow-y-auto={currentView != View.slices}
-        >
+        <!-- class:overflow-y-auto={currentView != View.slices} -->
+        <div class="w-full flex-auto h-0">
           {#if currentView == View.results}
             {#each !!currentModel ? Array.from(new Set( [currentModel, ...selectedModels] )) : [] as model}
               <ModelResultsView
-                {currentDataset}
                 modelName={model}
                 modelSummary={models[model]}
               />
             {/each}
           {:else if currentView == View.slices}
             <SlicesView
-              {currentDataset}
               bind:selectedSlice
               bind:sliceSpec
               bind:savedSlices
@@ -291,7 +297,6 @@
             />
           {:else if currentView == View.editor}
             <ModelEditor
-              {currentDataset}
               modelName={currentModel}
               otherModels={selectedModels.filter((m) => m != currentModel)}
               on:viewmodel={(e) => {

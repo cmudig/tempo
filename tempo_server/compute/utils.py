@@ -6,6 +6,8 @@ class Commands:
     BUILD_DATASET = "build_dataset"
     TRAIN_MODEL = "train_model"
     FIND_SLICES = "find_slices"
+    SUMMARIZE_DATASET = "summarize_dataset"
+    GENERATE_QUERY_DOWNLOAD = "generate_query_download"
     
 def make_series_summary(values, value_type=None):
     summary = {}

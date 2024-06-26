@@ -6,6 +6,7 @@
   export let checked = false;
   export let colorClass: string | null = null;
   export let disabled = false;
+  export let indeterminate = false; // true to make a dash through instead of a check
 
   const dispatch = createEventDispatcher();
 </script>
@@ -14,7 +15,7 @@
   class="mr-1 inline checkbox rounded flex items-center justify-center text-white {colorClass !=
   null
     ? colorClass
-    : checked
+    : indeterminate || checked
       ? 'bg-blue-400'
       : 'bg-slate-300 hover:bg-slate-400'}"
   {disabled}
@@ -24,7 +25,9 @@
     dispatch('change', checked);
   }}
 >
-  {#if checked}
+  {#if indeterminate}
+    <span style="padding-bottom: 0.1rem;">&mdash;</span>
+  {:else if checked}
     <Fa icon={faCheck} />
   {/if}
 </button>

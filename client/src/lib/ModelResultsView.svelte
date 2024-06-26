@@ -6,7 +6,7 @@
     type ModelSummary,
   } from './model';
   import Fa from 'svelte-fa/src/fa.svelte';
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { createEventDispatcher, getContext, onDestroy } from 'svelte';
   import * as d3 from 'd3';
   import ModelTrainingView from './ModelTrainingView.svelte';
   import { checkTrainingStatus } from './training';
@@ -16,10 +16,13 @@
   import { MetricColors } from './colors';
   import Histogram2D from './slices/charts/Histogram2D.svelte';
   import Tooltip from './utils/Tooltip.svelte';
+  import type { Writable } from 'svelte/store';
+
+  let { currentDataset }: { currentDataset: Writable<string | null> } =
+    getContext('dataset');
 
   const dispatch = createEventDispatcher();
 
-  export let currentDataset: string | null = null;
   export let modelName: string | null = null;
   export let modelSummary: ModelSummary | null = null;
   let metrics: ModelMetrics | null = null;
@@ -34,7 +37,7 @@
     if (!modelName) return;
     try {
       let result = await fetch(
-        `/datasets/${currentDataset}/models/${modelName}/metrics`
+        `/datasets/${$currentDataset}/models/${modelName}/metrics`
       );
       metrics = await result.json();
       selectedThreshold = null;
