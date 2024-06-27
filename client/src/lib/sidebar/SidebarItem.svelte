@@ -172,9 +172,9 @@
           {modelName}
         </div>
       {/if}
-      {#if !!model.description}
+      {#if !!(model.draft?.description ?? model.description)}
         <div class="text-slate-500 font-sans text-xs line-clamp-2">
-          {removeMd(model.description)}
+          {removeMd(model.draft?.description ?? model.description ?? '')}
         </div>
       {/if}
       {#if differences.length > 0}

@@ -512,7 +512,7 @@
           <div class="text-slate-500 text-sm">{downloadProgress}</div>
         {/if}
         <button class="btn btn-blue" on:click={() => trainModel(false)}>
-          {#if otherModels.length > 0}Save All{:else}Save and Train{/if}
+          {#if otherModels.length > 0}Train All{:else}Train{/if}
         </button>
         {#if hasDraft || !changesSaved}
           <button class="my-1 btn btn-slate" on:click={reset}> Revert </button>
@@ -524,7 +524,7 @@
           >
             <div slot="options">
               <a href="#" tabindex="0" role="menuitem" on:click={saveAsNewModel}
-                >Save As...</a
+                >Save and Train As...</a
               >
               <a
                 href="#"

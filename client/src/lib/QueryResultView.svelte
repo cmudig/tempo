@@ -62,16 +62,21 @@
       evaluationError = null;
       evaluationSummary = null;
     }
-    if (delayEvaluation && mounted) {
+    if (delayEvaluation) {
       summaryIsStale = true;
       if (!!evaluationTimer) clearTimeout(evaluationTimer);
-      if (q.length > 0) evaluationTimer = setTimeout(liveEvaluateQuery, 2000);
+      if (q.length > 0)
+        evaluationTimer = setTimeout(liveEvaluateQuery, mounted ? 2000 : 500);
     } else if (q.length > 0) {
       summaryIsStale = true;
       liveEvaluateQuery(q);
     }
   }
   async function liveEvaluateQuery(q: string) {
+    if (!visible) {
+      oldQuery = '';
+      return;
+    }
     if ($currentDataset == null) {
       console.warn('cannot live evaluate query without a currentDataset prop');
       return;
