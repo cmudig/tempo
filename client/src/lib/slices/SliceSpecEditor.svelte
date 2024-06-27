@@ -18,7 +18,7 @@
   async function loadSpecs() {
     try {
       loadingSpecs = true;
-      let response = await fetch('/slices/specs');
+      let response = await fetch(import.meta.env.BASE_URL + '/slices/specs');
       specs = await response.json();
       loadingSpecs = false;
     } catch (e) {
@@ -69,7 +69,7 @@
     savingSpecs = true;
 
     try {
-      let status = await fetch(`/slices/specs/${newSpecName}`, {
+      let status = await fetch(import.meta.env.BASE_URL + `/slices/specs/${newSpecName}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

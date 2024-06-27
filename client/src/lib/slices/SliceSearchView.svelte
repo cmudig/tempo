@@ -144,7 +144,7 @@
     }
     try {
       let results = await (
-        await fetch(`/slices/${models.join(',')}/score`, {
+        await fetch(import.meta.env.BASE_URL + `/slices/${models.join(',')}/score`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

@@ -158,7 +158,7 @@
     try {
       let query = `(${rawRepresentation}) ${timestepDefinition}`;
       let result = await (
-        await fetch(`/datasets/${$currentDataset}/data/validate_syntax`, {
+        await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/validate_syntax`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

@@ -37,7 +37,7 @@
     if (!modelName) return;
     try {
       let result = await fetch(
-        `/datasets/${$currentDataset}/models/${modelName}/metrics`
+        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/${modelName}/metrics`
       );
       metrics = await result.json();
       selectedThreshold = null;

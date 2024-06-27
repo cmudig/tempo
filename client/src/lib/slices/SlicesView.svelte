@@ -140,7 +140,7 @@
       retrievingSlices = true;
       retrievedScoreWeights = null;
       resultControls = {};
-      let response = await fetch(`/slices/${models.join(',')}`, {
+      let response = await fetch(import.meta.env.BASE_URL + `/slices/${models.join(',')}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -203,7 +203,7 @@
 
       console.log('STARTING slice finding');
       let result = await (
-        await fetch(`/slices/${modelName}/start`, {
+        await fetch(import.meta.env.BASE_URL + `/slices/${modelName}/start`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -230,7 +230,7 @@
 
   async function stopFindingSlices() {
     try {
-      await fetch(`/slices/stop_finding`, { method: 'POST' });
+      await fetch(import.meta.env.BASE_URL + `/slices/stop_finding`, { method: 'POST' });
       pollSliceStatus();
     } catch (e) {
       console.error("couldn't stop slice finding:", e);

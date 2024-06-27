@@ -119,7 +119,7 @@
     };
     try {
       let results = await (
-        await fetch(`/slices/score`, {
+        await fetch(import.meta.env.BASE_URL + `/slices/score`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

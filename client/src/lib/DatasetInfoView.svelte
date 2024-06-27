@@ -64,7 +64,7 @@
   async function loadDatasetInfo(datasetName: string) {
     try {
       loadingInfo = true;
-      let response = await fetch(`/datasets/${datasetName}/data/summary`);
+      let response = await fetch(import.meta.env.BASE_URL + `/datasets/${datasetName}/data/summary`);
       let result = await response.json();
       if (!!result.attributes) {
         datasetInfo = result;

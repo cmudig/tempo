@@ -186,7 +186,7 @@
     if (!model) return null;
     try {
       saveError = null;
-      let result = await fetch(`/datasets/${$currentDataset}/models/${model}`);
+      let result = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/${model}`);
       let spec = (await result.json()).spec;
       return spec;
     } catch (e) {
@@ -200,7 +200,7 @@
     newModelName = modelName;
     await Promise.all(
       [newModelName, ...otherModels].map((m) =>
-        fetch(`/datasets/${$currentDataset}/models`, {
+        fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -219,7 +219,7 @@
     try {
       await Promise.all(
         [modelName, ...otherModels].map((m) =>
-          fetch(`/datasets/${$currentDataset}/models/${m}`, {
+          fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/${m}`, {
             method: 'DELETE',
           })
         )
@@ -245,7 +245,7 @@
     try {
       let modelsToSave = [newModelName, ...otherModels];
       for (let i = 0; i < modelsToSave.length; i++) {
-        let result = await fetch(`/datasets/${$currentDataset}/models`, {
+        let result = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -319,7 +319,7 @@
           anyKeepsDraft = true;
         }
 
-        let result = await fetch(`/datasets/${$currentDataset}/models`, {
+        let result = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -358,7 +358,7 @@
     }
     try {
       let result = await fetch(
-        `/datasets/${$currentDataset}/models/${newName}`
+        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/${newName}`
       );
       if (result.status == 200) {
         saveError = 'A model with that name already exists.';
@@ -367,7 +367,7 @@
     } catch (e) {}
     newModelName = newName!;
     // reset the existing model (remove any drafts)
-    await fetch(`/datasets/${$currentDataset}/models`, {
+    await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -384,7 +384,7 @@
   onMount(
     async () =>
       (dataFields = (
-        await (await fetch(`/datasets/${$currentDataset}/data/fields`)).json()
+        await (await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/fields`)).json()
       ).fields)
   );
 
@@ -393,7 +393,7 @@
   async function pollDownload() {
     if (!downloadTaskID) return;
     try {
-      let result = await (await fetch(`/tasks/${downloadTaskID}`)).json();
+      let result = await (await fetch(import.meta.env.BASE_URL + `/tasks/${downloadTaskID}`)).json();
       if (result.status == 'complete') {
         saveError = null;
         downloadProgress = null;
@@ -424,7 +424,7 @@
         .filter((v) => v[1].enabled ?? true)
         .map(([varName, varObj]) => `${varName}: ${varObj.query}`)
         .join(',\n\t');
-      let response = await fetch(`/datasets/${$currentDataset}/data/download`, {
+      let response = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/download`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -59,7 +59,7 @@
   });
 
   async function refreshDatasets() {
-    datasetOptions = await (await fetch('/datasets')).json();
+    datasetOptions = await (await fetch(import.meta.env.BASE_URL + '/datasets')).json();
     if (
       ($currentDataset == null ||
         !datasetOptions.find((d) => d.name == $currentDataset)) &&
@@ -73,7 +73,7 @@
   async function refreshModels() {
     if ($currentDataset == null) return;
 
-    let result = await fetch(`/datasets/${$currentDataset}/models`);
+    let result = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`);
     models = (await result.json()).models;
     console.log('models:', models);
     if (Object.keys(models).length > 0) {
@@ -115,7 +115,7 @@
   async function createModel(reference: string) {
     try {
       let newModel = await (
-        await fetch(`/datasets/${$currentDataset}/models/new/${reference}`, {
+        await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/new/${reference}`, {
           method: 'POST',
         })
       ).json();
@@ -134,7 +134,7 @@
   async function renameModel(modelName: string, newName: string) {
     try {
       let result = await fetch(
-        `/datasets/${$currentDataset}/models/${newName}`
+        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/${newName}`
       );
       if (result.status == 200) {
         alert('A model with that name already exists.');
@@ -143,7 +143,7 @@
     } catch (e) {}
 
     try {
-      await fetch(`/datasets/${$currentDataset}/models/${modelName}/rename`, {
+      await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/${modelName}/rename`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -163,7 +163,7 @@
     try {
       await Promise.all(
         modelNames.map((m) =>
-          fetch(`/datasets/${$currentDataset}/models/${m}`, {
+          fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/${m}`, {
             method: 'DELETE',
           })
         )
