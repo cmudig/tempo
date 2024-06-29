@@ -9,7 +9,6 @@
     SliceFeatureBase,
     SliceMetric,
   } from '../slices/utils/slice.type';
-  import { SidebarTableWidths } from '../utils/sidebarwidths';
   import {
     faPlus,
     faSort,
@@ -20,17 +19,14 @@
   import Fa from 'svelte-fa/src/fa.svelte';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
   import { createEventDispatcher } from 'svelte';
-  import { active } from 'd3';
 
   const dispatch = createEventDispatcher();
 
   export let models: {
     [key: string]: { spec: ModelSummary; metrics?: ModelMetrics };
   } = {};
-  export let activeModel: string | undefined;
+  export let activeModel: string | null;
   export let selectedModels: string[] = [];
-  export let selectedSlice: SliceFeatureBase | null = null;
-  export let sliceSpec: string = 'default';
 
   export let metricToShow: string = 'AUROC';
 
@@ -108,55 +104,6 @@
       Timesteps: (v: number) => v / maxInstances,
       Trajectories: (v: number) => v / maxTrajectories,
     };
-  }
-
-  $: if (!!selectedSlice) loadSliceScores(selectedSlice, sliceSpec);
-  else sliceMetrics = undefined;
-
-  async function loadSliceScores(sliceDef: SliceFeatureBase, spec: string) {
-    let sliceRequests: { [key: string]: SliceFeatureBase } = {
-      toScore: sliceDef,
-    };
-    try {
-      let results = await (
-        await fetch(`/slices/score`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            sliceRequests,
-            sliceSpec: spec,
-            selectedModel: activeModel,
-          }),
-        })
-      ).json();
-      let result = results.sliceRequestResults.toScore as Slice;
-      if (!!result)
-        sliceMetrics = result.metrics as {
-          [key: string]: { [key: string]: SliceMetric };
-        };
-      else sliceMetrics = undefined;
-      console.log(
-        'slice metrics:',
-        sliceMetrics,
-        results,
-        JSON.stringify({ sliceRequests })
-      );
-    } catch (e) {
-      console.log('error calculating slice for sidebar:', e);
-    }
-  }
-
-  function hasSameTimestepDefinition(
-    modelName: string,
-    otherModelName: string
-  ): boolean {
-    if (!models[modelName] || !models[otherModelName]) return false;
-    return (
-      models[modelName].spec.timestep_definition ==
-      models[otherModelName].spec.timestep_definition
-    );
   }
 
   function setSort(field: string) {
@@ -295,23 +242,6 @@
       {/if}
     </div>
   </div>
-  {#if !!selectedSlice}
-    <div class="rounded bg-slate-100 px-3 py-3 mx-2 mb-2">
-      <div class="ml-2 flex text-xs font-bold text-slate-600">
-        <div class="flex-auto">Within slice:</div>
-        <button class="hover:opacity-50" on:click={() => (selectedSlice = null)}
-          ><Fa icon={faXmark} /></button
-        >
-      </div>
-      <div class="overflow-x-auto whitespace-nowrap">
-        <SliceFeature
-          feature={selectedSlice}
-          currentFeature={selectedSlice}
-          canToggle={false}
-        />
-      </div>
-    </div>
-  {/if}
   {#if Object.keys(models).length == 0}
     <div
       class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
@@ -370,13 +300,16 @@
       {#each modelOrder as modelName (modelName)}
         {@const model = models[modelName]}
         <SidebarItem
-          model={model.spec}
-          metrics={model.metrics}
-          {modelName}
+          displayItem={{
+            name: modelName,
+            description:
+              model.spec?.draft?.description ?? model.spec?.description,
+            output_values: model.spec?.output_values,
+          }}
+          metrics={model.metrics ?? null}
           {metricToShow}
           {metricScales}
           isEditingName={editingModelName == modelName}
-          customMetrics={sliceMetrics?.[modelName] ?? undefined}
           isActive={activeModel === modelName}
           isChecked={selectedModels.includes(modelName) ||
             activeModel === modelName}

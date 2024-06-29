@@ -1,19 +1,35 @@
 <script lang="ts">
   import Fa from 'svelte-fa';
-  import type { QueryResult, VariableEvaluationSummary } from './model';
+  import type {
+    QueryEvaluationResult,
+    QueryResult,
+    VariableEvaluationSummary,
+  } from './model';
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
   import SliceMetricCategoryBar from './slices/metric_charts/SliceMetricCategoryBar.svelte';
   import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
   import * as d3 from 'd3';
   import { faDownload } from '@fortawesome/free-solid-svg-icons';
-  import { getContext, onDestroy, onMount } from 'svelte';
+  import {
+    createEventDispatcher,
+    getContext,
+    onDestroy,
+    onMount,
+  } from 'svelte';
   import type { Writable } from 'svelte/store';
   import { base64ToBlob } from './slices/utils/utils';
 
-  let { currentDataset }: { currentDataset: Writable<string | null> } =
-    getContext('dataset');
+  const dispatch = createEventDispatcher();
 
-  export let container: HTMLElement;
+  let {
+    currentDataset,
+    queryResultCache,
+  }: {
+    currentDataset: Writable<string | null>;
+    queryResultCache: Writable<{ [key: string]: QueryEvaluationResult }>;
+  } = getContext('dataset');
+
+  let container: HTMLElement;
   export let query: string = '';
   export let evaluateQuery: boolean = true;
   export let delayEvaluation: boolean = false;
@@ -62,7 +78,7 @@
       evaluationError = null;
       evaluationSummary = null;
     }
-    if (delayEvaluation) {
+    if (delayEvaluation && !$queryResultCache[q]) {
       summaryIsStale = true;
       if (!!evaluationTimer) clearTimeout(evaluationTimer);
       if (q.length > 0)
@@ -81,30 +97,40 @@
       console.warn('cannot live evaluate query without a currentDataset prop');
       return;
     }
-    loadingSummary = true;
-    let encodedQuery = encodeURIComponent(query);
-    try {
-      let result = await (
-        await fetch(`/datasets/${$currentDataset}/data/query?q=${encodedQuery}`)
-      ).json();
-      if (result.error) {
-        evaluationError = result.error;
-        evaluatedLength = null;
-        evaluatedType = null;
+    let result: QueryEvaluationResult;
+    if (!!$queryResultCache[query]) {
+      result = $queryResultCache[query];
+    } else {
+      loadingSummary = true;
+      let encodedQuery = encodeURIComponent(query);
+      try {
+        result = await (
+          await fetch(
+            `/datasets/${$currentDataset}/data/query?q=${encodedQuery}`
+          )
+        ).json();
+        $queryResultCache = { ...$queryResultCache, [query]: result };
+      } catch (e) {
+        evaluationError = `${e}`;
         evaluationSummary = null;
-      } else if (result.query == query && !!result.result) {
-        evaluationSummary = result.result as QueryResult;
-        evaluatedType = result.result_type;
-        evaluatedLength = result.n_values;
-        evaluationError = null;
+        loadingSummary = false;
+        return;
       }
-      loadingSummary = false;
-      summaryIsStale = false;
-    } catch (e) {
-      evaluationError = `${e}`;
-      evaluationSummary = null;
-      loadingSummary = false;
     }
+    if (result.error) {
+      evaluationError = result.error;
+      evaluatedLength = null;
+      evaluatedType = null;
+      evaluationSummary = null;
+    } else if (result.query == query && !!result.result) {
+      evaluationSummary = result.result as QueryResult;
+      evaluatedType = result.result_type;
+      evaluatedLength = result.n_values;
+      evaluationError = null;
+    }
+    dispatch('result', evaluationError == null);
+    loadingSummary = false;
+    summaryIsStale = false;
   }
 
   let showHeaders = false;
@@ -284,7 +310,7 @@
     {/if}
     {#if !!evaluationSummary.values}
       {@const values = evaluationSummary.values}
-      {#if showHeaders}<div class="mb-1 text-xs text-slate-500">
+      {#if showHeaders && !compact}<div class="mb-1 text-xs text-slate-500">
           Values
         </div>{/if}
       <div class="h-12">

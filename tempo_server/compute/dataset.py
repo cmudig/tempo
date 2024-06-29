@@ -36,11 +36,19 @@ class Dataset:
     def model_spec_dir(self, model_name):
         return self.fs.subdirectory("models", model_name)        
 
+    def get_spec(self):
+        return self.spec
+    
+    def write_spec(self, new_spec):
+        self.spec = new_spec
+        self.fs.write_file(new_spec, "spec.json")
+        
     def get_models(self):
         """Returns a dictionary of model name to Model objects."""
         model_dir = self.fs.subdirectory("models")
         return {model_name: self.get_model(model_name)
-                for model_name in model_dir.list_files()}
+                for model_name in model_dir.list_files()
+                if self.model_spec_dir(model_name).exists("spec.json")}
     
     def get_model(self, model_name):
         return Model(self.model_spec_dir(model_name), self.model_cache_dir(model_name))
@@ -64,56 +72,60 @@ class Dataset:
         
     def load_data(self):
         data_config = self.spec.get("data", {})
-        attrib_config = data_config.get("attributes", {})
-        if "path" in attrib_config:
-            df = self.fs.read_file(attrib_config["path"])
-            id_field = attrib_config.get("id_field", "id")
-            if id_field in df.columns:
-                df = df.set_index(id_field, drop=True)
+        attributes = []
+        events = []
+        intervals = []
+        for source_config in data_config.get("sources", []):
+            if "type" not in source_config: raise ValueError(f"source config must have a 'type' field: {source_config}")
+            source_type = source_config["type"].lower()
+            if source_type not in ("attributes", "events", "intervals"):
+                raise ValueError("source type should be one of (attributes, events, intervals)")
+
+            if "path" in source_config:
+                df = self.fs.read_file(source_config["path"])
             else:
-                print("ID column not found in attributes, using the dataframe index")
-                df = df.set_index(self.assign_numerical_ids(df.index))
-            attributes = AttributeSet(df)
-        else:
-            attributes = None
-        event_config = data_config.get("events", {})
-        if "path" in event_config:
-            df = self.fs.read_file(event_config["path"])
-            id_field = event_config.get("id_field", "id")
-            df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
-            events = EventSet(df,
-                            id_field=id_field, 
-                            type_field=event_config.get("type_field", "eventtype"), 
-                            value_field=event_config.get("value_field", "value"), 
-                            time_field=event_config.get("time_field", "time"))
-        else:
-            events = None
-        interval_config = data_config.get("intervals", {})
-        if "path" in interval_config:
-            df = self.fs.read_file(interval_config["path"])
-            id_field = interval_config.get("id_field", "id")
-            # prev_unique = len(df[id_field].unique())
-            df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
-            # assert prev_unique == len(df[id_field].unique()), "NOT SAME NUMBER OF IDS"
-            intervals = IntervalSet(df,
-                                    id_field=id_field, 
-                                    type_field=interval_config.get("type_field", "intervaltype"), 
-                                    value_field=interval_config.get("value_field", "value"), 
-                                    start_time_field=interval_config.get("start_time_field", "starttime"),
-                                    end_time_field=interval_config.get("end_time_field", "endtime"))
-        else:
-            intervals = None
+                print(f"Don't know how to import source {source_config}, skipping")
             
-        assert attributes is not None or events is not None or intervals is not None, "At least one of attributes, events, or intervals must be provided"
+            if source_type == "attributes":
+                id_field = source_config.get("id_field", "id")
+                if id_field in df.columns:
+                    df = df.set_index(id_field, drop=True)
+                else:
+                    print("ID column not found in attributes, using the dataframe index")
+                    df = df.set_index(self.assign_numerical_ids(df.index))
+                attributes.append(AttributeSet(df))
+                    
+            elif source_type == "events":
+                id_field = source_config.get("id_field", "id")
+                df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
+                events.append(EventSet(df,
+                                       id_field=id_field, 
+                                       type_field=source_config.get("type_field", "eventtype"), 
+                                       value_field=source_config.get("value_field", "value"), 
+                                       time_field=source_config.get("time_field", "time")))
+
+            elif source_type == "intervals":
+                id_field = source_config.get("id_field", "id")
+                # prev_unique = len(df[id_field].unique())
+                df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
+                # assert prev_unique == len(df[id_field].unique()), "NOT SAME NUMBER OF IDS"
+                intervals.append(IntervalSet(df,
+                                             id_field=id_field, 
+                                             type_field=source_config.get("type_field", "intervaltype"), 
+                                             value_field=source_config.get("value_field", "value"), 
+                                             start_time_field=source_config.get("start_time_field", "starttime"),
+                                             end_time_field=source_config.get("end_time_field", "endtime")))
+                
+        assert attributes or events or intervals, "At least one of attributes, events, or intervals must be provided"
         ids = get_all_trajectory_ids(attributes, events, intervals)
             
         valid_ids = ids
-        if attributes is not None:
-            attributes = attributes.filter(attributes.get_ids().isin(valid_ids))
-        if events is not None:
-            events = events.filter(events.get_ids().isin(valid_ids))
-        if intervals is not None:
-            intervals = intervals.filter(intervals.get_ids().isin(valid_ids))
+        attributes = [attr_set.filter(attr_set.get_ids().isin(valid_ids))
+                      for attr_set in attributes]
+        events = [event_set.filter(event_set.get_ids().isin(valid_ids))
+                      for event_set in events]
+        intervals = [interval_set.filter(interval_set.get_ids().isin(valid_ids))
+                      for interval_set in intervals]
         
         if not self.global_cache_dir.exists("train_test_split.pkl"):
             train_split_config = {**data_config.get("split", DEFAULT_SPLIT)}
@@ -137,12 +149,12 @@ class Dataset:
         # print("Original split:", intervals.filter(intervals.get_ids().isin(train_ids)), intervals.filter(intervals.get_ids().isin(val_ids)), intervals.filter(intervals.get_ids().isin(test_ids)))
         if self.split is not None:
             split_ids = {"train": train_ids, "val": val_ids, "test": test_ids}[self.split]
-            if attributes is not None:
-                attributes = attributes.filter(attributes.get_ids().isin(split_ids))
-            if events is not None:
-                events = events.filter(events.get_ids().isin(split_ids))
-            if intervals is not None:
-                intervals = intervals.filter(intervals.get_ids().isin(split_ids))
+            attributes = [attr_set.filter(attr_set.get_ids().isin(split_ids))
+                for attr_set in attributes]
+            events = [event_set.filter(event_set.get_ids().isin(split_ids))
+                        for event_set in events]
+            intervals = [interval_set.filter(interval_set.get_ids().isin(split_ids))
+                        for interval_set in intervals]
 
         if "macros" in data_config:
             macros = self.fs.read_file(data_config["macros"]["path"]

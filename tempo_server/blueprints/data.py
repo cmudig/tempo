@@ -72,9 +72,9 @@ def list_data_fields(dataset_name):
     """
     sample_dataset = get_sample_dataset(dataset_name).dataset
     result = [
-        *sample_dataset.attributes.df.columns,
-        *sample_dataset.events.get_types().unique(),
-        *sample_dataset.intervals.get_types().unique()
+        *[c for attr_set in sample_dataset.attributes for c in attr_set.df.columns],
+        *[c for event_set in sample_dataset.events for c in event_set.get_types().unique()],
+        *[c for interval_set in sample_dataset.intervals for c in interval_set.get_types().unique()]
     ]
     return jsonify({"fields": convert_to_native_types(result)})
     
@@ -134,7 +134,7 @@ def query_dataset(dataset_name):
                 "result_type": QUERY_RESULT_TYPENAMES.get(type(result), "Other"),
                 "query": args.get("q")
             }
-            return jsonify({**summary, "result": make_query_result_summary(sample_dataset, result)})
+            return jsonify({**summary, "result": make_query_result_summary(sample_dataset.dataset, result)})
     except Exception as e:
         import traceback
         print(traceback.format_exc())

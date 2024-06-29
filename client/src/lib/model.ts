@@ -106,6 +106,14 @@ export type QueryResult = {
   durations?: SliceMetric & { missingness?: number };
 };
 
+export type QueryEvaluationResult = {
+  error?: string;
+  query?: string;
+  result_type: string;
+  n_values: number;
+  result?: QueryResult;
+};
+
 export type VariableEvaluationSummary = {
   query: string;
   n_values: number;

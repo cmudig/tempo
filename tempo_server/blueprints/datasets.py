@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from ..compute.run import get_worker, get_filesystem
 from ..compute.utils import Commands
+from ..compute.dataset import Dataset
 
 datasets_blueprint = Blueprint('datasets', __name__)
 
@@ -9,13 +10,20 @@ datasets_blueprint = Blueprint('datasets', __name__)
 @datasets_blueprint.get("/datasets")
 def list_datasets():
     """
-    Returns: JSON array of the format [
-        { "name": "dataset name" },
+    Returns: JSON array of the format {
+        dataset name: { "spec": dataset spec, "models": list of model names },
         ...
-    ]
+    }
     """
-    fs = get_filesystem()
-    return jsonify([{ "name": n } for n in sorted(fs.list_files("datasets"))])
+    fs = get_filesystem().subdirectory("datasets")
+    results = {}
+    for n in fs.list_files():
+        try:
+            ds = Dataset(fs.subdirectory(n))
+            results[n] = { "spec": ds.get_spec(), "models": list(ds.get_models().keys()) }
+        except:
+            continue
+    return jsonify(results)
     
 @datasets_blueprint.get("/datasets/<dataset_name>/spec")
 def get_dataset_spec(dataset_name):

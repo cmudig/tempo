@@ -16,14 +16,17 @@
   import type { Writable } from 'svelte/store';
   import { getContext } from 'svelte';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
-  import { variance } from 'd3';
 
-  let { currentDataset }: { currentDataset: Writable<string | null> } =
-    getContext('dataset');
+  let {
+    currentDataset,
+    dataFields,
+  }: {
+    currentDataset: Writable<string | null>;
+    dataFields: Writable<string[]>;
+  } = getContext('dataset');
 
   export let timestepDefinition: string;
   export let inputVariables: { [key: string]: VariableDefinition } = {};
-  export let dataFields: string[] = [];
 
   export let fillHeight: boolean = true;
 
@@ -298,7 +301,7 @@
         <TextareaAutocomplete
           ref={rawInput}
           resolveFn={(query, prefix) =>
-            getAutocompleteOptions(dataFields, query, prefix)}
+            getAutocompleteOptions($dataFields, query, prefix)}
           replaceFn={performAutocomplete}
           triggers={['{', '#']}
           delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
@@ -416,7 +419,6 @@
             : 'hidden'}
           {varName}
           {varInfo}
-          {dataFields}
           {timestepDefinition}
           editing={currentEditingVariableName == varName}
           isChecked={selectedVariables.includes(varName)}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { type VariableDefinition } from '../model';
   import Checkbox from '../utils/Checkbox.svelte';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, getContext } from 'svelte';
   import QueryResultView from '../QueryResultView.svelte';
   import { areObjectsEqual } from '../slices/utils/utils';
   import TextareaAutocomplete from '../slices/utils/TextareaAutocomplete.svelte';
@@ -10,8 +10,12 @@
     performAutocomplete,
   } from '../utils/query_autocomplete';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
+  import type { Writable } from 'svelte/store';
 
   const dispatch = createEventDispatcher();
+
+  let { dataFields }: { dataFields: Writable<string[]> } =
+    getContext('dataset');
 
   export let varName: string = '';
   export let varInfo: VariableDefinition | null = null;
@@ -21,8 +25,6 @@
   export let showTableControls = true;
   export let autosave = false;
   export let isChecked = false;
-
-  export let dataFields: string[] = [];
 
   export let timestepDefinition: string = '';
 
@@ -189,7 +191,7 @@
               <TextareaAutocomplete
                 ref={queryInput}
                 resolveFn={(query, prefix) =>
-                  getAutocompleteOptions(dataFields, query, prefix)}
+                  getAutocompleteOptions($dataFields, query, prefix)}
                 replaceFn={performAutocomplete}
                 triggers={['{', '#']}
                 delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
