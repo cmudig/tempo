@@ -950,7 +950,7 @@ class QueryResultCache:
         self.cache_dir.write_file(self._query_cache, "query_cache.json")
 
     
-class TrajectoryDataset:
+class QueryEngine:
     def __init__(self, attributes, events, intervals, eventtype_macros=None, cache_fs=None):
         self.attributes = attributes if attributes is not None else [AttributeSet(pd.DataFrame([]))]
         self.events = events if events is not None else [EventSet(pd.DataFrame({
@@ -1022,7 +1022,7 @@ if __name__ == '__main__':
         'value': np.random.uniform(0, 100)
     } for _ in range(10)]))
 
-    dataset = TrajectoryDataset(attributes, events, intervals)
+    dataset = QueryEngine(attributes, events, intervals)
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
     # print(dataset.query("min {e1} from #now - 30 seconds to #now cut 3 quantiles impute 'Missing' at every {e1} from #mintime to #maxtime"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))

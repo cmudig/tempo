@@ -8,6 +8,7 @@ from tempo_server.blueprints.data import data_blueprint
 from tempo_server.blueprints.models import models_blueprint
 from tempo_server.blueprints.datasets import datasets_blueprint
 from tempo_server.blueprints.tasks import tasks_blueprint
+from tempo_server.blueprints.slices import slices_blueprint
 from tempo_server.compute.run import setup_worker
 from tempo_server.compute.filesystem import LocalFilesystem
 
@@ -30,6 +31,7 @@ if __name__ == '__main__':
     app.register_blueprint(models_blueprint)
     app.register_blueprint(datasets_blueprint)
     app.register_blueprint(tasks_blueprint)
+    app.register_blueprint(slices_blueprint)
     
     # Path for our main Svelte page
     @app.route("/")

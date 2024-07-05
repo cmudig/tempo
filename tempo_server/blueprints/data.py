@@ -70,7 +70,7 @@ def list_data_fields(dataset_name):
     Returns: JSON of the format [ "field_1", "field_2", ... ] where each
         field is the name of an attribute, event, or interval
     """
-    sample_dataset = get_sample_dataset(dataset_name).dataset
+    sample_dataset = get_sample_dataset(dataset_name)
     result = [
         *[c for attr_set in sample_dataset.attributes for c in attr_set.df.columns],
         *[c for event_set in sample_dataset.events for c in event_set.get_types().unique()],
@@ -126,15 +126,15 @@ def query_dataset(dataset_name):
             })
             return jsonify(worker.task_info(task_id))
         else:
-            sample_dataset = get_sample_dataset(dataset_name)
-            result = sample_dataset.query(args.get("q"), use_cache=False)
+            engine = get_sample_dataset(dataset_name).make_query_engine()
+            result = engine.query(args.get("q"), use_cache=False)
             summary = {
                 "n_values": len(result.get_values()),
                 "n_trajectories": len(set(result.get_ids().values.tolist())),
                 "result_type": QUERY_RESULT_TYPENAMES.get(type(result), "Other"),
                 "query": args.get("q")
             }
-            return jsonify({**summary, "result": make_query_result_summary(sample_dataset.dataset, result)})
+            return jsonify({**summary, "result": make_query_result_summary(engine, result)})
     except Exception as e:
         import traceback
         print(traceback.format_exc())
@@ -208,8 +208,8 @@ def validate_syntax(dataset_name):
     if "query" not in body: return "validate_syntax request body must include a query", 400
     try:
         query = body.get("query")
-        sample_dataset = get_sample_dataset(dataset_name).dataset
-        result = sample_dataset.parse(query, keep_all_tokens=True)
+        engine = get_sample_dataset(dataset_name).make_query_engine()
+        result = engine.parse(query, keep_all_tokens=True)
         
         unnamed_index = 0
         parsed_variables = {}

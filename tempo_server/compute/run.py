@@ -6,6 +6,7 @@ from .worker import BackgroundWorker
 from .filesystem import LocalFilesystem
 from .dataset import Dataset
 from .model import Model
+from .slicefinder import SliceFinder
 from .utils import Commands, make_query_result_summary
 from divisi.utils import convert_to_native_types
 
@@ -13,18 +14,30 @@ from divisi.utils import convert_to_native_types
 cache_dataset = None # tuple (name, Dataset)
 cache_worker_sample_dataset = None # tuple (name, Dataset)
 
+def _get_dataset(filesystem, dataset_name):
+    """Only used by the worker to get a full-size dataset"""
+    global cache_dataset
+    if cache_dataset is None or cache_dataset[1] != dataset_name:
+        ds = Dataset(filesystem.subdirectory("datasets", dataset_name))
+        ds.load_data()
+        cache_dataset = (dataset_name, ds)
+    return cache_dataset[1]
+
+def _get_worker_sample_dataset(filesystem, dataset_name):
+    """Only used by the worker to get a full-size dataset"""
+    global cache_worker_sample_dataset
+    if cache_worker_sample_dataset is None or cache_worker_sample_dataset[1] != dataset_name:
+        ds = Dataset(filesystem.subdirectory("datasets", dataset_name))
+        ds.load_data()
+        cache_worker_sample_dataset = (dataset_name, ds)
+    return cache_worker_sample_dataset[1]
+
 def task_runner(filesystem, task_info, update_fn):
-    global cache_dataset, cache_worker_sample_dataset
-    
     print(f"My filesystem is {filesystem}, performing task {task_info}")
     cmd = task_info['cmd']
     if cmd == Commands.TRAIN_MODEL:
-        if cache_dataset is None or cache_dataset[1] != task_info['dataset_name']:
-            update_fn({'message': 'Loading data'})
-            ds = Dataset(filesystem.subdirectory("datasets", task_info['dataset_name']))
-            ds.load_data()
-            cache_dataset = (task_info['dataset_name'], ds)
-        dataset = cache_dataset[1]
+        update_fn({'message': 'Loading data'})
+        dataset = _get_dataset(filesystem, task_info['dataset_name'])
             
         model_name = task_info['model_name']
         spec = task_info['spec']
@@ -47,12 +60,8 @@ def task_runner(filesystem, task_info, update_fn):
             if dest_cache_path.exists(): dest_cache_path.delete()
             model.copy_to(dest_path, dest_cache_path)
     elif cmd == Commands.SUMMARIZE_DATASET:        
-        if cache_worker_sample_dataset is None or cache_worker_sample_dataset[1] != task_info['dataset_name']:
-            update_fn({'message': 'Loading data'})
-            ds = Dataset(filesystem.subdirectory("datasets", task_info['dataset_name']), split="test")
-            ds.load_data()
-            cache_worker_sample_dataset = (task_info['dataset_name'], ds)    
-        dataset = cache_worker_sample_dataset[1].dataset
+        update_fn({'message': 'Loading data'})
+        dataset = _get_worker_sample_dataset(filesystem, task_info['dataset_name'])
         
         result = {}
         update_fn({'message': 'Summarizing attributes'})
@@ -68,18 +77,26 @@ def task_runner(filesystem, task_info, update_fn):
         data_summary = convert_to_native_types(result)
         cache_worker_sample_dataset[1].split_cache_dir.write_file(data_summary, "summary.json")
     elif cmd == Commands.GENERATE_QUERY_DOWNLOAD:
-        if cache_dataset is None or cache_dataset[1] != task_info['dataset_name']:
-            update_fn({'message': 'Loading data'})
-            ds = Dataset(filesystem.subdirectory("datasets", task_info['dataset_name']))
-            ds.load_data()
-            cache_dataset = (task_info['dataset_name'], ds)
-        dataset = cache_dataset[1]
+        update_fn({'message': 'Loading data'})
+        dataset = _get_dataset(filesystem, task_info['dataset_name'])
         
         if isinstance(task_info['query'], dict):
             path = dataset.generate_downloadable_batch_queries(task_info['query'], update_fn=update_fn)
         else:
             path = dataset.generate_downloadable_query(task_info['query'], update_fn=update_fn)
         return path
+    elif cmd == Commands.FIND_SLICES:
+        update_fn({'message': 'Loading data'})
+        dataset = _get_dataset(filesystem, task_info['dataset_name'])
+        print("Split sizes:", [len(x) for x in dataset.split_ids])
+        
+        slicefinder = SliceFinder(dataset)
+        slicefinder.find_slices(task_info['model_name'], 
+                                task_info['variable_spec_name'], 
+                                task_info['score_function_spec'], 
+                                update_fn=update_fn,
+                                **task_info['options'])
+        
         
     return "Success"
     

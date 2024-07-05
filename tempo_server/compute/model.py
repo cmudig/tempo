@@ -13,11 +13,17 @@ class Model:
         super().__init__()
         self.fs = model_fs
         self.result_fs = result_fs if result_fs is not None else model_fs
+        self.predictions = None
+        self.metrics = None
+        self.spec = None
         
     def get_spec(self):
-        return self.fs.read_file("spec.json")
+        if self.spec is None:
+            self.spec = self.fs.read_file("spec.json")
+        return self.spec
     
     def write_draft_spec(self, draft):
+        self.spec = None
         try:
             meta = self.get_spec()
         except:
@@ -33,10 +39,33 @@ class Model:
         
     def write_spec(self, new_spec):
         self.fs.write_file(new_spec, "spec.json")
+        self.spec = new_spec
         
     def get_metrics(self):
-        return self.result_fs.read_file("metrics.json")
+        if self.metrics is None:
+            self.metrics = self.result_fs.read_file("metrics.json")
+        return self.metrics
     
+    def get_true_labels(self, split):
+        """split can be 'val' or 'test'."""
+        assert split in ('val', 'test'), f"Unknown split for model labels: '{split}'"
+        if not self.predictions:
+            self.predictions = tuple(x.astype(np.float64) for x in self.result_fs.read_file("preds.pkl"))
+        if split == 'val': return self.predictions[0]
+        return self.predictions[2]
+    
+    def get_model_predictions(self, split):
+        """split can be 'val' or 'test'."""
+        assert split in ('val', 'test'), f"Unknown split for model labels: '{split}'"
+        if not self.predictions:
+            self.predictions = tuple(x.astype(np.float64) for x in self.result_fs.read_file("preds.pkl"))
+        if split == 'val': return self.predictions[1]
+        return self.predictions[3]
+    
+    def get_optimal_threshold(self):
+        metrics = self.get_metrics()
+        return metrics["threshold"]
+        
     @classmethod
     def blank_spec(cls):
         return {
@@ -73,7 +102,7 @@ class Model:
         result[apply_mask] = preds
         return result
     
-    def make_modeling_variables(self, dataset, variable_definitions, timestep_definition, update_fn=None):
+    def make_modeling_variables(self, query_engine, variable_definitions, timestep_definition, update_fn=None):
         """Creates the variables dataframe."""
         query = make_query(variable_definitions, timestep_definition)
         print(query)
@@ -82,7 +111,7 @@ class Model:
                 update_fn({'message': f'Loading variables ({num_completed} / {num_total})', 'progress': num_completed / num_total})
         else:
             prog = None
-        modeling_variables = dataset.query(query, update_fn=prog)
+        modeling_variables = query_engine.query(query, update_fn=prog)
         modeling_df = modeling_variables.values
 
         print("Before:", modeling_df.shape)
@@ -97,12 +126,13 @@ class Model:
         return modeling_df
 
     def make_model(self, dataset, spec, modeling_df=None, update_fn=None):
+        query_engine = dataset.make_query_engine()
         if modeling_df is None:
             if update_fn is not None: update_fn({'message': 'Loading variables'})
-            modeling_df = self.make_modeling_variables(dataset, spec["variables"], spec["timestep_definition"], update_fn=update_fn)
+            modeling_df = self.make_modeling_variables(query_engine, spec["variables"], spec["timestep_definition"], update_fn=update_fn)
             
         if update_fn is not None: update_fn({'message': 'Loading target variable'})
-        outcome = dataset.query("(" + spec['outcome'] + 
+        outcome = query_engine.query("(" + spec['outcome'] + 
                                     (f" where ({spec['cohort']})" if spec.get('cohort', '') else '') + ") " + 
                                     spec["timestep_definition"])
         print((~pd.isna(outcome.get_values())).sum())

@@ -60,7 +60,7 @@ def make_series_summary(values, value_type=None):
         summary["hist"] = dict(zip(hist_bins.astype(float).tolist(), np.histogram(values, bins=hist_bins)[0].astype(int).tolist())) 
     return summary
 
-def make_query_result_summary(dataset, query_result):
+def make_query_result_summary(query_engine, query_result):
     """
     Supports describing Attributes, Events, Intervals, TimeSeries, and TimeSeriesSet.
     """
@@ -68,7 +68,7 @@ def make_query_result_summary(dataset, query_result):
     if hasattr(query_result, "name"): base["name"] = query_result.name
     
     if isinstance(query_result, (Events, Intervals)):
-        ids = pd.Series(dataset.get_ids(), name='id')
+        ids = pd.Series(query_engine.get_ids(), name='id')
         sizes = query_result.get_values().groupby(query_result.get_ids()).size().rename("size")
         base["occurrences"] = make_series_summary(pd.merge(ids, sizes, left_on='id', right_index=True, how='left')["size"].fillna(0), value_type="continuous")
     if isinstance(query_result, Intervals):

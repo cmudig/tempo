@@ -1,12 +1,13 @@
 import pandas as pd
 from tempo_server.query_language.data_types import *
-from tempo_server.query_language.evaluator import TrajectoryDataset, get_all_trajectory_ids
+from tempo_server.query_language.evaluator import QueryEngine, get_all_trajectory_ids
 from sklearn.model_selection import train_test_split
 import zipfile
 from io import BytesIO
 import time
 import uuid
 from tempo_server.compute.model import Model
+from tempo_server.compute.slicefinder import SlicingVariableSpec
 
 DEFAULT_SPLIT = {"train": 0.5, "val": 0.25, "test": 0.25}
 
@@ -28,6 +29,10 @@ class Dataset:
         self.dataset = None
         
         self.id_uniques = None
+        self.attributes = None
+        self.events = None
+        self.intervals = None
+        self.macros = None
         self.split_ids = None # tuple (train, val, test) ids
         
     def model_cache_dir(self, model_name):
@@ -53,6 +58,9 @@ class Dataset:
     def get_model(self, model_name):
         return Model(self.model_spec_dir(model_name), self.model_cache_dir(model_name))
     
+    def get_slicing_variable_spec(self, spec_name):
+        return SlicingVariableSpec(self.fs.subdirectory("slicing_specs", spec_name))
+        
     def assign_numerical_ids(self, ids):
         """
         Converts IDs to integers if they are not already.
@@ -70,6 +78,10 @@ class Dataset:
             self.id_uniques = self.id_uniques.union(new_vals, sort=False)
             return pd.Categorical(ids, self.id_uniques).codes
         
+    def load_if_needed(self):
+        if self.attributes is None: self.load_data()
+        return self
+    
     def load_data(self):
         data_config = self.spec.get("data", {})
         attributes = []
@@ -163,21 +175,22 @@ class Dataset:
         else:
             macros = {}
             
-        self.dataset = TrajectoryDataset(attributes, 
-                                    events, 
-                                    intervals, 
-                                    cache_fs=self.split_cache_dir.subdirectory("variables"), 
-                                    eventtype_macros=macros)
+        self.attributes = attributes
+        self.events = events
+        self.intervals = intervals
+        self.macros = macros
         self.split_ids = (train_ids, val_ids, test_ids)
 
-    def query(self, query_string, variable_transform=None, use_cache=True, update_fn=None):
-        assert self.dataset is not None, "Need to load dataset before querying"
-        return self.dataset.query(query_string, variable_transform=variable_transform, use_cache=use_cache, update_fn=update_fn)
-    
-    def parse(self, query, keep_all_tokens=False):
-        assert self.dataset is not None, "Need to load dataset before parsing"
-        return self.dataset.parse(query, keep_all_tokens=keep_all_tokens)
-    
+    def make_query_engine(self, cache_fs=None):
+        """If cache_fs is None, uses the default variable cache."""
+        if self.attributes is None:
+            self.load_data()
+        return QueryEngine(self.attributes, 
+                           self.events, 
+                           self.intervals, 
+                           cache_fs=self.split_cache_dir.subdirectory("variables") if cache_fs is None else cache_fs, 
+                           eventtype_macros=self.macros)
+
     def get_summary(self):
         if not self.split_cache_dir.exists("summary.json"): return None
         return self.split_cache_dir.read_file("summary.json")
@@ -208,7 +221,8 @@ class Dataset:
         train_ids, val_ids, test_ids = self.split_ids
 
         if update_fn is not None: update_fn({'message': 'Running query'})
-        result = self.query(query, use_cache=False)
+        engine = self.make_query_engine()
+        result = engine.query(query, use_cache=False)
 
         if update_fn is not None: update_fn({'message': 'Saving results'})
         memory_file = BytesIO()
@@ -242,7 +256,8 @@ class Dataset:
         """
         if (path := self.get_downloadable_query(queries)) is not None:
             return path
-        
+
+        engine = self.make_query_engine()        
         train_ids, val_ids, test_ids = self.split_ids
 
         memory_file = BytesIO()
@@ -257,7 +272,7 @@ class Dataset:
                 
                 def prog_fn(curr, tot):
                     if update_fn is not None: update_fn({'message': f'{prog_message}: variable {curr} of {tot}'})
-                result = self.query(query, update_fn=prog_fn)
+                result = engine.query(query, update_fn=prog_fn)
                 for filename, ids in (("train", train_ids), ("val", val_ids), ("test", test_ids)):
                     data = zipfile.ZipInfo(f'{query_name}_{filename}.csv')
                     data.date_time = time.localtime(time.time())[:6]
