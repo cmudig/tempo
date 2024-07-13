@@ -253,11 +253,10 @@ class SliceFinder:
         return rank_list.rank(weights, n_slices=n_slices)
         
     def load_cache_if_needed(self):
-        if self._results_cache is None:
-            try:    
-                self._results_cache = self.results_fs.read_file("cache.json")
-            except:
-                self._results_cache = {}
+        try:    
+            self._results_cache = self.results_fs.read_file("cache.json")
+        except:
+            self._results_cache = {}
                 
     def lookup_slice_results(self, model_name, variable_spec_name, score_function_spec):
         """Returns the results of the slice finding operation (as Slice objects) if they have already been computed."""
@@ -282,7 +281,6 @@ class SliceFinder:
         return None
 
     def write_cache(self):
-        self.load_cache_if_needed()
         self.results_fs.write_file(self._results_cache, "cache.json")
         
     def find_slices(self, model_name, variable_spec_name, score_function_spec, update_fn=None, **options):

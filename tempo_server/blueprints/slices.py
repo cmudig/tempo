@@ -120,7 +120,7 @@ def start_slice_finding(dataset_name, model_name):
     }
     
     Returns: A JSON task info object representing the status of the slice
-    finding task. Use /datasets/<ds>/models/<model>/slices to fetch the results.
+    finding task. Use /datasets/<ds>/slices/<model> to fetch the results.
     """
     dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name))
     if not dataset.fs.exists():
@@ -194,12 +194,15 @@ def score_slice_all_models():
 def get_slice_comparisons(model_names):
     pass
     
-    
 @slices_blueprint.route("/datasets/<dataset_name>/slices/specs", methods=["GET"])
 def get_slice_specs():
     pass
 
-@slices_blueprint.route("/datasets/<dataset_name>/slices/specs/<spec_name>", methods=["POST"])
+@slices_blueprint.get("/datasets/<dataset_name>/slices/specs/<spec_name>")
+def get_slice_spec(spec_name):
+    pass
+
+@slices_blueprint.post("/datasets/<dataset_name>/slices/specs/<spec_name>")
 def edit_slice_spec(spec_name):
     pass
         

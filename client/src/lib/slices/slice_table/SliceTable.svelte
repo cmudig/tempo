@@ -207,125 +207,57 @@
 <div class="relative">
   {#if showHeader}
     <div
-      class="text-left inline-flex align-top font-bold slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600"
+      class="px-2 text-left inline-flex align-top font-bold slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600"
+      style="min-width: 100%;"
     >
+      {#if showCheckboxes}
+        <div style="width: {TableWidths.Checkbox}px;">
+          <div class="p-2 w-full h-full" />
+        </div>
+      {/if}
       <div
-        style="width: {showCheckboxes
-          ? TableWidths.Checkbox
-          : TableWidths.LeftPadding}px;"
+        style="flex: 6; min-width: {TableWidths.FeatureList}px; max-width: 800px;"
       >
-        <div class="p-2 w-full h-full" />
-      </div>
-      <div style="width: {TableWidths.FeatureList}px;">
         <div class="p-2">Slice</div>
       </div>
       {#if !!metricGroups}
         {#each metricGroups as groupName}
-          {@const matchingMetrics = metricNames.filter(
-            (n) => n[0] == groupName
-          )}
           <div
-            class="flex flex-col"
-            style="width: {TableWidths.Metric * matchingMetrics.length}px;"
-          >
-            <div
-              class="bg-slate-100 hover:bg-slate-200 w-full"
-              class:opacity-30={draggingColumn == groupName}
-              draggable={clickingColumn == groupName}
-              on:dragstart={(e) => metricDragStart(e, groupName)}
-              on:dragend={(e) => metricDragEnd(e, groupName)}
-              on:dragover|preventDefault={() => false}
-              on:dragenter={(e) => metricDragEnter(e, groupName)}
-              on:dragleave={(e) => metricDragLeave(e, groupName)}
-              on:drop|preventDefault|stopPropagation={(e) =>
-                metricDrop(e, groupName)}
-            >
-              <Hoverable class="potential-drop-zone p-2" let:hovering>
-                <div class="flex items-center">
-                  <div>{groupName}</div>
-                  <div class="flex-1" />
-                  <button
-                    class="ml-2 bg-transparent text-slate-400 cursor-move"
-                    on:mousedown={() => (clickingColumn = groupName)}
-                    on:mouseup={() => (clickingColumn = null)}
-                    class:opacity-0={!hovering}
-                    class:disabled={!hovering}
-                    ><Fa icon={faGripLinesVertical} /></button
-                  >
-                </div>
-              </Hoverable>
-            </div>
-            <div class="flex items-center w-full">
-              {#each matchingMetrics as [_, name]}
-                <div
-                  class="bg-slate-100 text-sm font-normal p-2"
-                  style="width: {TableWidths.Metric}px;"
-                >
-                  {name}
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/each}
-      {:else}
-        {#each metricNames as name}
-          {@const metInfo =
-            typeof metricInfo === 'function'
-              ? metricInfo(name)
-              : metricInfo[name]}
-          <div
-            class="bg-slate-100 hover:bg-slate-200"
-            style="width: {metInfo.visible
-              ? TableWidths.Metric
-              : TableWidths.CollapsedMetric}px;"
-            class:opacity-30={draggingColumn == name}
-            draggable={clickingColumn == name}
-            on:dragstart={(e) => metricDragStart(e, name)}
-            on:dragend={(e) => metricDragEnd(e, name)}
+            class="flex flex-col grow shrink-0 bg-slate-100 hover:bg-slate-200"
+            style="min-width: {TableWidths.AllMetrics}px; max-width: 500px;"
+            class:opacity-30={draggingColumn == groupName}
+            draggable={clickingColumn == groupName}
+            on:dragstart={(e) => metricDragStart(e, groupName)}
+            on:dragend={(e) => metricDragEnd(e, groupName)}
             on:dragover|preventDefault={() => false}
-            on:dragenter={(e) => metricDragEnter(e, name)}
-            on:dragleave={(e) => metricDragLeave(e, name)}
-            on:drop|preventDefault|stopPropagation={(e) => metricDrop(e, name)}
+            on:dragenter={(e) => metricDragEnter(e, groupName)}
+            on:dragleave={(e) => metricDragLeave(e, groupName)}
+            on:drop|preventDefault|stopPropagation={(e) =>
+              metricDrop(e, groupName)}
           >
-            <Hoverable class="potential-drop-zone p-2 " let:hovering>
-              {#if metInfo.visible}
-                <div class="flex items-center">
-                  <div>{name}</div>
-                  <div class="flex-1" />
-                  <button
-                    class="bg-transparent hover:opacity-60"
-                    class:opacity-0={!hovering}
-                    class:disabled={!hovering}
-                    on:click={(e) => {
-                      if (typeof metricInfo !== 'function') {
-                        let mi = Object.assign({}, metricInfo);
-                        mi[name].visible = !mi[name].visible;
-                        metricInfo = mi;
-                      }
-                    }}><Fa icon={faEye} /></button
-                  >
-                  <button
-                    class="ml-2 bg-transparent text-slate-400 cursor-move"
-                    on:mousedown={() => (clickingColumn = name)}
-                    on:mouseup={() => (clickingColumn = null)}
-                    class:opacity-0={!hovering}
-                    class:disabled={!hovering}
-                    ><Fa icon={faGripLinesVertical} /></button
-                  >
-                </div>
-              {:else}
+            <Hoverable class="potential-drop-zone p-2" let:hovering>
+              <div class="flex items-center">
+                <div>{groupName}</div>
+                <div class="flex-1" />
                 <button
-                  class="bg-transparent opacity-30 hover:opacity-60"
-                  on:click={(e) => {
-                    let mi = Object.assign({}, metricInfo);
-                    mi[name].visible = !mi[name].visible;
-                    metricInfo = mi;
-                  }}><Fa icon={faEyeSlash} /></button
+                  class="ml-2 bg-transparent text-slate-400 cursor-move"
+                  on:mousedown={() => (clickingColumn = groupName)}
+                  on:mouseup={() => (clickingColumn = null)}
+                  class:opacity-0={!hovering}
+                  class:disabled={!hovering}
+                  ><Fa icon={faGripLinesVertical} /></button
                 >
-              {/if}
+              </div>
             </Hoverable>
           </div>
         {/each}
+      {:else}
+        <div
+          class="flex flex-col grow shrink-0 bg-slate-100 hover:bg-slate-200"
+          style="min-width: {TableWidths.AllMetrics}px; max-width: 500px;"
+        >
+          <div class="p-2">Metrics</div>
+        </div>
       {/if}
       {#if showScores}
         {#each scoreNames as score, i}
@@ -362,6 +294,7 @@
       {showScores}
       showCheckbox={showCheckboxes}
       {metricNames}
+      {metricGroups}
       {metricInfo}
       {metricGetter}
       {allowedValues}
@@ -408,6 +341,7 @@
       {scoreWidthScalers}
       {showScores}
       {metricNames}
+      {metricGroups}
       {metricInfo}
       {metricGetter}
       {allowedValues}
@@ -439,12 +373,3 @@
     />
   {/each}
 </div>
-
-<style>
-  .slice-header {
-    min-width: 100%;
-  }
-  .slice-header > * {
-    flex: 0 0 auto;
-  }
-</style>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { type ModelMetrics, type VariableDefinition } from '../model';
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { createEventDispatcher, getContext, onDestroy } from 'svelte';
   import * as d3 from 'd3';
   import ModelTrainingView from '../ModelTrainingView.svelte';
   import {
@@ -18,6 +18,10 @@
   import { areObjectsEqual } from '../slices/utils/utils';
   import SliceDetailsView from '../slice_details/SliceDetailsView.svelte';
   import ResizablePanel from '../utils/ResizablePanel.svelte';
+  import type { Writable } from 'svelte/store';
+
+  let { currentDataset }: { currentDataset: Writable<string | null> } =
+    getContext('dataset');
 
   const dispatch = createEventDispatcher();
 
@@ -28,8 +32,11 @@
   export let timestepDefinition: string = '';
   export let sliceSpec: string = 'default';
 
+  let scoreFunctionSpec: any[] = [];
+
   let isTraining: boolean = false;
-  let searchStatus: SliceFindingStatus | null = null;
+  let searchTaskID: string | null = null;
+  let searchStatus: TrainingStatus | null = null;
   let wasSearching: boolean = false;
   let sliceSearchError: string | null = null;
 
@@ -55,118 +62,81 @@
   let loadingSliceStatus = false;
   let retrievingSlices = false;
 
-  let samplingStatusOverview: string | null = null;
-  $: if (!!searchStatus && !!modelName && (slices?.length ?? 0) > 0) {
-    if (searchStatus.models.includes(modelName))
-      samplingStatusOverview = `Showing ${slices?.length ?? 0} of ${
-        searchStatus.n_results
-      } slices from ${searchStatus.n_runs} sampled timesteps`;
-    else
-      samplingStatusOverview = `Showing ${slices?.length ?? 0} of ${
-        searchStatus.n_results
-      } slices from ${
-        searchStatus.n_runs
-      } timesteps (sampled from other models)`;
-  } else {
-    samplingStatusOverview = null;
-  }
-
   let slices: Slice[] | null = null;
   let baseSlice: Slice | null = null;
-  // the slice controls used to generate the results that are displayed
-  type Controls = { [key in SliceSearchControl]?: SliceFeatureBase } & {
-    slice_spec_name?: string;
-  };
-  let resultControls: Controls = {};
-  let retrievedScoreWeights: { [key: string]: number } | null = null;
-  let scoreWeights: { [key: string]: number } | null = null;
   let valueNames: { [key: string]: [any, { [key: string]: any }] } | null =
     null;
 
-  let enabledSliceControls: { [key in SliceSearchControl]?: boolean } = {};
-  let containsSlice: any = {};
-  let containedInSlice: any = {};
-  let similarToSlice: any = {};
-  let subsliceOfSlice: any = {};
-  let queryControls: Controls = { slice_spec_name: sliceSpec };
   let numSlicesToLoad: number = 20;
 
   let oldModels: string[] = [];
   $: if (oldModels !== modelsToShow) {
     searchStatus = null;
-    scoreWeights = null;
     numSlicesToLoad = 20;
-    oldNumSlices = 20;
+    scoreFunctionSpec = [
+      { model_name: modelName, criterion: 'positive_label' },
+    ];
+    searchTaskID = null;
     if (modelsToShow.length > 0) {
+      if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
       getSlicesIfAvailable(modelsToShow);
-      pollSliceStatus();
     }
     oldModels = modelsToShow;
   }
 
   async function pollSliceStatus() {
-    if (!modelName) return;
+    if (!searchTaskID) return;
     try {
       loadingSliceStatus = true;
-      searchStatus = await checkSlicingStatus();
+      searchStatus = await (await fetch(`/tasks/${searchTaskID}`)).json();
     } catch (e) {
       console.log('error getting slice status');
       searchStatus = null;
     }
     loadingSliceStatus = false;
     console.log(searchStatus);
-    if (!!searchStatus) {
-      if (!!searchStatus.errors && !!searchStatus.errors[modelName])
-        sliceSearchError = searchStatus.errors[modelName];
-      else sliceSearchError = null;
-
-      if (searchStatus.status?.state == 'none') {
-        if (wasSearching && !sliceSearchError) {
-          wasSearching = false;
-          getSlicesIfAvailable(modelsToShow);
-        }
-      } else {
-        wasSearching = true;
-        sliceSearchError = null;
-        if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
-        slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
-      }
+    if (searchStatus?.status == 'complete' || searchStatus?.status == 'error') {
+      getSlicesIfAvailable(modelsToShow);
+    } else {
+      if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
+      slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
     }
   }
 
   async function getSlicesIfAvailable(models: string[]) {
+    if (!$currentDataset || !sliceSpec || !scoreFunctionSpec) return;
+
     try {
       console.log('Fetching slices', slices);
       retrievingSlices = true;
-      retrievedScoreWeights = null;
-      resultControls = {};
-      let response = await fetch(`/slices/${models.join(',')}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...(!!scoreWeights ? { score_weights: scoreWeights } : {}),
-          controls: queryControls,
-          num_slices: numSlicesToLoad,
-        }),
-      });
+      let response = await fetch(
+        `/datasets/${$currentDataset}/slices/${modelName}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            variable_spec_name: sliceSpec,
+            score_function_spec: scoreFunctionSpec,
+            model_names: models,
+          }),
+        }
+      );
       if (response.status == 400) {
         sliceSearchError = await response.text();
         retrievingSlices = false;
-        resultControls = queryControls;
         return;
       }
       let result = await response.json();
-      resultControls = result.controls;
       retrievingSlices = false;
-      if (!!result.results.slices && areObjectsEqual(models, modelsToShow)) {
+      searchStatus = null;
+      console.log('results:', result);
+      if (!!result.slices && areObjectsEqual(models, modelsToShow)) {
         sliceSearchError = null;
-        slices = result.results.slices;
-        baseSlice = result.results.base_slice;
-        scoreWeights = result.results.score_weights;
-        retrievedScoreWeights = result.results.score_weights;
-        valueNames = result.results.value_names;
+        slices = result.slices;
+        baseSlice = result.base_slice;
+        valueNames = result.value_names;
         selectedSlices = selectedSlices.filter(
           (sf) =>
             slices!.find((other) => areObjectsEqual(sf, other.feature)) ||
@@ -174,28 +144,39 @@
               areObjectsEqual(sf, other)
             )
         );
+      } else if (!!result.error) {
+        baseSlice = null;
+        slices = null;
+        selectedSlice = null;
+        valueNames = null;
+        sliceSearchError = result.error;
       } else {
         baseSlice = null;
         slices = null;
         selectedSlice = null;
-        scoreWeights = null;
-        retrievedScoreWeights = null;
         valueNames = null;
-        pollSliceStatus();
+        if (!!result.status) {
+          searchStatus = result;
+          searchTaskID = result.id;
+          if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
+          slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
+        }
       }
       console.log('slices:', slices);
     } catch (e) {
       console.error('error:', e);
       retrievingSlices = false;
-      resultControls = queryControls;
     }
   }
 
   async function loadSlices() {
-    if (!modelName) return;
+    if (!modelName || !$currentDataset) return;
     try {
-      let trainingStatus = await checkTrainingStatus(modelName);
-      if (!!trainingStatus && trainingStatus.state != 'error') {
+      let trainingStatuses = await checkTrainingStatus(
+        $currentDataset,
+        modelsToShow
+      );
+      if (!!trainingStatuses && trainingStatuses.length > 0) {
         isTraining = true;
         return;
       }
@@ -203,25 +184,26 @@
 
       console.log('STARTING slice finding');
       let result = await (
-        await fetch(`/slices/${modelName}/start`, {
+        await fetch(`/datasets/${$currentDataset}/slices/${modelName}/find`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            controls: queryControls,
+            variable_spec_name: sliceSpec,
+            score_function_spec: scoreFunctionSpec,
           }),
         })
       ).json();
-      if (result.searching) {
-        searchStatus = result;
-        pollSliceStatus();
-      } else {
-        console.log('not searching for some reason');
+
+      if (!!result.id) {
+        searchTaskID = result.id;
         if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
         slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
+      } else {
+        console.log('result unexpected format:', result);
+        sliceSearchError = 'Unable to start finding slices.';
       }
-      console.log(result);
     } catch (e) {
       console.error('error loading slices:', e);
       trainingStatusTimer = setTimeout(checkTrainingStatus, 1000);
@@ -229,8 +211,9 @@
   }
 
   async function stopFindingSlices() {
+    if (!searchTaskID) return;
     try {
-      await fetch(`/slices/stop_finding`, { method: 'POST' });
+      await fetch(`/tasks/${searchTaskID}/stop`, { method: 'POST' });
       pollSliceStatus();
     } catch (e) {
       console.error("couldn't stop slice finding:", e);
@@ -252,42 +235,6 @@
     if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
     if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
   });
-
-  let oldNumSlices: number = numSlicesToLoad;
-  $: if (
-    ((retrievedScoreWeights != null &&
-      !areObjectsEqual(retrievedScoreWeights, scoreWeights)) ||
-      !areObjectsEqual(resultControls, queryControls) ||
-      numSlicesToLoad != oldNumSlices) &&
-    !retrievingSlices
-  ) {
-    console.log(
-      'changing bc parameters changed',
-      resultControls,
-      queryControls,
-      numSlicesToLoad
-    );
-    getSlicesIfAvailable(modelsToShow);
-    oldNumSlices = numSlicesToLoad;
-  }
-
-  $: {
-    queryControls = {
-      ...(enabledSliceControls[SliceSearchControl.containsSlice]
-        ? { [SliceSearchControl.containsSlice]: containsSlice }
-        : {}),
-      ...(enabledSliceControls[SliceSearchControl.containedInSlice]
-        ? { [SliceSearchControl.containedInSlice]: containedInSlice }
-        : {}),
-      ...(enabledSliceControls[SliceSearchControl.similarToSlice]
-        ? { [SliceSearchControl.similarToSlice]: similarToSlice }
-        : {}),
-      ...(enabledSliceControls[SliceSearchControl.subsliceOfSlice]
-        ? { [SliceSearchControl.subsliceOfSlice]: subsliceOfSlice }
-        : {}),
-      slice_spec_name: sliceSpec,
-    };
-  }
 </script>
 
 <div class="w-full pt-4 flex flex-col h-full">
@@ -308,7 +255,8 @@
   </div>
   <div class="px-4 flex-auto h-0 overflow-auto" style="width: 100% !important;">
     <SliceSearchView
-      modelNames={modelsToShow}
+      {modelName}
+      {modelsToShow}
       metricsToShow={[
         'Timesteps',
         'Trajectories',
@@ -316,30 +264,20 @@
         'Labels',
         'Predictions',
       ]}
-      slices={areObjectsEqual(queryControls, resultControls) || retrievingSlices
-        ? slices ?? []
-        : []}
+      slices={slices ?? []}
       {baseSlice}
       {timestepDefinition}
-      {samplingStatusOverview}
       savedSlices={savedSlices[sliceSpec] ?? []}
-      bind:scoreWeights
       bind:selectedSlices
-      bind:enabledSliceControls
       bind:sliceSpec
-      bind:containsSlice
-      bind:containedInSlice
-      bind:similarToSlice
-      bind:subsliceOfSlice
       {valueNames}
-      runningSampler={(!!searchStatus && searchStatus.status.state != 'none') ||
-        loadingSliceStatus}
+      runningSampler={!!searchStatus || loadingSliceStatus}
       {retrievingSlices}
       samplerProgressMessage={!!searchStatus && !!searchStatus.status
-        ? searchStatus.status.message
+        ? searchStatus.status_info?.message
         : 'Loading'}
       samplerRunProgress={!!searchStatus && !!searchStatus.status
-        ? searchStatus.status.progress
+        ? searchStatus.status_info?.progress ?? null
         : null}
       on:load={loadSlices}
       on:loadmore={() => (numSlicesToLoad += 20)}
