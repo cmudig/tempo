@@ -31,6 +31,8 @@
 
   const dispatch = createEventDispatcher();
 
+  const SearchCriteriaMetricGroup = 'Search Criteria';
+
   export let slice: Slice | null = null;
   export let scoreNames: Array<string> = [];
   export let showScores = false;
@@ -173,7 +175,7 @@
             }}
           />
         {:else}
-          <div class="flex pt-1 items-center h-full whitespace-nowrap">
+          <div class="flex pt-1 items-center whitespace-nowrap">
             <div style="flex: 0 1 auto;" class="overflow-x-auto">
               <SliceFeature
                 feature={featuresHaveSameTree(
@@ -193,7 +195,7 @@
             </div>
             {#if (showButtons || isSaved) && allowFavorite}
               <button
-                class="bg-transparent hover:opacity-60 ml-1 px-1 text-slate-600 py-2"
+                class="bg-transparent hover:opacity-60 ml-1 px-1 text-slate-600 py-1"
                 title="Add a new custom slice"
                 on:click={() => dispatch('saveslice', sliceToShow)}
                 ><Fa icon={isSaved ? faHeart : faHeartOutline} /></button
@@ -202,7 +204,7 @@
             {#if showButtons}
               {#if showCreateSliceButton}
                 <button
-                  class="bg-transparent hover:opacity-60 ml-1 px-1 text-slate-600 py-2"
+                  class="bg-transparent hover:opacity-60 ml-1 px-1 text-slate-600 py-1"
                   title="Add a new custom slice"
                   on:click={() => dispatch('create')}
                   ><Fa icon={faPlus} /></button
@@ -210,7 +212,7 @@
               {/if}
               {#if allowEdit}
                 <button
-                  class="bg-transparent hover:opacity-60 ml-1 px-1 py-3 text-slate-600"
+                  class="bg-transparent hover:opacity-60 ml-1 px-1 py-1 text-slate-600"
                   on:click={() => {
                     isEditing = true;
                     dispatch('beginedit');
@@ -220,7 +222,7 @@
                 >
                 {#if !!temporarySlice && !areObjectsEqual(temporarySlice, slice)}
                   <button
-                    class="bg-transparent hover:opacity-60 ml-1 px-1 text-slate-600"
+                    class="bg-transparent hover:opacity-60 ml-1 py-1 px-1 text-slate-600"
                     on:click={() => {
                       temporaryRevertSlice(false);
                       dispatch('reset');
@@ -234,6 +236,32 @@
               {/if}
             {/if}
           </div>
+          {#if !!sliceForScores && !!metricGetter( sliceForScores, [SearchCriteriaMetricGroup, '0'] )}
+            {@const metric = metricGetter(sliceForScores, [
+              SearchCriteriaMetricGroup,
+              '0',
+            ])}
+            <div
+              class="ml-2 mt-3 flex items-center w-1/3 gap-2"
+              style="max-width: 360px;"
+            >
+              <div class="text-slate-600">Search criteria</div>
+              <div class="flex-auto">
+                <SliceMetricBar
+                  value={metric.mean}
+                  scale={(v) => v}
+                  color={'#be185d'}
+                  width={null}
+                  horizontalLayout
+                  showFullBar
+                  showTooltip={false}
+                />
+              </div>
+              <div>
+                <strong>{format('.1%')(metric.mean)}</strong>
+              </div>
+            </div>
+          {/if}
         {/if}
       </div>
     </div>
@@ -337,12 +365,12 @@
 
 <style>
   .metric-column {
-    width: 360px;
+    width: 400px;
   }
 
   @media screen and (width < 1600px) {
     .metric-column {
-      width: 280px;
+      width: 320px;
     }
   }
 </style>

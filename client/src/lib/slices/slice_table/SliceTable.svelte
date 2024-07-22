@@ -384,12 +384,12 @@
 
 <style>
   .metric-column {
-    width: 360px;
+    width: 400px;
   }
 
   @media screen and (width < 1600px) {
     .metric-column {
-      width: 280px;
+      width: 320px;
     }
   }
 </style>

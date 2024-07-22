@@ -144,7 +144,9 @@
   function updateMetricInfo(testSlice: Slice, showingMetrics: string[] | null) {
     // tabulate metric names and normalize
     if (!!testSlice.metrics) {
-      let newMetricNames = Object.keys(testSlice.metrics);
+      let newMetricNames = Object.keys(testSlice.metrics).filter(
+        (n) => n != SearchCriteriaMetricGroup
+      );
       if (
         newMetricNames.length > 0 &&
         !testSlice.metrics[newMetricNames[0]].hasOwnProperty('type')
@@ -157,11 +159,6 @@
           metricGroups == null
         ) {
           newMetricNames.sort();
-          if (newMetricNames.includes(SearchCriteriaMetricGroup)) {
-            let idx = newMetricNames.indexOf(SearchCriteriaMetricGroup);
-            newMetricNames.splice(idx, 1);
-            newMetricNames.splice(0, 0, SearchCriteriaMetricGroup);
-          }
           metricGroups = newMetricNames;
         }
         metricNames = metricGroups
@@ -236,11 +233,8 @@
       newInfo.visible = (
         getMetric<SliceMetricInfo>(oldMetricInfo, n) || { visible: true }
       ).visible;
-      if (groupedMetrics && n[0] == SearchCriteriaMetricGroup)
-        newInfo.color = '#be185d';
-      else
-        newInfo.color =
-          MetricColors[groupedMetrics ? n[1] : n] ?? MetricColors.Accuracy;
+      newInfo.color =
+        MetricColors[groupedMetrics ? n[1] : n] ?? MetricColors.Accuracy;
 
       if (groupedMetrics) {
         if (!metricInfo[n[0]]) metricInfo[n[0]] = {};
