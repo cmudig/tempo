@@ -3,7 +3,10 @@ from ..compute.run import get_worker, get_filesystem
 from ..compute.utils import Commands
 from ..compute.dataset import Dataset
 from ..compute.slicefinder import SliceFinder
+from ..compute.utils import make_series_summary
 from divisi.utils import convert_to_native_types
+import traceback
+import numpy as np
 
 slices_blueprint = Blueprint('slices', __name__)
 
@@ -70,27 +73,31 @@ def get_slice_finding_results(dataset_name, model_name):
                                            options)) is not None:
         return jsonify(job_info)
     
-    if dataset_name not in slice_evaluators:
-        slice_evaluators[dataset_name] = SliceFinder(dataset)
-    slice_evaluator = slice_evaluators[dataset_name]
-    results = slice_evaluator.lookup_slice_results(
-        model_name,
-        body['variable_spec_name'],
-        body['score_function_spec']
-    )
+    try:
+        if dataset_name not in slice_evaluators:
+            slice_evaluators[dataset_name] = SliceFinder(dataset)
+        slice_evaluator = slice_evaluators[dataset_name]
+        results = slice_evaluator.lookup_slice_results(
+            model_name,
+            body['variable_spec_name'],
+            body['score_function_spec']
+        )
 
-    if not results: return jsonify({})
-    
-    timestep_def = dataset.get_model(model_name).get_spec()['timestep_definition']
-    evaluation_results = slice_evaluator.evaluate_slices(
-        results, 
-        timestep_def, 
-        body['variable_spec_name'],
-        body.get('model_names', [model_name]),
-        include_meta=True
-    )
-    return jsonify(convert_to_native_types(evaluation_results))
-    
+        if not results: return jsonify({})
+        
+        timestep_def = dataset.get_model(model_name).get_spec()['timestep_definition']
+        evaluation_results = slice_evaluator.evaluate_slices(
+            results, 
+            timestep_def, 
+            body['variable_spec_name'],
+            body.get('model_names', [model_name]),
+            score_function_spec=body['score_function_spec'],
+            include_meta=True
+        )
+        return jsonify(convert_to_native_types(evaluation_results))
+    except Exception as e:
+        traceback.print_exc()
+        return f"Error occurred while retrieving slices: {str(e)}", 500
     
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/find")
 def start_slice_finding(dataset_name, model_name):
@@ -111,10 +118,15 @@ def start_slice_finding(dataset_name, model_name):
     Each score function should be an ScoreExpression JSON of the format: {
         "type": "model_property",
         "model_name": string, 
-        "property": "label" | "prediction" | "correctness" | "deviation"
+        "property": "label" | "prediction" | "correctness" | "deviation" | "abs_deviation"
     } | { "type": "constant", "value": value } | { 
         "type": "relation", 
         "relation": "=" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not-in",
+        "lhs": ScoreExpression,
+        "rhs": ScoreExpression
+    } | { 
+        "type": "logical", 
+        "relation": "and" | "or",
         "lhs": ScoreExpression,
         "rhs": ScoreExpression
     }
@@ -144,6 +156,45 @@ def start_slice_finding(dataset_name, model_name):
     })    
     return jsonify(worker.task_info(task_id))
     
+@slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/validate_score_function")
+def validate_score_function_spec(dataset_name, model_name):
+    """
+    Parameters:
+    * dataset_name: name of the dataset in which to define the score function
+    * model_name: name of the model used as the base for the score function
+    
+    Request body: JSON of the format {
+        "score_function": ScoreExpression (as defined in documentation for 
+            /datasets/<dataset_name>/slices/<model_name>/find)
+    }
+    
+    Returns: JSON of the format {
+        "result": QueryResult
+    } if successful, otherwise { "error": string }
+    """
+    global slice_evaluators
+    
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name), "test")
+    if not dataset.fs.exists():
+        return "Dataset does not exist", 404
+
+    body = request.json
+    if 'score_function' not in body:
+        return "Request body must include 'score_function' key", 400
+    
+    try:
+        if dataset_name not in slice_evaluators:
+            slice_evaluators[dataset_name] = SliceFinder(dataset)
+        slice_evaluator = slice_evaluators[dataset_name]
+        
+        eval_data = slice_evaluator.parse_score_expression(body['score_function'], 'test')
+        uniques = np.unique(eval_data).astype(int)
+        assert len(uniques) <= 2 and not (set(uniques) - set([0, 1])), "Score functions must result in a binary value"
+        return jsonify(convert_to_native_types({"result": {"values": make_series_summary(eval_data)}}))
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)})
+    
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/score")
 def score_slice(dataset_name, model_name):
     """
@@ -152,7 +203,8 @@ def score_slice(dataset_name, model_name):
     * model_name: name of the model used as the base model (for timestep definition)
     
     Request body: JSON of the format {
-        "variable_spec_name": name of the variable spe
+        "variable_spec_name": name of the variable spec,
+        "score_function_spec": score function to get optional score criterion metric,
         "slices": dictionary of slice IDs to slice features,
         "model_names": array of model names to get metrics for
     } 
@@ -181,6 +233,7 @@ def score_slice(dataset_name, model_name):
     timestep_def = dataset.get_model(model_name).get_spec()['timestep_definition']
     evaluation_results = slice_evaluator.evaluate_slices(
         body['slices'], timestep_def, body['variable_spec_name'], body.get('model_names', [model_name]),
+        score_function_spec=body.get("score_function_spec", None),
         encode_slices=True
     )
     return jsonify({ "slices": convert_to_native_types(evaluation_results) })
@@ -195,14 +248,68 @@ def get_slice_comparisons(model_names):
     pass
     
 @slices_blueprint.route("/datasets/<dataset_name>/slices/specs", methods=["GET"])
-def get_slice_specs():
-    pass
+def get_slice_specs(dataset_name):
+    """
+    Parameters:
+    * dataset_name: name of the dataset in which to get the slice specs
+    
+    Returns: JSON of the format {
+        spec name: <spec>,
+        spec name: <spec>,
+        ...
+    }
+    """
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name), "test")
+    if not dataset.fs.exists():
+        return "Dataset does not exist", 404
+
+    specs = dataset.get_slicing_variable_specs()
+
+    return jsonify({spec_name: spec.get_spec() for spec_name, spec in specs.items()})
 
 @slices_blueprint.get("/datasets/<dataset_name>/slices/specs/<spec_name>")
-def get_slice_spec(spec_name):
-    pass
+def get_slice_spec(dataset_name, spec_name):
+    """
+    Parameters:
+    * dataset_name: name of the dataset in which to search for the slice spec
+    * spec_name: name of the spec to retrieve
+    
+    Returns: JSON representing the slice spec, or an error message if the slice
+    spec does not exist.
+    """
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name), "test")
+    if not dataset.fs.exists():
+        return "Dataset does not exist", 404
+
+    spec = dataset.get_slicing_variable_spec(spec_name)
+    try:
+        return jsonify(spec.get_spec())
+    except:
+        return "Slicing spec does not exist", 404
+        
 
 @slices_blueprint.post("/datasets/<dataset_name>/slices/specs/<spec_name>")
-def edit_slice_spec(spec_name):
-    pass
-        
+def edit_slice_spec(dataset_name, spec_name):
+    """
+    Parameters:
+    * dataset_name: name of the dataset in which to search for the slice spec
+    * spec_name: name of the spec to edit (does not need to exist beforehand)
+    
+    Request body: JSON representing the slice spec.
+    
+    Returns: a plain-text success message if the slice spec was edited.
+    """
+    global slice_evaluators
+    
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name), "test")
+    if not dataset.fs.exists():
+        return "Dataset does not exist", 404
+
+    spec = dataset.get_slicing_variable_spec(spec_name)
+    spec.write_spec(request.json)
+
+    if dataset_name in slice_evaluators:
+        slice_evaluator = slice_evaluators[dataset_name]
+        slice_evaluator.invalidate_variable_spec(spec_name)
+
+    return "Success"

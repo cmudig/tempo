@@ -58,6 +58,15 @@ class Dataset:
     def get_model(self, model_name):
         return Model(self.model_spec_dir(model_name), self.model_cache_dir(model_name))
     
+    def default_slicing_variable_spec_name(self, model_name):
+        return f"{model_name} (Default)"
+        
+    def get_slicing_variable_specs(self):
+        spec_dir = self.fs.subdirectory("slicing_specs")
+        return {spec_name: self.get_slicing_variable_spec(spec_name)
+                for spec_name in spec_dir.list_files()
+                if spec_dir.exists(spec_name, "spec.json")}
+        
     def get_slicing_variable_spec(self, spec_name):
         return SlicingVariableSpec(self.fs.subdirectory("slicing_specs", spec_name))
         

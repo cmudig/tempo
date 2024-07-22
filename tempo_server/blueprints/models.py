@@ -3,6 +3,7 @@ from ..compute.run import get_worker, get_filesystem
 from ..compute.dataset import Dataset
 from ..compute.utils import Commands
 from ..compute.model import Model
+from .slices import slice_evaluators
 
 models_blueprint = Blueprint('models', __name__)
 
@@ -273,6 +274,10 @@ def generate_model(dataset_name):
         'model_name': model_name,
         'spec': spec
     })
+        
+    if dataset_name in slice_evaluators:
+        slice_evaluators[dataset_name].invalidate_model(model_name)
+        slice_evaluators[dataset_name].invalidate_variable_spec(dataset.default_slicing_variable_spec_name(model_name))
         
     # with evaluator_lock:
     #     if evaluator is not None:

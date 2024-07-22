@@ -14,7 +14,7 @@ import divisi
 from divisi.filters import ExcludeFeatureValueSet, ExcludeIfAny
 from divisi.discretization import discretize_column, discretize_data, DiscretizedData
 from divisi.slices import RankedSliceList
-from divisi.utils import convert_to_native_types
+from divisi.utils import convert_to_native_types, detect_data_type
 
 class SlicingVariableSpec:
     def __init__(self, spec_fs):
@@ -30,6 +30,36 @@ class SlicingVariableSpec:
     
     def write_spec(self, new_spec):
         self.spec_fs.write_file(new_spec, "spec.json")
+    
+    def create_default(self, model_spec, variables_df):
+        """
+        Creates an automatic default slicing variable spec based on the given
+        model spec variables. Discrete and binary variables will be kept as-is,
+        while continuous-valued variables will be transformed using quantile
+        binning rounded to appropriate decimal places.
+        """
+        new_variables = {}
+        for var_name, var_info in model_spec["variables"].items():
+            if not var_info.get('enabled', True): continue
+            
+            var_values = variables_df[var_name]
+            if (isinstance(var_values.dtype, pd.CategoricalDtype) or 
+                pd.api.types.is_object_dtype(var_values.dtype) or 
+                pd.api.types.is_string_dtype(var_values.dtype)):
+                # already categorical data
+                new_variables[var_name] = {"query": f"({var_info['query']}) impute 'Missing'"}
+            else:
+                uniques = var_values[~pd.isna(var_values)].unique()
+                if len(uniques) == 2 and np.allclose(uniques, np.array([0, 1])):
+                    # binary data
+                    new_variables[var_name] = {"query": f"(case when ({var_info['query']}) then 'True' else 'False' end) impute 'Missing'"}
+                elif len(uniques) <= 10:
+                    # numeric data with a small number of categories
+                    new_variables[var_name] = {"query": f"({var_info['query']}) impute 'Missing'"}
+                else:
+                    # numeric data
+                    new_variables[var_name] = {"query": f"({var_info['query']}) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"}
+        self.write_spec({"variables": new_variables})
     
     def load_slicing_variables(self, query_engine, timestep_definition, update_fn=None):
         """Creates the slicing variables dataframe."""
@@ -77,8 +107,10 @@ class SlicingVariableSpec:
             value_names = {i: discretization_results[col] 
                         for i, col in enumerate(dataframe.columns)
                         if col in discretization_results}
+            print("Value names:", value_names)
             # Find any keys that might not have been cached and re-discretize them
             missing_keys = [c for c in dataframe.columns if c not in discretization_results]
+            print("Missing keys:", missing_keys)
             if missing_keys:
                 processed_missing_df = discretize_data(dataframe[missing_keys], {
                     col: { "method": "unique"} for col in missing_keys
@@ -86,6 +118,7 @@ class SlicingVariableSpec:
                 reverse_index = {c: i for i, c in enumerate(dataframe.columns)}
                 value_names.update({reverse_index[missing_keys[i]]: v for i, v in  processed_missing_df.value_names.items()})
                 dataframe = dataframe.assign(**{c: processed_missing_df.df[:,i] for i, c in enumerate(missing_keys)})
+            print("Final value names:", value_names)
             discrete_df = DiscretizedData(dataframe.values.astype(np.uint8), value_names)
             
         print("Completed discretization")
@@ -97,29 +130,39 @@ class SliceFinder:
         self.dataset = dataset
         self.results_fs = self.dataset.global_cache_dir.subdirectory("slices", "results")
         self.variable_cache_fs = self.dataset.split_cache_dir.subdirectory("slicing_variables")
-        self._results_cache = None
-        self._variable_specs_cache = {}
-        self._model_cache = {}
-        self._eval_metrics_cache = {}
-        self._eval_slice_cache = {}
+        self._results_cache = None # keys: strings of the format "model name###variable spec name"
+        self._variable_specs_cache = {} # keys: tuples (timestep definition, variable spec name)
+        self._model_cache = {} # keys: model name strings
+        self._eval_metrics_cache = {} # keys: model name strings
+        self._eval_slice_cache = {} # keys: timestep definitions
         
     def invalidate_model(self, model_name):
-        raise NotImplementedError
+        self.load_cache_if_needed()
+        self._results_cache = {k: v for k, v in self._results_cache.items()
+                               if not re.match(f"^{re.escape(model_name)}###.*$", k)}
+        self.write_cache()
+        if model_name in self._model_cache: del self._model_cache[model_name]
+        if model_name in self._eval_metrics_cache: del self._eval_metrics_cache[model_name]
     
     def invalidate_variable_spec(self, variable_spec_name):
-        raise NotImplementedError
+        self.load_cache_if_needed()
+        self._results_cache = {k: v for k, v in self._results_cache.items()
+                               if not re.match(f"^.*###{re.escape(variable_spec_name)}$", k)}
+        self.write_cache()
+        self._variable_specs_cache = {k: v for k, v in self._variable_specs_cache.items()
+                                      if k[1] != variable_spec_name}
 
     def _get_model(self, model_name):
         if model_name not in self._model_cache: self._model_cache[model_name] = self.dataset.get_model(model_name)
         return self._model_cache[model_name]
     
-    def get_variable_spec(self, timestep_definition, variable_spec_name, load_if_needed=False):
+    def get_variable_spec(self, timestep_definition, variable_spec_name, load_if_needed=False, update_fn=None):
         if (timestep_definition, variable_spec_name) not in self._variable_specs_cache:
             self._variable_specs_cache[(timestep_definition, variable_spec_name)] = self.dataset.get_slicing_variable_spec(variable_spec_name)
         spec = self._variable_specs_cache[(timestep_definition, variable_spec_name)]
         if spec.discrete_df is None and load_if_needed:
             engine = self.dataset.make_query_engine(cache_fs=self.variable_cache_fs)
-            spec.load_slicing_variables(engine, timestep_definition)
+            spec.load_slicing_variables(engine, timestep_definition, update_fn=update_fn)
         return spec
         
     def filter_single_values(self, valid_df):
@@ -134,35 +177,92 @@ class SliceFinder:
         if single_value_filters:
             return ExcludeIfAny([ExcludeFeatureValueSet(cols, [v]) for v, cols in single_value_filters.items()])
 
-    def make_score_functions(self, score_function_spec):
-        # simple version for now
-        models = {}
+    def parse_score_expression(self, score_expression, split):
+        assert "type" in score_expression, f"Score expression needs a 'type' field: {score_expression}"
+        if score_expression["type"] == "model_property":
+            model = self._get_model(score_expression["model_name"])
+            if score_expression["property"] == "label":
+                outcome = model.get_true_labels(split)
+            elif score_expression["property"] == "prediction":
+                try:
+                    threshold = model.get_optimal_threshold()
+                    outcome = model.get_model_predictions(split) >= threshold
+                except:
+                    outcome = model.get_model_predictions(split)
+            elif score_expression["property"] == "prediction_probability":
+                outcome = model.get_model_predictions(split)
+            elif score_expression["property"] == "correctness":
+                try:
+                    threshold = model.get_optimal_threshold()
+                    preds = model.get_model_predictions(split) >= threshold
+                except:
+                    preds = model.get_model_predictions(split)
+                outcome = model.get_true_labels(split) == preds
+            elif score_expression["property"] == "deviation":
+                outcome = model.get_model_predictions(split) - model.get_true_labels(split)
+            elif score_expression["property"] == "abs_deviation":
+                outcome = np.abs(model.get_model_predictions(split) - model.get_true_labels(split))
+            else:
+                raise ValueError(f"Unknown score expression property '{score_expression['property']}'")
+            return outcome
+        elif score_expression["type"] == "constant":
+            return score_expression["value"]
+        elif score_expression["type"] in ("relation", "logical"):
+            # "=" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not-in" | "and" | "or"
+            assert 'lhs' in score_expression and 'rhs' in score_expression, f"Score expression relation needs both lhs and rhs: {score_expression}"
+            lhs = self.parse_score_expression(score_expression["lhs"], split)
+            rhs = self.parse_score_expression(score_expression["rhs"], split)
+            if score_expression["relation"] == "=":
+                return lhs == rhs
+            elif score_expression["relation"] == "!=":
+                return lhs != rhs
+            elif score_expression["relation"] == "<":
+                return lhs < rhs
+            elif score_expression["relation"] == "<=":
+                return lhs <= rhs
+            elif score_expression["relation"] == ">":
+                return lhs > rhs
+            elif score_expression["relation"] == ">=":
+                return lhs >= rhs
+            elif score_expression["relation"] == "in":
+                assert isinstance(rhs, (list, np.array)), f"Right-hand side of 'in' expression must be a list, but got {rhs}"
+                return np.isin(lhs, rhs)
+            elif score_expression["relation"] == "not-in":
+                assert isinstance(rhs, (list, np.array)), f"Right-hand side of 'in' expression must be a list, but got {rhs}"
+                return ~np.isin(lhs, rhs)
+            elif score_expression["relation"] == "and":
+                return np.logical_and(lhs, rhs)
+            elif score_expression["relation"] == "or":
+                return np.logical_or(lhs, rhs)
+            else:
+                raise ValueError(f"Unknown score expression relation '{score_expression['relation']}'")
+        else:
+            raise ValueError(f"Unknown score expression type '{score_expression['type']}'")
+        
+    def make_score_functions(self, score_function_spec, model_name=None):
         all_functions = ({}, {})
-        for split, functions in zip(('val', 'test'), all_functions):
-            for spec in score_function_spec:
-                models.setdefault(spec["model_name"], self.dataset.get_model(spec["model_name"]))
-                model = models[spec["model_name"]]
-                if spec["criterion"] == "positive_label":
-                    outcome = model.get_true_labels(split)
-                    inverse = False
-                elif spec["criterion"] == "negative_label":
-                    outcome = model.get_true_labels(split)
-                    inverse = True
-                elif spec["criterion"] == "positive_pred":
-                    outcome = model.get_predictions(split)
-                    inverse = False
-                elif spec["criterion"] == "negative_pred":
-                    outcome = model.get_predictions(split)
-                    inverse = True
-                functions[f"{spec['model_name']} {spec['criterion']}"] = divisi.OutcomeRateScore(outcome, inverse=inverse)
-                functions[f"{spec['model_name']} {spec['criterion']} interaction"] = divisi.InteractionEffectScore(1 - outcome if inverse else outcome)
+        all_metrics = ({}, {})
+        sampling_mask = None
+        for split, functions, metrics in zip(('val', 'test'), all_functions, all_metrics):
+            for i, spec in enumerate(score_function_spec):
+                score_fn_data = self.parse_score_expression(spec, split)
+                print("For split", split, "score function data has", score_fn_data.mean())
+                uniques = np.unique(score_fn_data).astype(int)
+                assert len(uniques) <= 2 and not (set(uniques) - set([0, 1])), "Score functions must result in a binary value"
+                functions[f"{i}"] = divisi.OutcomeRateScore(score_fn_data)
+                functions[f"{i} Interaction"] = divisi.InteractionEffectScore(score_fn_data)
+                metrics[f"{i}"] = score_fn_data
+                if split == 'val':
+                    if sampling_mask is None:
+                        sampling_mask = (score_fn_data > 0)
+                    else:
+                        sampling_mask |= (score_fn_data > 0)
                 
         all_masks = []
-        for split in ('val', 'test'):
-            all_discovery_outcomes = np.vstack([model.get_true_labels(split)
-                                for model in models.values()])
-            valid_mask = np.all(~np.isnan(all_discovery_outcomes), axis=0)
-            all_masks.append(valid_mask)
+        if model_name is not None:
+            for split in ('val', 'test'):
+                valid_mask = ~np.isnan(self._get_model(model_name).get_true_labels(split))
+                all_masks.append(valid_mask)
         
         weights = {n: 1.0 for n in all_functions[0].keys()}
         all_functions[0]["Large Slice"] = divisi.SliceSizeScore()
@@ -171,7 +271,7 @@ class SliceFinder:
         all_functions[1]["Simple Rule"] = divisi.NumFeaturesScore()
         weights["Large Slice"] = 0.5
         weights["Simple Rule"] = 0.5
-        return (*all_functions, weights, tuple(all_masks))
+        return (all_functions, all_metrics, weights, tuple(all_masks), sampling_mask)
     
     def get_eval_metrics(self, model_names):
         """Returns a dictionary of model names and metric types (e.g. '{model name} True') to metric arrays
@@ -210,8 +310,8 @@ class SliceFinder:
         return metrics
 
     
-    def _find_slices(self, variable_spec, score_function_spec, update_fn=None, n_samples=100, n_slices=20, similarity_threshold=0.5, min_items_fraction=0.02, **kwargs):
-        discovery_score_fns, eval_score_fns, weights, valid_masks = self.make_score_functions(score_function_spec)
+    def _find_slices(self, model_name, variable_spec, score_function_spec, update_fn=None, n_samples=100, n_slices=20, similarity_threshold=0.5, min_items_fraction=0.02, **kwargs):
+        (discovery_score_fns, eval_score_fns), _, weights, valid_masks, sampling_mask = self.make_score_functions(score_function_spec, model_name)
         
         discovery_ids = self.dataset.split_ids[1]  # validation set
         discovery_df = variable_spec.discrete_df.filter(variable_spec.ids.isin(discovery_ids)).filter(valid_masks[0])
@@ -222,6 +322,7 @@ class SliceFinder:
             discovery_df, 
             discovery_score_fns,
             holdout_fraction=0.0,
+            source_mask=sampling_mask,
             group_filter=discovery_filter,
             min_items=min_items_fraction * len(discovery_df),
             **kwargs
@@ -259,7 +360,10 @@ class SliceFinder:
             self._results_cache = {}
                 
     def lookup_slice_results(self, model_name, variable_spec_name, score_function_spec):
-        """Returns the results of the slice finding operation (as Slice objects) if they have already been computed."""
+        """
+        Returns the results of the slice finding operation (as Slice objects) 
+        if they have already been computed. If the operation resulted in an error,
+        raises that error as a ValueError."""
         self.load_cache_if_needed()
         
         key = f"{model_name}###{variable_spec_name}"
@@ -276,6 +380,9 @@ class SliceFinder:
                 self._results_cache[key] = [x for x in self._results_cache[key] if x != matching_result]
                 self.write_cache()
             else:
+                if isinstance(results_json, dict) and "error" in results_json:
+                    raise ValueError(results_json["error"])
+                
                 results = [divisi.slices.Slice.from_dict(r) for r in results_json]
                 return results
         return None
@@ -283,38 +390,62 @@ class SliceFinder:
     def write_cache(self):
         self.results_fs.write_file(self._results_cache, "cache.json")
         
-    def find_slices(self, model_name, variable_spec_name, score_function_spec, update_fn=None, **options):
+    def find_slices(self, model_name, variable_spec_name, score_function_spec, update_fn=None, ignore_cache=False, **options):
         """
         Runs the slice finding algorithm and returns an array of Slice objects.
+        If an error occurred with the given slice finding operation, raises it
+        as an Exception.
         """
-        cache_result = self.lookup_slice_results(model_name, variable_spec_name, score_function_spec)
-        if cache_result: return cache_result
+        if not ignore_cache:
+            cache_result = self.lookup_slice_results(model_name, variable_spec_name, score_function_spec)
+            if cache_result: return cache_result
         
-        if update_fn is not None: update_fn({"message": "Loading variables"})
-        timestep_definition = self._get_model(model_name).get_spec()["timestep_definition"]
-        variable_spec = self.get_variable_spec(timestep_definition, variable_spec_name, load_if_needed=True)
-        
-        results = self._find_slices(
-            variable_spec,
-            score_function_spec,
-            update_fn=update_fn,
-            **options
-        )
-        results_json = convert_to_native_types([slice_obj.to_dict() for slice_obj in results])
-        
-        self.load_cache_if_needed()
         key = f"{model_name}###{variable_spec_name}"
         path = uuid.uuid4().hex + ".json"
-        self.results_fs.write_file(results_json, path)
-        self._results_cache.setdefault(key, []).append({
-            "score_function_spec": score_function_spec,
-            "path": path
-        })
-        self.write_cache()
+        
+        # remove existing values for this score function spec
+        self.load_cache_if_needed()
+        if key in self._results_cache:
+            for item in self._results_cache[key]:
+                if item["score_function_spec"] == score_function_spec:
+                    self.results_fs.delete(item["path"])
+            self._results_cache[key] = [item for item in self._results_cache[key] 
+                                        if item["score_function_spec"] != score_function_spec]
+
+        try:
+            if update_fn is not None: update_fn({"message": "Loading variables"})
+            timestep_definition = self._get_model(model_name).get_spec()["timestep_definition"]
+            variable_spec = self.get_variable_spec(timestep_definition, variable_spec_name, load_if_needed=True, update_fn=update_fn)
+            
+            results = self._find_slices(
+                model_name,
+                variable_spec,
+                score_function_spec,
+                update_fn=update_fn,
+                **options
+            )
+            results_json = convert_to_native_types([slice_obj.to_dict() for slice_obj in results])
+        except Exception as e:
+            results_json = {"error": str(e)}
+            
+            self.results_fs.write_file(results_json, path)
+            self._results_cache.setdefault(key, []).append({
+                "score_function_spec": score_function_spec,
+                "path": path
+            })
+            self.write_cache()
+            raise e
+        else:                    
+            self.results_fs.write_file(results_json, path)
+            self._results_cache.setdefault(key, []).append({
+                "score_function_spec": score_function_spec,
+                "path": path
+            })
+            self.write_cache()
         
         return results
     
-    def evaluate_slices(self, slices, timestep_def, variable_spec_name, model_names, include_meta=False, encode_slices=False):
+    def evaluate_slices(self, slices, timestep_def, variable_spec_name, model_names, score_function_spec=None, include_meta=False, encode_slices=False):
         """
         Takes an array of Slice objects, and returns a dictionary of the format {
             "slices": [
@@ -325,7 +456,12 @@ class SliceFinder:
         } if include_meta is True. Otherwise (default), returns just the value in
         the "slices" field above.
         """
+        # TODO allow for different timestep definitions for different model names
         rank_list, metrics = self.get_slice_ranking_info(timestep_def, variable_spec_name, model_names)
+        if score_function_spec is not None:
+            score_metrics = self.make_score_functions(score_function_spec)[1][-1]
+        else:
+            score_metrics = None
         variable_spec = self.get_variable_spec(timestep_def, variable_spec_name, load_if_needed=True)
         ids = variable_spec.ids
         valid_df = variable_spec.discrete_df
@@ -333,19 +469,19 @@ class SliceFinder:
         base_slice = divisi.slices.Slice(divisi.slices.SliceFeatureBase())
         if isinstance(slices, list):
             slices = [rank_list.encode_slice(v) for v in slices] if encode_slices else slices
-            slice_descs = [self.describe_slice(rank_list, metrics, ids, slice_obj, model_names)
+            slice_descs = [self.describe_slice(rank_list, metrics, ids, slice_obj, model_names, score_metrics=score_metrics)
                        for slice_obj in slices]
         elif isinstance(slices, dict) and "type" not in slices:
             slices = {k: rank_list.encode_slice(v) for k, v in slices.items()} if encode_slices else slices
-            slice_descs = {name: self.describe_slice(rank_list, metrics, ids, slice_obj, model_names)
+            slice_descs = {name: self.describe_slice(rank_list, metrics, ids, slice_obj, model_names, score_metrics=score_metrics)
                        for name, slice_obj in slices.items()}
         elif isinstance(slices, divisi.slices.Slice) or (encode_slices and isinstance(slices, dict)):
             slices = rank_list.encode_slice(slices) if encode_slices else slices
-            slice_descs = self.describe_slice(rank_list, metrics, ids, slices, model_names)
+            slice_descs = self.describe_slice(rank_list, metrics, ids, slices, model_names, score_metrics=score_metrics)
         if include_meta:
             return {
                 "slices": slice_descs,
-                "base_slice": self.describe_slice(rank_list, metrics, ids, base_slice, model_names),
+                "base_slice": self.describe_slice(rank_list, metrics, ids, base_slice, model_names, score_metrics=score_metrics),
                 "value_names": valid_df.value_names
             }
         return slice_descs
@@ -362,7 +498,7 @@ class SliceFinder:
         rank_list.score_cache = self._eval_slice_cache.setdefault(timestep_def, {})
         return rank_list, metrics
 
-    def describe_slice(self, rank_list, metrics, ids, slice_obj, model_names, return_instance_info=False):
+    def describe_slice(self, rank_list, metrics, ids, slice_obj, model_names, return_instance_info=False, score_metrics=None):
         """
         Generates a slice description of the given slice, adding count variables
         for each model outcome.
@@ -370,6 +506,10 @@ class SliceFinder:
         desc, mask = rank_list.generate_slice_description(slice_obj, metrics=metrics, return_slice_mask=True)
         old_desc_metrics = desc["metrics"]
         desc["metrics"] = {}
+        
+        if score_metrics is not None:
+            score_metrics_desc = rank_list.generate_slice_description(slice_obj, metrics=score_metrics)
+            desc["metrics"]["Search Criteria"] = {k: v for k, v in score_metrics_desc["metrics"].items() if k != "Count"}
         
         instance_behaviors = {}
         for model_name in model_names:

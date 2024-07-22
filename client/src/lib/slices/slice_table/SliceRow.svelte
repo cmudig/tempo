@@ -117,7 +117,7 @@
       ? 'bg-blue-100 hover:bg-blue-50'
       : allowSelect
         ? 'bg-white hover:bg-slate-100'
-        : 'bg-white'} {rowClass ? rowClass : ''} flex items-center"
+        : 'bg-white'} {rowClass ? rowClass : ''} inline-flex items-center"
     style="min-width: 100%; margin-left: {indentAmount *
       (maxIndent - indent)}px;"
     on:mouseenter={() => (showButtons = true)}
@@ -141,7 +141,8 @@
       </div>
     {/if}
     <div
-      style="flex: 6; min-width: {TableWidths.FeatureList}px; max-width: 800px;"
+      class="flex-auto w-0"
+      style="min-width: {TableWidths.FeatureList}px; max-width: 800px;"
     >
       <div
         class="py-2 w-full text-xs min-w-0"
@@ -239,12 +240,17 @@
     {#if !!sliceForScores && !!sliceForScores.metrics && !!metricInfo && groupedMetricNames.length > 0}
       {#each groupedMetricNames as metricGroup}
         <div
-          class="p-2 whitespace-nowrap grow shrink-0 grid auto-rows-max text-xs gap-x-2 gap-y-0 items-center"
-          style="min-width: {TableWidths.AllMetrics}px; max-width: 500px; grid-template-columns: max-content auto 96px;"
+          class="metric-column p-2 whitespace-nowrap grow-0 shrink-0 grid auto-rows-max text-xs gap-x-2 gap-y-0 items-center"
+          style="grid-template-columns: max-content auto 96px;"
         >
           {#each metricGroup as name}
             {@const metric = metricGetter(sliceForScores, name)}
-            {@const displayName = Array.isArray(name) ? name[1] : name}
+            {@const displayName =
+              metricGroup.length == 1
+                ? ''
+                : Array.isArray(name)
+                  ? name[1]
+                  : name}
             {@const mInfo =
               typeof metricInfo === 'function'
                 ? metricInfo(name)
@@ -265,6 +271,7 @@
                   colorScale={mInfo.colorScale ?? interpolateViridis}
                   width={null}
                   horizontalLayout
+                  showFullBar
                   showTooltip={false}
                 />
                 <div>
@@ -279,6 +286,7 @@
                   colorScale={mInfo.colorScale ?? interpolateViridis}
                   width={null}
                   horizontalLayout
+                  showFullBar
                   showTooltip={false}
                 ></SliceMetricBar>
                 <div>
@@ -292,6 +300,7 @@
                   color={mInfo.color ?? null}
                   colorScale={mInfo.colorScale ?? interpolateViridis}
                   horizontalLayout
+                  showFullBar
                   showTooltip={false}
                 />
                 <div>
@@ -325,3 +334,15 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  .metric-column {
+    width: 360px;
+  }
+
+  @media screen and (width < 1600px) {
+    .metric-column {
+      width: 280px;
+    }
+  }
+</style>

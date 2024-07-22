@@ -103,6 +103,12 @@
       Object.entries(inputVariables).filter((item) => !names.includes(item[0]))
     );
     selectedVariables = [];
+    if (
+      !!currentEditingVariableName &&
+      names.includes(currentEditingVariableName)
+    ) {
+      currentEditingVariableName = null;
+    }
   }
 
   $: visibleInputVariableCategory,
@@ -422,13 +428,16 @@
           {timestepDefinition}
           editing={currentEditingVariableName == varName}
           isChecked={selectedVariables.includes(varName)}
-          on:cancel={() => (currentEditingVariableName = null)}
+          on:cancel={() => {
+            currentEditingVariableName = null;
+            if (!varInfo.query) deleteVariables([varName]);
+          }}
           on:edit={() => (currentEditingVariableName = varName)}
           on:save={(e) => saveVariableEdits(e.detail.name, e.detail.query)}
           on:toggle={(e) => toggleVariables([varName], e.detail)}
           on:select={(e) => toggleSelection(varName, e.detail)}
           on:duplicate={(e) => duplicateVariables([varName])}
-          on:delete={(e) => deleteVariables([e.detail])}
+          on:delete={(e) => deleteVariables([varName])}
         />
       {/each}
     </div>

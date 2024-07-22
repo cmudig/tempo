@@ -98,83 +98,88 @@
   on:mouseenter={() => (hovering = true)}
   on:mouseleave={() => (hovering = false)}
 >
-  <div
-    class="font-mono p-2 text-sm flex grow shrink items-center gap-2"
-    style="flex-basis: 0; min-width: 240px;"
-  >
-    {#if showCheckbox}
-      <div
-        class="grow-0 shrink-0"
-        style="width: {SidebarTableWidths.Checkbox}px;"
-      >
-        {#if !allowCheck && !!checkDisabledReason}
-          <Tooltip title={checkDisabledReason} position="right">
-            <Checkbox disabled={isActive || !allowCheck} checked={isChecked} />
-          </Tooltip>
+  {#if !!displayItem}
+    <div
+      class="font-mono p-2 text-sm flex grow shrink items-center gap-2"
+      style="flex-basis: 0; min-width: 240px;"
+    >
+      {#if showCheckbox}
+        <div
+          class="grow-0 shrink-0"
+          style="width: {SidebarTableWidths.Checkbox}px;"
+        >
+          {#if !allowCheck && !!checkDisabledReason}
+            <Tooltip title={checkDisabledReason} position="right">
+              <Checkbox
+                disabled={isActive || !allowCheck}
+                checked={isChecked}
+              />
+            </Tooltip>
+          {:else}
+            <Checkbox
+              disabled={isActive || !allowCheck}
+              checked={isChecked}
+              on:change={(e) => dispatch('toggle')}
+            />
+          {/if}
+        </div>
+      {/if}
+      <div class="flex-auto min-w-0">
+        {#if isEditingName}
+          <form
+            class="w-full"
+            on:submit|preventDefault={() =>
+              dispatch('rename', { old: displayItem.name, new: newName })}
+          >
+            <div class="flex w-full items-center gap-2">
+              <input
+                type="text"
+                class="flat-text-input flex-auto"
+                bind:value={newName}
+                bind:this={editBox}
+                on:blur={() => setTimeout(() => dispatch('canceledit'), 100)}
+              />
+              <button
+                class="bg-transparent hover:opacity-60 text-slate-600 text-lg"
+                type="button"
+                on:mousedown|preventDefault|stopPropagation={() => {}}
+                on:click|stopPropagation={() => {
+                  dispatch('canceledit');
+                }}
+                title="Cancel the rename"><Fa icon={faXmark} /></button
+              >
+              <button
+                class="bg-transparent hover:opacity-60 text-slate-600 text-lg disabled:opacity-50"
+                type="submit"
+                disabled={!newName || newName.length == 0}
+                title="Save the renamed {displayItemType}"
+                ><Fa icon={faCheck} /></button
+              >
+            </div>
+          </form>
         {:else}
-          <Checkbox
-            disabled={isActive || !allowCheck}
-            checked={isChecked}
-            on:change={(e) => dispatch('toggle')}
-          />
+          <div class="whitespace-nowrap truncate">
+            {#if !!metrics && metricsHaveWarnings(metrics)}
+              <Fa class="text-orange-300 inline" icon={faWarning} />
+            {/if}
+            {displayItem?.name ?? ''}
+          </div>
+        {/if}
+        {#if !!displayItem?.description}
+          <div class="text-slate-500 font-sans text-xs line-clamp-2">
+            {removeMd(displayItem?.description ?? '')}
+          </div>
+        {/if}
+        {#if differences.length > 0}
+          <div class="text-xs text-slate-500 font-sans">
+            <strong>&Delta;:</strong>
+            {differences.join(', ')}
+          </div>
         {/if}
       </div>
-    {/if}
-    <div class="flex-auto min-w-0">
-      {#if isEditingName}
-        <form
-          class="w-full"
-          on:submit|preventDefault={() =>
-            dispatch('rename', { old: name, new: newName })}
-        >
-          <div class="flex w-full items-center gap-2">
-            <input
-              type="text"
-              class="flat-text-input flex-auto"
-              bind:value={newName}
-              bind:this={editBox}
-              on:blur={() => setTimeout(() => dispatch('canceledit'), 100)}
-            />
-            <button
-              class="bg-transparent hover:opacity-60 text-slate-600 text-lg"
-              type="button"
-              on:mousedown|preventDefault|stopPropagation={() => {}}
-              on:click|stopPropagation={() => {
-                dispatch('canceledit');
-              }}
-              title="Cancel the rename"><Fa icon={faXmark} /></button
-            >
-            <button
-              class="bg-transparent hover:opacity-60 text-slate-600 text-lg disabled:opacity-50"
-              type="submit"
-              disabled={!newName || newName.length == 0}
-              title="Save the renamed {displayItemType}"
-              ><Fa icon={faCheck} /></button
-            >
-          </div>
-        </form>
-      {:else}
-        <div class="whitespace-nowrap truncate">
-          {#if !!metrics && metricsHaveWarnings(metrics)}
-            <Fa class="text-orange-300 inline" icon={faWarning} />
-          {/if}
-          {displayItem?.name ?? ''}
-        </div>
-      {/if}
-      {#if !!displayItem?.description}
-        <div class="text-slate-500 font-sans text-xs line-clamp-2">
-          {removeMd(displayItem?.description ?? '')}
-        </div>
-      {/if}
-      {#if differences.length > 0}
-        <div class="text-xs text-slate-500 font-sans">
-          <strong>&Delta;:</strong>
-          {differences.join(', ')}
-        </div>
-      {/if}
     </div>
-  </div>
-  {#if hovering && !isEditingName}
+  {/if}
+  {#if hovering && !isEditingName && !!displayItem}
     <div
       class="grow-0 shrink-0"
       style="width: {SidebarTableWidths.Checkbox}px;"
@@ -192,21 +197,22 @@
             tabindex="0"
             role="menuitem"
             title="Duplicate this {displayItemType}"
-            on:click={() => dispatch('duplicate', name)}>Duplicate</a
+            on:click={() => dispatch('duplicate', displayItem.name)}
+            >Duplicate</a
           >
           <a
             href="#"
             tabindex="0"
             role="menuitem"
             title="Rename this {displayItemType}"
-            on:click={() => dispatch('editname', name)}>Rename...</a
+            on:click={() => dispatch('editname', displayItem.name)}>Rename...</a
           >
           <a
             href="#"
             tabindex="0"
             role="menuitem"
             title="Permanently delete this {displayItemType}"
-            on:click={() => dispatch('delete', name)}>Delete</a
+            on:click={() => dispatch('delete', displayItem.name)}>Delete</a
           >
         </div>
       </ActionMenuButton>

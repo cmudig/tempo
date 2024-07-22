@@ -41,9 +41,11 @@
   let datasetOptions: { [key: string]: { spec: Dataset; models: string[] } } =
     {};
 
-  let models: {
+  let models: Writable<{
     [key: string]: { spec: ModelSummary; metrics?: ModelMetrics };
-  } = {};
+  }> = writable({});
+  let currentModel: Writable<string | null> = writable(null);
+  setContext('models', { models, currentModel });
 
   enum View {
     editor = 'Specification',
@@ -57,7 +59,6 @@
   let queryHistory: string[] = [];
   let showingQueryReference: boolean = false;
 
-  let currentModel: string | null = null;
   let selectedModels: string[] = [];
 
   let showSidebar: boolean = true;
@@ -91,36 +92,36 @@
     if ($currentDataset == null) return;
 
     let result = await fetch(`/datasets/${$currentDataset}/models`);
-    models = (await result.json()).models;
-    console.log('models:', models);
-    if (Object.keys(models).length > 0) {
-      if (!currentModel || !models[currentModel])
-        currentModel = Object.keys(models).sort()[0];
+    $models = (await result.json()).models;
+    console.log('models:', $models);
+    if (Object.keys($models).length > 0) {
+      if (!$currentModel || !$models[$currentModel])
+        $currentModel = Object.keys($models).sort()[0];
     }
     if (!!refreshTimer) clearTimeout(refreshTimer);
     refreshTimer = setTimeout(refreshModels, 5000);
   }
 
   let oldCurrentModel: string | null = null;
-  $: if (oldCurrentModel !== currentModel) {
+  $: if (oldCurrentModel !== $currentModel) {
     if (
-      !!models &&
-      !!currentModel &&
-      !!models[currentModel] &&
-      !models[currentModel].metrics
+      !!$models &&
+      !!$currentModel &&
+      !!$models[$currentModel] &&
+      !$models[$currentModel].metrics
     )
       currentView = View.editor;
     if (
-      !!currentModel &&
-      !!models[currentModel] &&
-      !models[currentModel].metrics?.performance[metricToShow]
+      !!$currentModel &&
+      !!$models[$currentModel] &&
+      !$models[$currentModel].metrics?.performance[metricToShow]
     ) {
       let availableMetrics = Object.keys(
-        models[currentModel].metrics?.performance ?? {}
+        $models[$currentModel].metrics?.performance ?? {}
       ).sort();
       if (availableMetrics.length > 0) metricToShow = availableMetrics[0];
     }
-    oldCurrentModel = currentModel;
+    oldCurrentModel = $currentModel;
   }
 
   const manageDatasetsValue = '$!$!manage_datasets!$!$';
@@ -155,11 +156,11 @@
           method: 'POST',
         })
       ).json();
-      currentModel = newModel.name;
+      $currentModel = newModel.name;
       selectedModels = [];
       currentView = View.editor;
       setTimeout(() => {
-        if (!!sidebar && !!currentModel) sidebar?.editModelName(currentModel);
+        if (!!sidebar && !!$currentModel) sidebar?.editModelName($currentModel);
       }, 100);
     } catch (e) {
       console.error('error creating new model:', e);
@@ -189,7 +190,7 @@
         }),
       });
       await refreshModels();
-      currentModel = newName;
+      $currentModel = newName;
     } catch (e) {
       console.error('error renaming model:', e);
     }
@@ -292,10 +293,9 @@
         height="100%"
       >
         <Sidebar
-          {models}
           bind:this={sidebar}
           bind:metricToShow
-          bind:activeModel={currentModel}
+          bind:activeModel={$currentModel}
           bind:selectedModels
           on:new={(e) => createModel(e.detail)}
           on:rename={(e) => renameModel(e.detail.old, e.detail.new)}
@@ -311,7 +311,7 @@
               ? 'bg-blue-600 text-white font-bold hover:bg-blue-700'
               : 'text-slate-700 hover:bg-slate-300'}"
             on:click={() => (currentView = view)}
-            >{#if view == View.results && !!currentModel && !!models && !!models[currentModel]?.metrics && metricsHaveWarnings(models[currentModel].metrics)}<Fa
+            >{#if view == View.results && !!$currentModel && !!$models && !!$models[$currentModel]?.metrics && metricsHaveWarnings($models[$currentModel].metrics)}<Fa
                 icon={faWarning}
                 class="inline mr-1"
               />{/if}
@@ -319,14 +319,15 @@
           >
         {/each}
       </div>
-      {#if !!currentModel}
+      {#if !!$currentModel}
         <ModelTrainingView
           bind:this={trainingBar}
           datasetName={$currentDataset}
-          modelNames={[currentModel, ...selectedModels]}
+          modelNames={[$currentModel, ...selectedModels]}
           on:finish={(e) => {
             refreshModels();
-            if (e.detail) currentView = View.results;
+            if (e.detail && currentView == View.editor)
+              currentView = View.results;
             else refreshKey = {};
           }}
         />
@@ -337,10 +338,10 @@
           class:overflow-y-auto={currentView != View.slices}
         >
           {#if currentView == View.results}
-            {#each !!currentModel ? Array.from(new Set( [currentModel, ...selectedModels] )) : [] as model}
+            {#each !!$currentModel ? Array.from(new Set( [$currentModel, ...selectedModels] )) : [] as model}
               <ModelResultsView
                 modelName={model}
-                modelSummary={models[model]}
+                modelSummary={$models[model].spec}
               />
             {/each}
           {:else if currentView == View.slices}
@@ -349,20 +350,20 @@
               bind:sliceSpec
               bind:savedSlices
               bind:metricToShow
-              modelName={currentModel}
-              timestepDefinition={models[currentModel ?? '']
-                ?.timestep_definition ?? ''}
-              modelsToShow={!!currentModel
-                ? Array.from(new Set([...selectedModels, currentModel]))
+              modelName={$currentModel}
+              timestepDefinition={$models[$currentModel ?? '']?.spec
+                .timestep_definition ?? ''}
+              modelsToShow={!!$currentModel
+                ? Array.from(new Set([...selectedModels, $currentModel]))
                 : []}
             />
           {:else if currentView == View.editor}
             <ModelEditor
-              modelName={currentModel}
-              otherModels={selectedModels.filter((m) => m != currentModel)}
+              modelName={$currentModel}
+              otherModels={selectedModels.filter((m) => m != $currentModel)}
               on:viewmodel={(e) => {
                 currentView = View.results;
-                currentModel = e.detail;
+                $currentModel = e.detail;
               }}
               on:train={async (e) => {
                 if (!!trainingBar) trainingBar.pollTrainingStatus();
@@ -389,7 +390,7 @@
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 flex items-center justify-center pointer-events-none"
     >
       <div
-        class="w-1/2 h-1/2 z-20 rounded-md bg-white pointer-events-auto"
+        class="w-2/3 h-2/3 z-20 rounded-md bg-white pointer-events-auto"
         style="min-width: 300px; max-width: 90%;"
       >
         <DatasetInfoView on:close={() => (showingDatasetInfo = false)} />

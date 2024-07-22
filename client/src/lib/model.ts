@@ -125,5 +125,4 @@ export type SliceFilter = { [key: string]: any } & { type: string };
 
 export type SliceSpec = {
   variables: { [key: string]: VariableDefinition };
-  slice_filter: SliceFilter;
 };

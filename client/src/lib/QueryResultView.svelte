@@ -219,7 +219,7 @@
       <div class="mb-2 font-mono">
         {evaluationSummary.name}
       </div>
-    {:else if !compact}
+    {:else if !!query && !compact}
       <div class="mb-1 text-slate-500 text-xs flex justify-between">
         <div class="font-bold">Query Result</div>
         <button

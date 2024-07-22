@@ -85,9 +85,9 @@ def make_query(variable_definitions, timestep_definition):
     variable names to dictionaries containing a "query" key. patient_cohort
     and timestep_definition should be strings.
     """
-    variable_queries = ',\n\t'.join(f"{name}: {info['query']}" 
+    variable_queries = ',\n\t'.join(sorted(f"{name}: {info['query']}" 
                                     for name, info in variable_definitions.items() 
-                                    if info.get("enabled", True))
+                                    if info.get("enabled", True)))
     return f"""
     (
         {variable_queries}

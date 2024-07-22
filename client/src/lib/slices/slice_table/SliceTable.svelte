@@ -50,6 +50,7 @@
 
   export let metricGroups: string[] | null = null;
   export let metricNames: any[] = [];
+  export let metricDescriptions: { [key: string]: string } = {};
   export let metricGetter: (slice: Slice, key: any) => SliceMetric = (
     slice,
     key
@@ -216,15 +217,15 @@
         </div>
       {/if}
       <div
-        style="flex: 6; min-width: {TableWidths.FeatureList}px; max-width: 800px;"
+        class="flex-auto"
+        style="min-width: {TableWidths.FeatureList}px; max-width: 800px;"
       >
         <div class="p-2">Slice</div>
       </div>
       {#if !!metricGroups}
         {#each metricGroups as groupName}
           <div
-            class="flex flex-col grow shrink-0 bg-slate-100 hover:bg-slate-200"
-            style="min-width: {TableWidths.AllMetrics}px; max-width: 500px;"
+            class="grow-0 shrink-0 bg-slate-100 hover:bg-slate-200 metric-column"
             class:opacity-30={draggingColumn == groupName}
             draggable={clickingColumn == groupName}
             on:dragstart={(e) => metricDragStart(e, groupName)}
@@ -248,6 +249,13 @@
                   ><Fa icon={faGripLinesVertical} /></button
                 >
               </div>
+              {#if !!metricDescriptions && !!metricDescriptions[groupName]}
+                <div
+                  class="font-normal text-xs text-slate-600 whitespace-normal w-full"
+                >
+                  {metricDescriptions[groupName]}
+                </div>
+              {/if}
             </Hoverable>
           </div>
         {/each}
@@ -373,3 +381,15 @@
     />
   {/each}
 </div>
+
+<style>
+  .metric-column {
+    width: 360px;
+  }
+
+  @media screen and (width < 1600px) {
+    .metric-column {
+      width: 280px;
+    }
+  }
+</style>

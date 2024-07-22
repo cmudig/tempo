@@ -1,41 +1,15 @@
 <script lang="ts">
   import {
-    SliceSearchControl,
     type Slice,
     type SliceFeatureBase,
-    type SliceMetric,
-    SliceControlStrings,
     type SliceMetricInfo,
   } from './utils/slice.type';
-  import SliceRow from './slice_table/SliceRow.svelte';
-  import Hoverable from './utils/Hoverable.svelte';
-  import {
-    faFilter,
-    faMinus,
-    faPencil,
-    faScaleBalanced,
-    faSearch,
-    faWrench,
-  } from '@fortawesome/free-solid-svg-icons';
-  import Fa from 'svelte-fa/src/fa.svelte';
-  import {
-    areObjectsEqual,
-    areSetsEqual,
-    sortMetrics,
-    sortScoreNames,
-  } from './utils/utils';
-  import { TableWidths } from './slice_table/tablewidths';
+  import { areSetsEqual, sortMetrics } from './utils/utils';
   import SliceTable from './slice_table/SliceTable.svelte';
-  import SliceFeatureEditor from './slice_table/SliceFeatureEditor.svelte';
-  import { featureToString, parseFeature } from './utils/slice_parsing';
-  import SliceFeature from './slice_table/SliceFeature.svelte';
-  import ActionMenuButton from './utils/ActionMenuButton.svelte';
   import { createEventDispatcher, getContext } from 'svelte';
-  import SliceMetricBar from './metric_charts/SliceMetricBar.svelte';
-  import ScoreWeightMenu from './utils/ScoreWeightMenu.svelte';
-  import SliceSpecEditor from './SliceSpecEditor.svelte';
   import { MetricColors } from '../colors';
   import type { Writable } from 'svelte/store';
+  import { type ScoreFunction, scoreFunctionToString } from './scorefunctions';
 
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
@@ -45,15 +19,13 @@
   export let modelName: string | null = null;
   export let modelsToShow: string[] = [];
 
+  export let scoreFunctionSpec: ScoreFunction[] = [];
+
   export let runningSampler = false;
   export let numSamples = 10;
   export let shouldCancel = false;
-  export let samplingStatusOverview: string | null = null;
-  export let samplerRunProgress: number | null = null;
-  export let samplerProgressMessage: string | null = null;
   export let retrievingSlices: boolean = false;
 
-  export let timestepDefinition: string = '';
   export let sliceSpec: string = 'default';
   export let slices: Array<Slice> = [];
 
@@ -84,6 +56,7 @@
   let metricInfo: {
     [key: string]: SliceMetricInfo | { [key: string]: SliceMetricInfo };
   } = {};
+  const SearchCriteriaMetricGroup = 'Search Criteria';
 
   let allSlices: Array<Slice> = [];
   $: allSlices = [...(!!baseSlice ? [baseSlice] : []), ...slices];
@@ -135,6 +108,7 @@
           },
           body: JSON.stringify({
             slices: requests,
+            score_function_spec: scoreFunctionSpec,
             variable_spec_name: sliceSpec,
             model_names: models,
           }),
@@ -178,16 +152,27 @@
         // grouped metrics
         groupedMetrics = true;
         if (
-          metricGroups !== null &&
-          !areSetsEqual(new Set(metricGroups), new Set(newMetricNames))
+          (metricGroups !== null &&
+            !areSetsEqual(new Set(metricGroups), new Set(newMetricNames))) ||
+          metricGroups == null
         ) {
+          newMetricNames.sort();
+          if (newMetricNames.includes(SearchCriteriaMetricGroup)) {
+            let idx = newMetricNames.indexOf(SearchCriteriaMetricGroup);
+            newMetricNames.splice(idx, 1);
+            newMetricNames.splice(0, 0, SearchCriteriaMetricGroup);
+          }
           metricGroups = newMetricNames;
-          metricGroups.sort();
-        } else if (metricGroups === null) metricGroups = newMetricNames;
+        }
         metricNames = metricGroups
           .map((g) =>
             Object.keys(testSlice!.metrics![g])
-              .filter((m) => !showingMetrics || showingMetrics.includes(m))
+              .filter(
+                (m) =>
+                  g == SearchCriteriaMetricGroup ||
+                  !showingMetrics ||
+                  showingMetrics.includes(m)
+              )
               .sort(sortMetrics)
               .map((m) => [g, m])
           )
@@ -251,8 +236,11 @@
       newInfo.visible = (
         getMetric<SliceMetricInfo>(oldMetricInfo, n) || { visible: true }
       ).visible;
-      newInfo.color =
-        MetricColors[groupedMetrics ? n[1] : n] ?? MetricColors.Accuracy;
+      if (groupedMetrics && n[0] == SearchCriteriaMetricGroup)
+        newInfo.color = '#be185d';
+      else
+        newInfo.color =
+          MetricColors[groupedMetrics ? n[1] : n] ?? MetricColors.Accuracy;
 
       if (groupedMetrics) {
         if (!metricInfo[n[0]]) metricInfo[n[0]] = {};
@@ -272,8 +260,6 @@
     });
   }
 
-  let specEditorVisible: boolean = false;
-
   let showDetailLoadingMessage: boolean = false;
   let showDetailLoadingTimeout: NodeJS.Timeout | null = null;
   $: if (retrievingSlices) {
@@ -285,124 +271,55 @@
   } else showDetailLoadingMessage = false;
 </script>
 
-<div class="w-full h-full flex flex-col">
-  <div class="mb-3">
-    <div class="rounded bg-slate-100 flex items-center items-stretch">
-      <div class="p-3 border-r border-slate-200 flex gap-2 items-center">
-        {#if !!samplingStatusOverview}<div
-            class="text-xs w-max"
-            style="max-width: 240px;"
-          >
-            {samplingStatusOverview}
-          </div>{/if}
-        {#if runningSampler}
-          <button
-            class="btn btn-blue disabled:opacity-50"
-            on:click={() => dispatch('cancel')}>Stop</button
-          >
-        {:else}
-          <button
-            class="btn btn-blue"
-            on:click={() => dispatch('load')}
-            disabled={retrievingSlices}
-            >{retrievingSlices ? 'Loading...' : 'Find Slices'}</button
-          >
-        {/if}
-      </div>
-      {#if runningSampler}
-        {#if samplerRunProgress == null}
-          <div role="status" class="ml-3 w-8 h-8 grow-0 shrink-0 self-center">
-            <svg
-              aria-hidden="true"
-              class="text-gray-200 animate-spin stroke-blue-600 w-8 h-8 align-middle"
-              viewBox="-0.5 -0.5 99.5 99.5"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <ellipse
-                cx="50"
-                cy="50"
-                rx="45"
-                ry="45"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="10"
-              />
-              <path
-                d="M 50 5 A 45 45 0 0 1 95 50"
-                stroke-width="10"
-                stroke-linecap="round"
-                fill="none"
-              />
-            </svg>
-          </div>
-        {/if}
-        <div class="ml-3 flex-auto whitespace-nowrap self-center">
-          <div class="text-sm">
-            {samplerProgressMessage ?? 'Waiting to load slices...'}
-          </div>
-          {#if samplerRunProgress != null}
-            <div
-              class="w-full bg-slate-300 rounded-full h-1.5 mt-1 indigo:bg-slate-700"
-            >
-              <div
-                class="bg-blue-600 h-1.5 rounded-full indigo:bg-indigo-200 duration-100"
-                style="width: {(samplerRunProgress * 100).toFixed(1)}%"
-              />
-            </div>
-          {/if}
-        </div>
-      {:else}
-        <div class="p-3 border-r border-slate-200">
-          <div class="h-full flex items-center gap-2">
-            <!-- <ActionMenuButton
-              buttonClass="btn px-1 py-0.5 hover:bg-slate-200 text-xs text-slate-600 font-bold"
-              buttonTitle="Add a filter option"
-              disabled={retrievingSlices}
-            >
-              <span slot="button-content"
-                ><Fa icon={faSearch} class="inline mr-1" />
-                Refine Search</span
-              >
-              <div slot="options">
-                {#each Object.values(SliceSearchControl) as control}
-                  {#if !enabledSliceControls[control]}
-                    <a
-                      href="#"
-                      tabindex="0"
-                      role="menuitem"
-                      on:click={() => toggleSliceControl(control)}
-                      >{SliceControlStrings[control]} Slice</a
-                    >
-                  {/if}
-                {/each}
-              </div>
-            </ActionMenuButton> -->
-            <button
-              disabled={retrievingSlices}
-              class="btn px-1 py-0.5 hover:bg-slate-200 text-xs text-slate-600 font-bold"
-              on:click={() => (specEditorVisible = true)}
-              ><Fa icon={faWrench} class="inline mr-1" /> Configure Slicing</button
-            >
-          </div>
-        </div>
-      {/if}
+<div class="flex-auto min-h-0 overflow-auto relative">
+  {#if !!baseSlice}
+    <div
+      class="bg-white sticky top-0 z-10 {Object.keys(savedSlices).length > 0
+        ? ''
+        : 'border-b-4 border-slate-200'}"
+      bind:this={searchViewHeader}
+    >
+      <SliceTable
+        slices={[]}
+        {savedSlices}
+        bind:selectedSlices
+        {baseSlice}
+        bind:sliceRequests
+        bind:sliceRequestResults
+        {positiveOnly}
+        {valueNames}
+        {allowedValues}
+        bind:metricGroups
+        allowFavorite={true}
+        allowMultiselect={false}
+        metricInfo={(n) => getMetric(metricInfo, n)}
+        metricGetter={(s, name) => getMetric(s.metrics, name)}
+        bind:metricNames
+        allowShowScores={false}
+        showCheckboxes={false}
+        allowSearch={false}
+        on:saveslice
+      />
     </div>
-  </div>
-  <div class="flex-auto min-h-0 overflow-auto relative">
-    {#if !!baseSlice}
-      <div
-        class="bg-white sticky top-0 z-10 {Object.keys(savedSlices).length > 0
-          ? ''
-          : 'border-b-4 border-slate-200'}"
-        bind:this={searchViewHeader}
-      >
+    {#if Object.keys(savedSlices).length > 0}
+      <div class="border-b-4 border-slate-200 bg-white">
         <SliceTable
-          slices={[]}
+          slices={Object.keys(savedSlices).map((sr) =>
+            Object.assign(
+              savedSliceResults[sr] ?? {
+                feature: savedSlices[sr],
+                scoreValues: {},
+                metrics: {},
+                stringRep: sr,
+              },
+              { stringRep: 'saved_' + sr }
+            )
+          )}
           {savedSlices}
           bind:selectedSlices
-          {baseSlice}
-          bind:sliceRequests
-          bind:sliceRequestResults
+          showHeader={false}
+          bind:sliceRequests={savedSliceRequests}
+          bind:sliceRequestResults={savedSliceRequestResults}
           {positiveOnly}
           {valueNames}
           {allowedValues}
@@ -415,31 +332,30 @@
           allowShowScores={false}
           showCheckboxes={false}
           allowSearch={false}
-          on:saveslice
+          on:saveslice={(e) => {
+            dispatch(
+              'saveslice',
+              Object.assign(e.detail, {
+                stringRep: e.detail.stringRep.replace('saved_', ''),
+              })
+            );
+          }}
         />
       </div>
-      {#if Object.keys(savedSlices).length > 0}
-        <div class="border-b-4 border-slate-200 bg-white">
+    {/if}
+    <div class="flex-auto relative w-full">
+      {#if !!slices && slices.length > 0}
+        <div class="w-full min-h-0" class:disable-div={runningSampler}>
           <SliceTable
-            slices={Object.keys(savedSlices).map((sr) =>
-              Object.assign(
-                savedSliceResults[sr] ?? {
-                  feature: savedSlices[sr],
-                  scoreValues: {},
-                  metrics: {},
-                  stringRep: sr,
-                },
-                { stringRep: 'saved_' + sr }
-              )
-            )}
+            {slices}
             {savedSlices}
             bind:selectedSlices
-            showHeader={false}
-            bind:sliceRequests={savedSliceRequests}
-            bind:sliceRequestResults={savedSliceRequestResults}
+            bind:sliceRequests
+            bind:sliceRequestResults
             {positiveOnly}
             {valueNames}
             {allowedValues}
+            showHeader={false}
             bind:metricGroups
             allowFavorite={true}
             allowMultiselect={false}
@@ -449,120 +365,61 @@
             allowShowScores={false}
             showCheckboxes={false}
             allowSearch={false}
-            on:saveslice={(e) => {
-              dispatch(
-                'saveslice',
-                Object.assign(e.detail, {
-                  stringRep: e.detail.stringRep.replace('saved_', ''),
-                })
-              );
-            }}
+            on:saveslice
           />
         </div>
-      {/if}
-      <div class="flex-auto relative w-full">
-        {#if !!slices && slices.length > 0}
-          <div class="w-full min-h-0" class:disable-div={runningSampler}>
-            <SliceTable
-              {slices}
-              {savedSlices}
-              bind:selectedSlices
-              bind:sliceRequests
-              bind:sliceRequestResults
-              {positiveOnly}
-              {valueNames}
-              {allowedValues}
-              showHeader={false}
-              bind:metricGroups
-              allowFavorite={true}
-              allowMultiselect={false}
-              metricInfo={(n) => getMetric(metricInfo, n)}
-              metricGetter={(s, name) => getMetric(s.metrics, name)}
-              bind:metricNames
-              allowShowScores={false}
-              showCheckboxes={false}
-              allowSearch={false}
-              on:saveslice
-            />
-          </div>
-        {:else}
-          <div
-            class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
-          >
-            <div>No slices yet!</div>
-          </div>
-        {/if}
-      </div>
-    {:else if !retrievingSlices}
-      <div
-        class="w-full flex-auto min-h-0 mt-6 flex flex-col items-center justify-center text-slate-500"
-      >
-        <div>No slices yet!</div>
-      </div>
-    {/if}
-    {#if retrievingSlices}
-      <div
-        class="absolute top-0 left-0 bg-white/80 w-full h-full flex flex-col items-center justify-center z-20"
-      >
-        <div>Retrieving slices...</div>
-        {#if showDetailLoadingMessage}
-          <div class="mt-2 text-sm text-slate-500">
-            It may take up to a minute to rank slices on your first visit.
-          </div>
-        {/if}
-        <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-4">
-          <svg
-            aria-hidden="true"
-            class="text-gray-200 animate-spin stroke-gray-600 w-8 h-8 align-middle"
-            viewBox="-0.5 -0.5 99.5 99.5"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <ellipse
-              cx="50"
-              cy="50"
-              rx="45"
-              ry="45"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="10"
-            />
-            <path
-              d="M 50 5 A 45 45 0 0 1 95 50"
-              stroke-width="10"
-              stroke-linecap="round"
-              fill="none"
-            />
-          </svg>
+      {:else}
+        <div
+          class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
+        >
+          <div>No slices yet!</div>
         </div>
-      </div>
-    {/if}
-  </div>
-</div>
-
-{#if specEditorVisible}
-  <div
-    class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 bg-black/70"
-    on:click={() => (specEditorVisible = false)}
-    on:keydown={(e) => {}}
-  />
-  <div
-    class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 flex items-center justify-center pointer-events-none"
-  >
-    <div
-      class="w-2/3 h-2/3 z-20 rounded-md bg-white p-1 pointer-events-auto"
-      style="min-width: 200px; max-width: 100%;"
-    >
-      <SliceSpecEditor
-        {sliceSpec}
-        {timestepDefinition}
-        on:dismiss={(e) => {
-          if (!!e.detail) sliceSpec = e.detail;
-          specEditorVisible = false;
-        }}
-      />
+      {/if}
     </div>
-  </div>
-{/if}
+  {:else if !retrievingSlices}
+    <div
+      class="w-full flex-auto min-h-0 mt-6 flex flex-col items-center justify-center text-slate-500"
+    >
+      <div>No slices yet!</div>
+    </div>
+  {/if}
+  {#if retrievingSlices}
+    <div
+      class="absolute top-0 left-0 bg-white/80 w-full h-full flex flex-col items-center justify-center z-20"
+    >
+      <div>Retrieving slices...</div>
+      {#if showDetailLoadingMessage}
+        <div class="mt-2 text-sm text-slate-500">
+          It may take up to a minute to rank slices on your first visit.
+        </div>
+      {/if}
+      <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-4">
+        <svg
+          aria-hidden="true"
+          class="text-gray-200 animate-spin stroke-gray-600 w-8 h-8 align-middle"
+          viewBox="-0.5 -0.5 99.5 99.5"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <ellipse
+            cx="50"
+            cy="50"
+            rx="45"
+            ry="45"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="10"
+          />
+          <path
+            d="M 50 5 A 45 45 0 0 1 95 50"
+            stroke-width="10"
+            stroke-linecap="round"
+            fill="none"
+          />
+        </svg>
+      </div>
+    </div>
+  {/if}
+</div>
 
 <style>
   .search-view-header {

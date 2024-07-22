@@ -54,11 +54,23 @@ def task_runner(filesystem, task_info, update_fn):
             error_model = Model(dest_path)
             error_model.write_spec({**spec, "error": str(e)})
             raise e
-        else:
-            # Transfer model to the target directory
-            if dest_path.exists(): dest_path.delete()
-            if dest_cache_path.exists(): dest_cache_path.delete()
-            model.copy_to(dest_path, dest_cache_path)
+        
+        # Transfer model to the target directory
+        if dest_path.exists(): dest_path.delete()
+        if dest_cache_path.exists(): dest_cache_path.delete()
+        model = model.copy_to(dest_path, dest_cache_path)
+        
+        # Create a default slicing variable spec for the model
+        update_fn({'message': 'Creating slicing variables'})
+        slicing_spec_name = dataset.default_slicing_variable_spec_name(model_name)
+        slicing_spec = dataset.get_slicing_variable_spec(slicing_spec_name)
+        variables_df = model.make_modeling_variables(dataset.make_query_engine(), spec, dummies=False)
+        slicing_spec.create_default(spec, variables_df)
+        
+        slicefinder = SliceFinder(dataset)
+        slicefinder.invalidate_model(model_name)
+        slicefinder.invalidate_variable_spec(slicing_spec_name)
+        
     elif cmd == Commands.SUMMARIZE_DATASET:        
         update_fn({'message': 'Loading data'})
         dataset = _get_worker_sample_dataset(filesystem, task_info['dataset_name'])
@@ -95,6 +107,7 @@ def task_runner(filesystem, task_info, update_fn):
                                 task_info['variable_spec_name'], 
                                 task_info['score_function_spec'], 
                                 update_fn=update_fn,
+                                ignore_cache=True,
                                 **task_info['options'])
         
         

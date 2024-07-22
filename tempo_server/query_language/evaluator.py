@@ -504,6 +504,10 @@ class EvaluateExpression(lark.visitors.Transformer):
             if isinstance(dtype, pd.CategoricalDtype):
                 var_exp = var_exp.with_values(var_exp.get_values().astype(dtype.categories.dtype))
                 dtype = var_exp.get_values().dtype
+            elif isinstance(impute_method, str) and pd.api.types.is_numeric_dtype(dtype):
+                # convert all values to strings
+                var_exp = var_exp.with_values(var_exp.get_values().astype(pd.StringDtype()))
+                dtype = var_exp.get_values().dtype
             scalar = dtype.type(impute_method)
             return var_exp.with_values(var_exp.get_values().where(nan_mask, scalar))
             

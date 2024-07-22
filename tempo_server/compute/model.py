@@ -102,9 +102,9 @@ class Model:
         result[apply_mask] = preds
         return result
     
-    def make_modeling_variables(self, query_engine, variable_definitions, timestep_definition, update_fn=None):
+    def make_modeling_variables(self, query_engine, spec, update_fn=None, dummies=True):
         """Creates the variables dataframe."""
-        query = make_query(variable_definitions, timestep_definition)
+        query = make_query(spec["variables"], spec["timestep_definition"])
         print(query)
         if update_fn is not None:
             def prog(num_completed, num_total):
@@ -114,13 +114,14 @@ class Model:
         modeling_variables = query_engine.query(query, update_fn=prog)
         modeling_df = modeling_variables.values
 
-        print("Before:", modeling_df.shape)
-        modeling_df = pd.get_dummies(modeling_df, 
-                                    columns=[c for c in modeling_df.columns 
-                                            if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
-                                            or pd.api.types.is_string_dtype(modeling_df[c].dtype) 
-                                            or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)])
-        print("After:", modeling_df.shape)
+        if dummies:
+            print("Before:", modeling_df.shape)
+            modeling_df = pd.get_dummies(modeling_df, 
+                                        columns=[c for c in modeling_df.columns 
+                                                if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
+                                                or pd.api.types.is_string_dtype(modeling_df[c].dtype) 
+                                                or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)])
+            print("After:", modeling_df.shape)
 
         del modeling_variables
         return modeling_df
@@ -129,7 +130,7 @@ class Model:
         query_engine = dataset.make_query_engine()
         if modeling_df is None:
             if update_fn is not None: update_fn({'message': 'Loading variables'})
-            modeling_df = self.make_modeling_variables(query_engine, spec["variables"], spec["timestep_definition"], update_fn=update_fn)
+            modeling_df = self.make_modeling_variables(query_engine, spec, update_fn=update_fn)
             
         if update_fn is not None: update_fn({'message': 'Loading target variable'})
         outcome = query_engine.query("(" + spec['outcome'] + 
