@@ -25,8 +25,13 @@
   import type { Writable } from 'svelte/store';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
 
-  let { currentDataset }: { currentDataset: Writable<string | null> } =
-    getContext('dataset');
+  let {
+    currentDataset,
+    dataFields,
+  }: {
+    currentDataset: Writable<string | null>;
+    dataFields: Writable<string[]>;
+  } = getContext('dataset');
 
   const dispatch = createEventDispatcher();
   const carta = new Carta({
@@ -380,14 +385,6 @@
     await trainModel(true);
   }
 
-  let dataFields: string[] = [];
-  onMount(
-    async () =>
-      (dataFields = (
-        await (await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/fields`)).json()
-      ).fields)
-  );
-
   let downloadProgress: string | null = null;
   let downloadTaskID: string | null = null;
   async function pollDownload() {
@@ -512,7 +509,7 @@
           <div class="text-slate-500 text-sm">{downloadProgress}</div>
         {/if}
         <button class="btn btn-blue" on:click={() => trainModel(false)}>
-          {#if otherModels.length > 0}Save All{:else}Save and Train{/if}
+          {#if otherModels.length > 0}Train All{:else}Train{/if}
         </button>
         {#if hasDraft || !changesSaved}
           <button class="my-1 btn btn-slate" on:click={reset}> Revert </button>
@@ -524,7 +521,7 @@
           >
             <div slot="options">
               <a href="#" tabindex="0" role="menuitem" on:click={saveAsNewModel}
-                >Save As...</a
+                >Save and Train As...</a
               >
               <a
                 href="#"
@@ -599,7 +596,7 @@
       <TextareaAutocomplete
         ref={timestepEditor}
         resolveFn={(query, prefix) =>
-          getAutocompleteOptions(dataFields, query, prefix)}
+          getAutocompleteOptions($dataFields, query, prefix)}
         replaceFn={performAutocomplete}
         triggers={['{', '#']}
         delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
@@ -648,7 +645,6 @@
         showButtons={false}
         autosave
         showName={false}
-        {dataFields}
         editing
         on:save={(e) => (patientCohort = e.detail.query)}
       />
@@ -683,11 +679,7 @@
     </div>
     {#if !!inputVariables}
       <div class="w-full" style="height: 420px;">
-        <VariableEditorPanel
-          {timestepDefinition}
-          {dataFields}
-          bind:inputVariables
-        />
+        <VariableEditorPanel {timestepDefinition} bind:inputVariables />
       </div>
     {:else}
       <div class="text-sm text-slate-600 mb-1">
@@ -724,7 +716,6 @@
         showButtons={false}
         autosave
         showName={false}
-        {dataFields}
         editing
         on:save={(e) => (outcomeVariable = e.detail.query)}
       />

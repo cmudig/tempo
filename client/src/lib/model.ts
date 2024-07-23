@@ -106,6 +106,14 @@ export type QueryResult = {
   durations?: SliceMetric & { missingness?: number };
 };
 
+export type QueryEvaluationResult = {
+  error?: string;
+  query?: string;
+  result_type: string;
+  n_values: number;
+  result?: QueryResult;
+};
+
 export type VariableEvaluationSummary = {
   query: string;
   n_values: number;
@@ -117,5 +125,4 @@ export type SliceFilter = { [key: string]: any } & { type: string };
 
 export type SliceSpec = {
   variables: { [key: string]: VariableDefinition };
-  slice_filter: SliceFilter;
 };

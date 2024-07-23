@@ -16,14 +16,17 @@
   import type { Writable } from 'svelte/store';
   import { getContext } from 'svelte';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
-  import { variance } from 'd3';
 
-  let { currentDataset }: { currentDataset: Writable<string | null> } =
-    getContext('dataset');
+  let {
+    currentDataset,
+    dataFields,
+  }: {
+    currentDataset: Writable<string | null>;
+    dataFields: Writable<string[]>;
+  } = getContext('dataset');
 
   export let timestepDefinition: string;
   export let inputVariables: { [key: string]: VariableDefinition } = {};
-  export let dataFields: string[] = [];
 
   export let fillHeight: boolean = true;
 
@@ -100,6 +103,12 @@
       Object.entries(inputVariables).filter((item) => !names.includes(item[0]))
     );
     selectedVariables = [];
+    if (
+      !!currentEditingVariableName &&
+      names.includes(currentEditingVariableName)
+    ) {
+      currentEditingVariableName = null;
+    }
   }
 
   $: visibleInputVariableCategory,
@@ -298,7 +307,7 @@
         <TextareaAutocomplete
           ref={rawInput}
           resolveFn={(query, prefix) =>
-            getAutocompleteOptions(dataFields, query, prefix)}
+            getAutocompleteOptions($dataFields, query, prefix)}
           replaceFn={performAutocomplete}
           triggers={['{', '#']}
           delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
@@ -416,17 +425,19 @@
             : 'hidden'}
           {varName}
           {varInfo}
-          {dataFields}
           {timestepDefinition}
           editing={currentEditingVariableName == varName}
           isChecked={selectedVariables.includes(varName)}
-          on:cancel={() => (currentEditingVariableName = null)}
+          on:cancel={() => {
+            currentEditingVariableName = null;
+            if (!varInfo.query) deleteVariables([varName]);
+          }}
           on:edit={() => (currentEditingVariableName = varName)}
           on:save={(e) => saveVariableEdits(e.detail.name, e.detail.query)}
           on:toggle={(e) => toggleVariables([varName], e.detail)}
           on:select={(e) => toggleSelection(varName, e.detail)}
           on:duplicate={(e) => duplicateVariables([varName])}
-          on:delete={(e) => deleteVariables([e.detail])}
+          on:delete={(e) => deleteVariables([varName])}
         />
       {/each}
     </div>

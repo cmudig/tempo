@@ -95,6 +95,16 @@ class LocalFilesystem:
             raise ValueError(f"Unknown destination filesystem {dest_fs}")
         shutil.copytree(self.base_path, dest_fs.base_path)
         
+    def copy_file(self, dest_fs, *path):
+        """Copies the item at the given path (last arguments) to the given destination.
+        Note that the destination comes first."""
+        if not isinstance(dest_fs, LocalFilesystem):
+            raise ValueError(f"Unknown destination filesystem {dest_fs}")
+        print("Copying", os.path.join(self.base_path, *path), os.path.join(dest_fs.base_path, path[-1]))
+        if not dest_fs.exists():
+            os.makedirs(dest_fs.base_path)
+        shutil.copyfile(os.path.join(self.base_path, *path), os.path.join(dest_fs.base_path, path[-1]))
+        
     def rename(self, dest_fs):
         """Moves the contents of the tree rooted in this object to the given destination filesystem,
         and returns that filesystem."""

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { type ModelMetrics, type VariableDefinition } from '../model';
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { createEventDispatcher, getContext, onDestroy } from 'svelte';
   import * as d3 from 'd3';
   import ModelTrainingView from '../ModelTrainingView.svelte';
   import {
@@ -18,6 +18,15 @@
   import { areObjectsEqual } from '../slices/utils/utils';
   import SliceDetailsView from '../slice_details/SliceDetailsView.svelte';
   import ResizablePanel from '../utils/ResizablePanel.svelte';
+  import type { Writable } from 'svelte/store';
+  import { faChevronLeft, faWrench } from '@fortawesome/free-solid-svg-icons';
+  import Fa from 'svelte-fa';
+  import SliceSpecEditor from './SliceSpecEditor.svelte';
+  import { scoreFunctionToString, type ScoreFunction } from './scorefunctions';
+  import ScoreFunctionPanel from './ScoreFunctionPanel.svelte';
+
+  let { currentDataset }: { currentDataset: Writable<string | null> } =
+    getContext('dataset');
 
   const dispatch = createEventDispatcher();
 
@@ -28,8 +37,18 @@
   export let timestepDefinition: string = '';
   export let sliceSpec: string = 'default';
 
+  enum View {
+    slices = 0,
+    specEditor = 1,
+    scoreFunctionEditor = 2,
+  }
+  let visibleView: View = View.slices;
+
+  let scoreFunctionSpec: ScoreFunction[] = [];
+
   let isTraining: boolean = false;
-  let searchStatus: SliceFindingStatus | null = null;
+  let searchTaskID: string | null = null;
+  let searchStatus: TrainingStatus | null = null;
   let wasSearching: boolean = false;
   let sliceSearchError: string | null = null;
 
@@ -55,118 +74,168 @@
   let loadingSliceStatus = false;
   let retrievingSlices = false;
 
-  let samplingStatusOverview: string | null = null;
-  $: if (!!searchStatus && !!modelName && (slices?.length ?? 0) > 0) {
-    if (searchStatus.models.includes(modelName))
-      samplingStatusOverview = `Showing ${slices?.length ?? 0} of ${
-        searchStatus.n_results
-      } slices from ${searchStatus.n_runs} sampled timesteps`;
-    else
-      samplingStatusOverview = `Showing ${slices?.length ?? 0} of ${
-        searchStatus.n_results
-      } slices from ${
-        searchStatus.n_runs
-      } timesteps (sampled from other models)`;
-  } else {
-    samplingStatusOverview = null;
-  }
-
   let slices: Slice[] | null = null;
   let baseSlice: Slice | null = null;
-  // the slice controls used to generate the results that are displayed
-  type Controls = { [key in SliceSearchControl]?: SliceFeatureBase } & {
-    slice_spec_name?: string;
-  };
-  let resultControls: Controls = {};
-  let retrievedScoreWeights: { [key: string]: number } | null = null;
-  let scoreWeights: { [key: string]: number } | null = null;
   let valueNames: { [key: string]: [any, { [key: string]: any }] } | null =
     null;
 
-  let enabledSliceControls: { [key in SliceSearchControl]?: boolean } = {};
-  let containsSlice: any = {};
-  let containedInSlice: any = {};
-  let similarToSlice: any = {};
-  let subsliceOfSlice: any = {};
-  let queryControls: Controls = { slice_spec_name: sliceSpec };
   let numSlicesToLoad: number = 20;
 
+  let oldModelName: string | null = null;
+  $: if (oldModelName !== modelName) {
+    loadSliceSearchSettings();
+  }
+
+  let oldScoreSpec: any[] = [];
+  let oldSliceSpec: string = 'default';
   let oldModels: string[] = [];
-  $: if (oldModels !== modelsToShow) {
-    searchStatus = null;
-    scoreWeights = null;
-    numSlicesToLoad = 20;
-    oldNumSlices = 20;
-    if (modelsToShow.length > 0) {
-      getSlicesIfAvailable(modelsToShow);
-      pollSliceStatus();
-    }
+  $: if (
+    !areObjectsEqual(oldScoreSpec, scoreFunctionSpec) ||
+    oldSliceSpec !== sliceSpec ||
+    oldModels !== modelsToShow
+  ) {
+    console.log('different score or slice spec');
+    oldScoreSpec = scoreFunctionSpec;
+    oldSliceSpec = sliceSpec;
     oldModels = modelsToShow;
+    searchStatus = null;
+    numSlicesToLoad = 20;
+    searchTaskID = null;
+    saveSliceSearchSettings();
+    if (modelsToShow.length > 0) initiateSliceLookup();
+  }
+
+  function loadSliceSearchSettings() {
+    let slicingSettingsString = window.localStorage.getItem('slicingSettings');
+    let slicingSettings: {
+      [key: string]: { scoreFns: ScoreFunction[]; spec: string };
+    } = !!slicingSettingsString ? JSON.parse(slicingSettingsString) : {};
+    if (!!modelName && !!slicingSettings[modelName]) {
+      scoreFunctionSpec = slicingSettings[modelName].scoreFns;
+      sliceSpec = slicingSettings[modelName].spec;
+    } else {
+      scoreFunctionSpec = [
+        {
+          type: 'relation',
+          relation: '=',
+          lhs: {
+            type: 'model_property',
+            model_name: modelName ?? '',
+            property: 'label',
+          },
+          rhs: {
+            type: 'constant',
+            value: 1,
+          },
+        },
+      ];
+      sliceSpec = `${modelName} (Default)`;
+    }
+  }
+
+  function saveSliceSearchSettings() {
+    let slicingSettingsString = window.localStorage.getItem('slicingSettings');
+    let slicingSettings: {
+      [key: string]: { scoreFns: ScoreFunction[]; spec: string };
+    } = !!slicingSettingsString ? JSON.parse(slicingSettingsString) : {};
+    if (!!modelName)
+      slicingSettings[modelName] = {
+        scoreFns: scoreFunctionSpec,
+        spec: sliceSpec,
+      };
+    window.localStorage.setItem(
+      'slicingSettings',
+      JSON.stringify(slicingSettings)
+    );
+  }
+
+  function initiateSliceLookup() {
+    pollTrainingStatus().then(() => {
+      if (!isTraining) {
+        if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
+        getSlicesIfAvailable(modelsToShow);
+      }
+    });
   }
 
   async function pollSliceStatus() {
-    if (!modelName) return;
+    if (!searchTaskID) return;
     try {
       loadingSliceStatus = true;
-      searchStatus = await checkSlicingStatus();
+      searchStatus = await (await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}`)).json();
     } catch (e) {
       console.log('error getting slice status');
       searchStatus = null;
     }
     loadingSliceStatus = false;
     console.log(searchStatus);
-    if (!!searchStatus) {
-      if (!!searchStatus.errors && !!searchStatus.errors[modelName])
-        sliceSearchError = searchStatus.errors[modelName];
-      else sliceSearchError = null;
+    if (
+      ['complete', 'error', 'canceling', 'canceled'].includes(
+        searchStatus?.status ?? ''
+      )
+    ) {
+      getSlicesIfAvailable(modelsToShow);
+    } else {
+      if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
+      slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
+    }
+  }
 
-      if (searchStatus.status?.state == 'none') {
-        if (wasSearching && !sliceSearchError) {
-          wasSearching = false;
-          getSlicesIfAvailable(modelsToShow);
-        }
-      } else {
-        wasSearching = true;
-        sliceSearchError = null;
-        if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
-        slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
+  async function pollTrainingStatus() {
+    if (!$currentDataset) return;
+    try {
+      let trainingStatuses = await checkTrainingStatus(
+        $currentDataset,
+        modelsToShow
+      );
+      if (!!trainingStatuses && trainingStatuses.length > 0) {
+        isTraining = true;
+        if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
+        trainingStatusTimer = setTimeout(pollTrainingStatus, 1000);
+        return;
       }
+      isTraining = false;
+    } catch (e) {
+      console.error('error getting training status:', e);
     }
   }
 
   async function getSlicesIfAvailable(models: string[]) {
+    if (!$currentDataset || !sliceSpec || !scoreFunctionSpec) return;
+
     try {
       console.log('Fetching slices', slices);
       retrievingSlices = true;
-      retrievedScoreWeights = null;
-      resultControls = {};
-      let response = await fetch(import.meta.env.BASE_URL + `/slices/${models.join(',')}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...(!!scoreWeights ? { score_weights: scoreWeights } : {}),
-          controls: queryControls,
-          num_slices: numSlicesToLoad,
-        }),
-      });
-      if (response.status == 400) {
+      sliceSearchError = null;
+      let response = await fetch(
+        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${modelName}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            variable_spec_name: sliceSpec,
+            score_function_spec: scoreFunctionSpec,
+            model_names: models,
+          }),
+        }
+      );
+      if (response.status != 200) {
         sliceSearchError = await response.text();
         retrievingSlices = false;
-        resultControls = queryControls;
+        searchStatus = null;
         return;
       }
       let result = await response.json();
-      resultControls = result.controls;
       retrievingSlices = false;
-      if (!!result.results.slices && areObjectsEqual(models, modelsToShow)) {
+      searchStatus = null;
+      console.log('results:', result);
+      if (!!result.slices && areObjectsEqual(models, modelsToShow)) {
         sliceSearchError = null;
-        slices = result.results.slices;
-        baseSlice = result.results.base_slice;
-        scoreWeights = result.results.score_weights;
-        retrievedScoreWeights = result.results.score_weights;
-        valueNames = result.results.value_names;
+        slices = result.slices;
+        baseSlice = result.base_slice;
+        valueNames = result.value_names;
         selectedSlices = selectedSlices.filter(
           (sf) =>
             slices!.find((other) => areObjectsEqual(sf, other.feature)) ||
@@ -174,63 +243,71 @@
               areObjectsEqual(sf, other)
             )
         );
+      } else if (!!result.error) {
+        baseSlice = null;
+        slices = null;
+        selectedSlice = null;
+        valueNames = null;
+        sliceSearchError = result.error;
       } else {
         baseSlice = null;
         slices = null;
         selectedSlice = null;
-        scoreWeights = null;
-        retrievedScoreWeights = null;
         valueNames = null;
-        pollSliceStatus();
+        if (!!result.status) {
+          searchStatus = result;
+          searchTaskID = result.id;
+          if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
+          slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
+        }
       }
       console.log('slices:', slices);
     } catch (e) {
       console.error('error:', e);
       retrievingSlices = false;
-      resultControls = queryControls;
     }
   }
 
   async function loadSlices() {
-    if (!modelName) return;
+    if (!modelName || !$currentDataset) return;
+    visibleView = View.slices;
+    loadingSliceStatus = true;
     try {
-      let trainingStatus = await checkTrainingStatus(modelName);
-      if (!!trainingStatus && trainingStatus.state != 'error') {
-        isTraining = true;
-        return;
-      }
-      isTraining = false;
+      await pollTrainingStatus();
+      if (isTraining) return;
 
       console.log('STARTING slice finding');
       let result = await (
-        await fetch(import.meta.env.BASE_URL + `/slices/${modelName}/start`, {
+        await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${modelName}/find`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            controls: queryControls,
+            variable_spec_name: sliceSpec,
+            score_function_spec: scoreFunctionSpec,
           }),
         })
       ).json();
-      if (result.searching) {
-        searchStatus = result;
-        pollSliceStatus();
-      } else {
-        console.log('not searching for some reason');
+
+      if (!!result.id) {
+        searchTaskID = result.id;
         if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
         slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
+      } else {
+        console.log('result unexpected format:', result);
+        sliceSearchError = 'Unable to start finding slices.';
       }
-      console.log(result);
     } catch (e) {
       console.error('error loading slices:', e);
-      trainingStatusTimer = setTimeout(checkTrainingStatus, 1000);
+      trainingStatusTimer = setTimeout(pollTrainingStatus, 1000);
     }
   }
 
   async function stopFindingSlices() {
+    if (!searchTaskID) return;
     try {
-      await fetch(import.meta.env.BASE_URL + `/slices/stop_finding`, { method: 'POST' });
+      await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}/stop`, { method: 'POST' });
       pollSliceStatus();
     } catch (e) {
       console.error("couldn't stop slice finding:", e);
@@ -253,40 +330,30 @@
     if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
   });
 
-  let oldNumSlices: number = numSlicesToLoad;
-  $: if (
-    ((retrievedScoreWeights != null &&
-      !areObjectsEqual(retrievedScoreWeights, scoreWeights)) ||
-      !areObjectsEqual(resultControls, queryControls) ||
-      numSlicesToLoad != oldNumSlices) &&
-    !retrievingSlices
-  ) {
-    console.log(
-      'changing bc parameters changed',
-      resultControls,
-      queryControls,
-      numSlicesToLoad
-    );
-    getSlicesIfAvailable(modelsToShow);
-    oldNumSlices = numSlicesToLoad;
+  let specChanged = false;
+  let scoreFunctionsChanged = false;
+  function dismissSpecEditor() {
+    if (
+      specChanged &&
+      !confirm(
+        'Are you sure you want to cancel? Your changes to the slicing variables will not be saved.'
+      )
+    )
+      return;
+
+    visibleView = View.slices;
   }
 
-  $: {
-    queryControls = {
-      ...(enabledSliceControls[SliceSearchControl.containsSlice]
-        ? { [SliceSearchControl.containsSlice]: containsSlice }
-        : {}),
-      ...(enabledSliceControls[SliceSearchControl.containedInSlice]
-        ? { [SliceSearchControl.containedInSlice]: containedInSlice }
-        : {}),
-      ...(enabledSliceControls[SliceSearchControl.similarToSlice]
-        ? { [SliceSearchControl.similarToSlice]: similarToSlice }
-        : {}),
-      ...(enabledSliceControls[SliceSearchControl.subsliceOfSlice]
-        ? { [SliceSearchControl.subsliceOfSlice]: subsliceOfSlice }
-        : {}),
-      slice_spec_name: sliceSpec,
-    };
+  function dismissScoreFunctionEditor() {
+    if (
+      scoreFunctionsChanged &&
+      !confirm(
+        'Are you sure you want to cancel? Your changes to the score functions will not be saved.'
+      )
+    )
+      return;
+
+    visibleView = View.slices;
   }
 </script>
 
@@ -306,46 +373,171 @@
         >{/if}
     </div>
   </div>
-  <div class="px-4 flex-auto h-0 overflow-auto" style="width: 100% !important;">
-    <SliceSearchView
-      modelNames={modelsToShow}
-      metricsToShow={[
-        'Timesteps',
-        'Trajectories',
-        metricToShow,
-        'Labels',
-        'Predictions',
-      ]}
-      slices={areObjectsEqual(queryControls, resultControls) || retrievingSlices
-        ? slices ?? []
-        : []}
-      {baseSlice}
-      {timestepDefinition}
-      {samplingStatusOverview}
-      savedSlices={savedSlices[sliceSpec] ?? []}
-      bind:scoreWeights
-      bind:selectedSlices
-      bind:enabledSliceControls
-      bind:sliceSpec
-      bind:containsSlice
-      bind:containedInSlice
-      bind:similarToSlice
-      bind:subsliceOfSlice
-      {valueNames}
-      runningSampler={(!!searchStatus && searchStatus.status.state != 'none') ||
-        loadingSliceStatus}
-      {retrievingSlices}
-      samplerProgressMessage={!!searchStatus && !!searchStatus.status
-        ? searchStatus.status.message
-        : 'Loading'}
-      samplerRunProgress={!!searchStatus && !!searchStatus.status
-        ? searchStatus.status.progress
-        : null}
-      on:load={loadSlices}
-      on:loadmore={() => (numSlicesToLoad += 20)}
-      on:cancel={stopFindingSlices}
-      on:saveslice={(e) => saveSlice(e.detail)}
-    />
+  <div class="flex-auto h-0 overflow-y-auto" style="width: 100% !important;">
+    <div class="w-full h-full flex flex-col items-stretch">
+      <div class="mx-4 mb-3">
+        <div class="rounded bg-slate-100 flex items-stretch w-full">
+          <div class="p-3 border-r border-slate-200 flex gap-2 items-center">
+            {#if visibleView != View.slices}
+              <button
+                class="btn text-slate-600 px-1 py-0.5 text-xs font-bold disabled:opacity-50"
+                on:click={visibleView == View.specEditor
+                  ? dismissSpecEditor
+                  : dismissScoreFunctionEditor}
+                ><Fa icon={faChevronLeft} class="inline mr-1" /> Back</button
+              >
+            {:else}
+              <button
+                class="btn btn-blue disabled:opacity-50"
+                on:click={loadSlices}
+                disabled={retrievingSlices || isTraining}
+                >{retrievingSlices ? 'Loading...' : 'Find Slices'}</button
+              >
+            {/if}
+          </div>
+          {#if visibleView == View.slices && (!!searchStatus || loadingSliceStatus)}
+            {@const samplerProgressMessage =
+              !!searchStatus && !!searchStatus.status
+                ? searchStatus.status_info?.message
+                : 'Loading'}
+            {@const samplerRunProgress =
+              !!searchStatus && !!searchStatus.status
+                ? searchStatus.status_info?.progress ?? null
+                : null}
+            <div
+              role="status"
+              class="ml-3 my-3 w-8 h-8 grow-0 shrink-0 self-center"
+            >
+              <svg
+                aria-hidden="true"
+                class="text-gray-200 animate-spin stroke-blue-600 w-8 h-8 align-middle"
+                viewBox="-0.5 -0.5 99.5 99.5"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <ellipse
+                  cx="50"
+                  cy="50"
+                  rx="45"
+                  ry="45"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="10"
+                />
+                <path
+                  d="M 50 5 A 45 45 0 0 1 95 50"
+                  stroke-width="10"
+                  stroke-linecap="round"
+                  fill="none"
+                />
+              </svg>
+            </div>
+            <div class="mx-3 flex-auto whitespace-nowrap self-center">
+              <div class="text-sm">
+                {samplerProgressMessage ?? 'Waiting to load slices...'}
+              </div>
+              {#if samplerRunProgress != null}
+                <div
+                  class="w-full bg-slate-300 rounded-full h-1.5 mt-1 indigo:bg-slate-700"
+                >
+                  <div
+                    class="bg-blue-600 h-1.5 rounded-full indigo:bg-indigo-200 duration-100"
+                    style="width: {(samplerRunProgress * 100).toFixed(1)}%"
+                  />
+                </div>
+              {/if}
+            </div>
+            <div class="py-3 mr-3 self-center">
+              <button
+                class="btn btn-blue disabled:opacity-50"
+                on:click={stopFindingSlices}>Stop</button
+              >
+            </div>
+          {:else}
+            <div
+              class="p-3 flex gap-4 items-center flex-auto whitespace-nowrap"
+            >
+              <button
+                disabled={retrievingSlices || isTraining}
+                class="btn {visibleView == View.specEditor
+                  ? 'btn-dark-slate dark'
+                  : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left"
+                style="max-width: 50%;"
+                on:click={visibleView == View.specEditor
+                  ? dismissSpecEditor
+                  : () => (visibleView = View.specEditor)}
+                ><div class="text-xs w-full">
+                  <div class="text-slate-600 dark:text-slate-100 font-normal">
+                    Slicing variables
+                  </div>
+                  <div class="font-bold truncate">{sliceSpec}</div>
+                </div></button
+              >
+
+              {#if scoreFunctionSpec.length == 1}
+                <button
+                  disabled={retrievingSlices || isTraining}
+                  class="btn {visibleView == View.scoreFunctionEditor
+                    ? 'btn-dark-slate dark'
+                    : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left flex-auto w-min"
+                  style="max-width: 50%;"
+                  on:click={visibleView == View.scoreFunctionEditor
+                    ? dismissScoreFunctionEditor
+                    : () => (visibleView = View.scoreFunctionEditor)}
+                  ><div class="text-xs w-full">
+                    <div class="text-slate-600 dark:text-slate-100 font-normal">
+                      Search criteria
+                    </div>
+                    <div class="font-bold truncate">
+                      {scoreFunctionToString(scoreFunctionSpec[0])}
+                    </div>
+                  </div></button
+                >
+              {/if}
+            </div>
+          {/if}
+        </div>
+      </div>
+
+      {#if visibleView == View.specEditor}
+        <div class="mx-4 w-full">
+          <SliceSpecEditor
+            bind:sliceSpec
+            {timestepDefinition}
+            on:dismiss={dismissSpecEditor}
+          />
+        </div>
+      {:else if visibleView == View.scoreFunctionEditor}
+        <div class="w-full pb-4 mx-4">
+          <ScoreFunctionPanel
+            bind:scoreFunctionSpec
+            bind:changesPending={scoreFunctionsChanged}
+          />
+        </div>
+      {:else}
+        <SliceSearchView
+          {modelName}
+          {modelsToShow}
+          {scoreFunctionSpec}
+          metricsToShow={[
+            'Timesteps',
+            'Trajectories',
+            metricToShow,
+            'Labels',
+            'Predictions',
+          ]}
+          slices={slices ?? []}
+          {baseSlice}
+          savedSlices={savedSlices[sliceSpec] ?? []}
+          bind:selectedSlices
+          bind:sliceSpec
+          {valueNames}
+          runningSampler={!!searchStatus || loadingSliceStatus}
+          {retrievingSlices}
+          on:loadmore={() => (numSlicesToLoad += 20)}
+          on:saveslice={(e) => saveSlice(e.detail)}
+        />
+      {/if}
+    </div>
   </div>
   <!-- <div
     class={selectedSlice != null ? 'mt-4 rounded bg-slate-100' : ''}

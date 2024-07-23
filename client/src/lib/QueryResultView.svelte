@@ -1,18 +1,35 @@
 <script lang="ts">
   import Fa from 'svelte-fa';
-  import type { QueryResult, VariableEvaluationSummary } from './model';
+  import type {
+    QueryEvaluationResult,
+    QueryResult,
+    VariableEvaluationSummary,
+  } from './model';
   import SliceMetricBar from './slices/metric_charts/SliceMetricBar.svelte';
   import SliceMetricCategoryBar from './slices/metric_charts/SliceMetricCategoryBar.svelte';
   import SliceMetricHistogram from './slices/metric_charts/SliceMetricHistogram.svelte';
   import * as d3 from 'd3';
   import { faDownload } from '@fortawesome/free-solid-svg-icons';
-  import { getContext, onMount } from 'svelte';
+  import {
+    createEventDispatcher,
+    getContext,
+    onDestroy,
+    onMount,
+  } from 'svelte';
   import type { Writable } from 'svelte/store';
   import { base64ToBlob } from './slices/utils/utils';
 
-  let { currentDataset }: { currentDataset: Writable<string | null> } =
-    getContext('dataset');
+  const dispatch = createEventDispatcher();
 
+  let {
+    currentDataset,
+    queryResultCache,
+  }: {
+    currentDataset: Writable<string | null>;
+    queryResultCache: Writable<{ [key: string]: QueryEvaluationResult }>;
+  } = getContext('dataset');
+
+  let container: HTMLElement;
   export let query: string = '';
   export let evaluateQuery: boolean = true;
   export let delayEvaluation: boolean = false;
@@ -22,11 +39,28 @@
   let evaluationTimer: number | null = null;
 
   let mounted = false;
+  let visible = false;
+  let observer: IntersectionObserver;
   onMount(() => {
     mounted = true;
   });
 
-  $: if (evaluateQuery) evaluateIfNeeded(query);
+  $: if (!observer && !!container) {
+    observer = new IntersectionObserver((entries) => {
+      visible = entries[0].isIntersecting;
+    });
+    observer.observe(container);
+  }
+
+  onDestroy(() => {
+    if (!!observer) observer.unobserve(container);
+  });
+
+  let oldQuery: string = '';
+  $: if (evaluateQuery && visible && oldQuery != query) {
+    evaluateIfNeeded(query);
+    oldQuery = query;
+  }
 
   export let metricWidth = 176;
 
@@ -44,44 +78,59 @@
       evaluationError = null;
       evaluationSummary = null;
     }
-    if (delayEvaluation && mounted) {
+    if (delayEvaluation && !$queryResultCache[q]) {
       summaryIsStale = true;
       if (!!evaluationTimer) clearTimeout(evaluationTimer);
-      if (q.length > 0) evaluationTimer = setTimeout(liveEvaluateQuery, 2000);
+      if (q.length > 0)
+        evaluationTimer = setTimeout(liveEvaluateQuery, mounted ? 2000 : 500);
     } else if (q.length > 0) {
       summaryIsStale = true;
       liveEvaluateQuery(q);
     }
   }
   async function liveEvaluateQuery(q: string) {
+    if (!visible) {
+      oldQuery = '';
+      return;
+    }
     if ($currentDataset == null) {
       console.warn('cannot live evaluate query without a currentDataset prop');
       return;
     }
-    loadingSummary = true;
-    let encodedQuery = encodeURIComponent(query);
-    try {
-      let result = await (
-        await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/query?q=${encodedQuery}`)
-      ).json();
-      if (result.error) {
-        evaluationError = result.error;
-        evaluatedLength = null;
-        evaluatedType = null;
+    let result: QueryEvaluationResult;
+    if (!!$queryResultCache[query]) {
+      result = $queryResultCache[query];
+    } else {
+      loadingSummary = true;
+      let encodedQuery = encodeURIComponent(query);
+      try {
+        result = await (
+          await fetch(
+            import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/query?q=${encodedQuery}`
+          )
+        ).json();
+        $queryResultCache = { ...$queryResultCache, [query]: result };
+      } catch (e) {
+        evaluationError = `${e}`;
         evaluationSummary = null;
-      } else if (result.query == query && !!result.result) {
-        evaluationSummary = result.result as QueryResult;
-        evaluatedType = result.result_type;
-        evaluatedLength = result.n_values;
-        evaluationError = null;
+        loadingSummary = false;
+        return;
       }
-      loadingSummary = false;
-      summaryIsStale = false;
-    } catch (e) {
-      evaluationError = `${e}`;
-      evaluationSummary = null;
-      loadingSummary = false;
     }
+    if (result.error) {
+      evaluationError = result.error;
+      evaluatedLength = null;
+      evaluatedType = null;
+      evaluationSummary = null;
+    } else if (result.query == query && !!result.result) {
+      evaluationSummary = result.result as QueryResult;
+      evaluatedType = result.result_type;
+      evaluatedLength = result.n_values;
+      evaluationError = null;
+    }
+    dispatch('result', evaluationError == null);
+    loadingSummary = false;
+    summaryIsStale = false;
   }
 
   let showHeaders = false;
@@ -150,7 +199,11 @@
   }
 </script>
 
-<div class="text-sm w-full" class:opacity-50={summaryIsStale}>
+<div
+  class="text-sm w-full"
+  class:opacity-50={summaryIsStale}
+  bind:this={container}
+>
   {#if !!downloadProgress}
     <div class="mb-1 text-slate-500 text-xs">
       Preparing download ({downloadProgress})
@@ -166,7 +219,7 @@
       <div class="mb-2 font-mono">
         {evaluationSummary.name}
       </div>
-    {:else if !compact}
+    {:else if !!query && !compact}
       <div class="mb-1 text-slate-500 text-xs flex justify-between">
         <div class="font-bold">Query Result</div>
         <button
@@ -257,7 +310,7 @@
     {/if}
     {#if !!evaluationSummary.values}
       {@const values = evaluationSummary.values}
-      {#if showHeaders}<div class="mb-1 text-xs text-slate-500">
+      {#if showHeaders && !compact}<div class="mb-1 text-xs text-slate-500">
           Values
         </div>{/if}
       <div class="h-12">

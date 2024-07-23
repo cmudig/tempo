@@ -33,8 +33,3 @@ export type SliceFindingStatus = {
     progress?: number;
   };
 };
-
-export async function checkSlicingStatus(): Promise<SliceFindingStatus | null> {
-  let trainingStatus = await (await fetch(import.meta.env.BASE_URL + `/slices/status`)).json();
-  return trainingStatus;
-}
