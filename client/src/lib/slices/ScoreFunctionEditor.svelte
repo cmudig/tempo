@@ -129,7 +129,7 @@
     try {
       result = await (
         await fetch(
-          `/datasets/${$currentDataset}/slices/${$currentModel}/validate_score_function`,
+          import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${$currentModel}/validate_score_function`,
           {
             method: 'POST',
             body: JSON.stringify({ score_function: scoreFunction }),

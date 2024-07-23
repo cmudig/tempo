@@ -101,7 +101,7 @@
     }
     try {
       let results = await (
-        await fetch(`/datasets/${$currentDataset}/slices/${baseModel}/score`, {
+        await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${baseModel}/score`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

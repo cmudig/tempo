@@ -36,7 +36,7 @@
         await Promise.all(
           last.map(
             async (t) =>
-              (await (await fetch(`/tasks/${t.id}`)).json()).status ==
+              (await (await fetch(import.meta.env.BASE_URL + `/tasks/${t.id}`)).json()).status ==
               'complete'
           )
         )
@@ -54,7 +54,7 @@
   async function stopTraining(taskID: string) {
     if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
     try {
-      let result = await fetch(`/tasks/${taskID}/stop`, {
+      let result = await fetch(import.meta.env.BASE_URL + `/tasks/${taskID}/stop`, {
         method: 'POST',
       });
       if (result.status == 200) {

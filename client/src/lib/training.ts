@@ -13,7 +13,7 @@ export async function checkTrainingStatus(
   modelNames: string[]
 ): Promise<TrainingStatus[] | null> {
   let taskStatuses: TrainingStatus[] = await (
-    await fetch(`/tasks?cmd=train_model&dataset_name=${datasetName}`)
+    await fetch(import.meta.env.BASE_URL + `/tasks?cmd=train_model&dataset_name=${datasetName}`)
   ).json();
   return taskStatuses.filter((task) =>
     modelNames.includes(task.info.model_name)

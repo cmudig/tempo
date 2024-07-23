@@ -28,7 +28,7 @@
   async function loadSpecs() {
     try {
       loadingSpecs = true;
-      let response = await fetch(`/datasets/${$currentDataset}/slices/specs`);
+      let response = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/specs`);
       specs = await response.json();
       loadingSpecs = false;
     } catch (e) {
@@ -69,7 +69,7 @@
 
     try {
       let status = await fetch(
-        `/datasets/${$currentDataset}/slices/specs/${newSpecName}`,
+        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/specs/${newSpecName}`,
         {
           method: 'POST',
           headers: {

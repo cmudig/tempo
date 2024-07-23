@@ -106,7 +106,7 @@
       try {
         result = await (
           await fetch(
-            `/datasets/${$currentDataset}/data/query?q=${encodedQuery}`
+            import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/query?q=${encodedQuery}`
           )
         ).json();
         $queryResultCache = { ...$queryResultCache, [query]: result };
@@ -143,7 +143,7 @@
   async function pollDownload() {
     if (!downloadTaskID) return;
     try {
-      let result = await (await fetch(`/tasks/${downloadTaskID}`)).json();
+      let result = await (await fetch(import.meta.env.BASE_URL + `/tasks/${downloadTaskID}`)).json();
       if (result.status == 'complete') {
         evaluationError = null;
         downloadProgress = null;
@@ -171,7 +171,7 @@
     try {
       let result = await (
         await fetch(
-          `/datasets/${$currentDataset}/data/query?q=${encodeURIComponent(query)}&dl=1`
+          import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/query?q=${encodeURIComponent(query)}&dl=1`
         )
       ).json();
       if (result.blob) {

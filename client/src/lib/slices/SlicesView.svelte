@@ -162,7 +162,7 @@
     if (!searchTaskID) return;
     try {
       loadingSliceStatus = true;
-      searchStatus = await (await fetch(`/tasks/${searchTaskID}`)).json();
+      searchStatus = await (await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}`)).json();
     } catch (e) {
       console.log('error getting slice status');
       searchStatus = null;
@@ -208,7 +208,7 @@
       retrievingSlices = true;
       sliceSearchError = null;
       let response = await fetch(
-        `/datasets/${$currentDataset}/slices/${modelName}`,
+        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${modelName}`,
         {
           method: 'POST',
           headers: {
@@ -278,7 +278,7 @@
 
       console.log('STARTING slice finding');
       let result = await (
-        await fetch(`/datasets/${$currentDataset}/slices/${modelName}/find`, {
+        await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${modelName}/find`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -307,7 +307,7 @@
   async function stopFindingSlices() {
     if (!searchTaskID) return;
     try {
-      await fetch(`/tasks/${searchTaskID}/stop`, { method: 'POST' });
+      await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}/stop`, { method: 'POST' });
       pollSliceStatus();
     } catch (e) {
       console.error("couldn't stop slice finding:", e);

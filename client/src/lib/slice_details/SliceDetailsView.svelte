@@ -32,7 +32,7 @@
 
       console.log('Loading slice description', slice);
       let result = await (
-        await fetch(`/slices/${modelNames.join(',')}/compare`, {
+        await fetch(import.meta.env.BASE_URL + `/slices/${modelNames.join(',')}/compare`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
