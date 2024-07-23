@@ -110,6 +110,7 @@ def make_new_model_spec(dataset_name, reference_name=""):
     if reference_name == "default":
         base_spec = Model.blank_spec()
         base_name = "Untitled"
+        fs = get_filesystem().subdirectory("datasets", dataset_name)
     else:
         fs = get_filesystem().subdirectory("datasets", dataset_name)
         if not fs.exists():
