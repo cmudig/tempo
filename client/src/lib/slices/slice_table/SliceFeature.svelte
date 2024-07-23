@@ -104,8 +104,8 @@
       on:toggle
     />{needsParentheses ? ')' : ''}
   {:else}
-    <span class="text-slate-600 text-base font-normal px-2 py-2"
-      >Evaluation Set</span
-    >
+    <div class="text-slate-600 text-base font-normal mx-2 py-2">
+      Evaluation Set
+    </div>
   {/if}
 </div>

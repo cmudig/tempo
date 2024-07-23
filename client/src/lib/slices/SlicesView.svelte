@@ -19,10 +19,11 @@
   import SliceDetailsView from '../slice_details/SliceDetailsView.svelte';
   import ResizablePanel from '../utils/ResizablePanel.svelte';
   import type { Writable } from 'svelte/store';
-  import { faWrench } from '@fortawesome/free-solid-svg-icons';
+  import { faChevronLeft, faWrench } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa';
   import SliceSpecEditor from './SliceSpecEditor.svelte';
   import { scoreFunctionToString, type ScoreFunction } from './scorefunctions';
+  import ScoreFunctionPanel from './ScoreFunctionPanel.svelte';
 
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
@@ -36,7 +37,12 @@
   export let timestepDefinition: string = '';
   export let sliceSpec: string = 'default';
 
-  let specEditorVisible: boolean = false;
+  enum View {
+    slices = 0,
+    specEditor = 1,
+    scoreFunctionEditor = 2,
+  }
+  let visibleView: View = View.slices;
 
   let scoreFunctionSpec: ScoreFunction[] = [];
 
@@ -264,7 +270,7 @@
 
   async function loadSlices() {
     if (!modelName || !$currentDataset) return;
-    specEditorVisible = false;
+    visibleView = View.slices;
     loadingSliceStatus = true;
     try {
       await pollTrainingStatus();
@@ -323,6 +329,32 @@
     if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
     if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
   });
+
+  let specChanged = false;
+  let scoreFunctionsChanged = false;
+  function dismissSpecEditor() {
+    if (
+      specChanged &&
+      !confirm(
+        'Are you sure you want to cancel? Your changes to the slicing variables will not be saved.'
+      )
+    )
+      return;
+
+    visibleView = View.slices;
+  }
+
+  function dismissScoreFunctionEditor() {
+    if (
+      scoreFunctionsChanged &&
+      !confirm(
+        'Are you sure you want to cancel? Your changes to the score functions will not be saved.'
+      )
+    )
+      return;
+
+    visibleView = View.slices;
+  }
 </script>
 
 <div class="w-full pt-4 flex flex-col h-full">
@@ -341,110 +373,147 @@
         >{/if}
     </div>
   </div>
-  <div class="px-4 flex-auto h-0 overflow-auto" style="width: 100% !important;">
-    <div class="w-full h-full flex flex-col">
-      {#if specEditorVisible}
-        <SliceSpecEditor
-          bind:sliceSpec
-          bind:scoreFunctionSpec
-          {timestepDefinition}
-          on:dismiss={() => (specEditorVisible = false)}
-        />
-      {:else}
-        <div class="mb-3 w-full">
-          <div class="rounded bg-slate-100 flex items-stretch w-full">
-            {#if !!searchStatus || loadingSliceStatus}
-              {@const samplerProgressMessage =
-                !!searchStatus && !!searchStatus.status
-                  ? searchStatus.status_info?.message
-                  : 'Loading'}
-              {@const samplerRunProgress =
-                !!searchStatus && !!searchStatus.status
-                  ? searchStatus.status_info?.progress ?? null
-                  : null}
-              <div
-                role="status"
-                class="ml-3 my-3 w-8 h-8 grow-0 shrink-0 self-center"
+  <div class="flex-auto h-0 overflow-y-auto" style="width: 100% !important;">
+    <div class="w-full h-full flex flex-col items-stretch">
+      <div class="mx-4 mb-3">
+        <div class="rounded bg-slate-100 flex items-stretch w-full">
+          <div class="p-3 border-r border-slate-200 flex gap-2 items-center">
+            {#if visibleView != View.slices}
+              <button
+                class="btn text-slate-600 px-1 py-0.5 text-xs font-bold disabled:opacity-50"
+                on:click={visibleView == View.specEditor
+                  ? dismissSpecEditor
+                  : dismissScoreFunctionEditor}
+                ><Fa icon={faChevronLeft} class="inline mr-1" /> Back</button
               >
-                <svg
-                  aria-hidden="true"
-                  class="text-gray-200 animate-spin stroke-blue-600 w-8 h-8 align-middle"
-                  viewBox="-0.5 -0.5 99.5 99.5"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <ellipse
-                    cx="50"
-                    cy="50"
-                    rx="45"
-                    ry="45"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="10"
-                  />
-                  <path
-                    d="M 50 5 A 45 45 0 0 1 95 50"
-                    stroke-width="10"
-                    stroke-linecap="round"
-                    fill="none"
-                  />
-                </svg>
-              </div>
-              <div class="mx-3 flex-auto whitespace-nowrap self-center">
-                <div class="text-sm">
-                  {samplerProgressMessage ?? 'Waiting to load slices...'}
-                </div>
-                {#if samplerRunProgress != null}
-                  <div
-                    class="w-full bg-slate-300 rounded-full h-1.5 mt-1 indigo:bg-slate-700"
-                  >
-                    <div
-                      class="bg-blue-600 h-1.5 rounded-full indigo:bg-indigo-200 duration-100"
-                      style="width: {(samplerRunProgress * 100).toFixed(1)}%"
-                    />
-                  </div>
-                {/if}
-              </div>
-              <div class="py-3 mr-3 self-center">
-                <button
-                  class="btn btn-blue disabled:opacity-50"
-                  on:click={stopFindingSlices}>Stop</button
-                >
-              </div>
             {:else}
-              <div
-                class="p-3 border-r border-slate-200 flex gap-4 items-center flex-auto whitespace-nowrap"
+              <button
+                class="btn btn-blue disabled:opacity-50"
+                on:click={loadSlices}
+                disabled={retrievingSlices || isTraining}
+                >{retrievingSlices ? 'Loading...' : 'Find Slices'}</button
               >
+            {/if}
+          </div>
+          {#if visibleView == View.slices && (!!searchStatus || loadingSliceStatus)}
+            {@const samplerProgressMessage =
+              !!searchStatus && !!searchStatus.status
+                ? searchStatus.status_info?.message
+                : 'Loading'}
+            {@const samplerRunProgress =
+              !!searchStatus && !!searchStatus.status
+                ? searchStatus.status_info?.progress ?? null
+                : null}
+            <div
+              role="status"
+              class="ml-3 my-3 w-8 h-8 grow-0 shrink-0 self-center"
+            >
+              <svg
+                aria-hidden="true"
+                class="text-gray-200 animate-spin stroke-blue-600 w-8 h-8 align-middle"
+                viewBox="-0.5 -0.5 99.5 99.5"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <ellipse
+                  cx="50"
+                  cy="50"
+                  rx="45"
+                  ry="45"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="10"
+                />
+                <path
+                  d="M 50 5 A 45 45 0 0 1 95 50"
+                  stroke-width="10"
+                  stroke-linecap="round"
+                  fill="none"
+                />
+              </svg>
+            </div>
+            <div class="mx-3 flex-auto whitespace-nowrap self-center">
+              <div class="text-sm">
+                {samplerProgressMessage ?? 'Waiting to load slices...'}
+              </div>
+              {#if samplerRunProgress != null}
+                <div
+                  class="w-full bg-slate-300 rounded-full h-1.5 mt-1 indigo:bg-slate-700"
+                >
+                  <div
+                    class="bg-blue-600 h-1.5 rounded-full indigo:bg-indigo-200 duration-100"
+                    style="width: {(samplerRunProgress * 100).toFixed(1)}%"
+                  />
+                </div>
+              {/if}
+            </div>
+            <div class="py-3 mr-3 self-center">
+              <button
+                class="btn btn-blue disabled:opacity-50"
+                on:click={stopFindingSlices}>Stop</button
+              >
+            </div>
+          {:else}
+            <div
+              class="p-3 flex gap-4 items-center flex-auto whitespace-nowrap"
+            >
+              <button
+                disabled={retrievingSlices || isTraining}
+                class="btn {visibleView == View.specEditor
+                  ? 'btn-dark-slate dark'
+                  : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left"
+                style="max-width: 50%;"
+                on:click={visibleView == View.specEditor
+                  ? dismissSpecEditor
+                  : () => (visibleView = View.specEditor)}
+                ><div class="text-xs w-full">
+                  <div class="text-slate-600 dark:text-slate-100 font-normal">
+                    Slicing variables
+                  </div>
+                  <div class="font-bold truncate">{sliceSpec}</div>
+                </div></button
+              >
+
+              {#if scoreFunctionSpec.length == 1}
                 <button
                   disabled={retrievingSlices || isTraining}
-                  class="btn hover:bg-slate-200 text-slate-600 px-1 py-0.5 text-xs font-bold disabled:opacity-50 mr-2"
-                  on:click={() => (specEditorVisible = true)}
-                  ><Fa icon={faWrench} class="inline mr-1" /> Configure Slicing</button
-                >
-                <div class="text-xs" style="max-width: 25%;">
-                  <div class="text-slate-600">Slicing variables</div>
-                  <div class="font-bold truncate">{sliceSpec}</div>
-                </div>
-                {#if scoreFunctionSpec.length == 1}
-                  <div class="text-xs flex-auto w-0">
-                    <div class="text-slate-600">Search criteria</div>
+                  class="btn {visibleView == View.scoreFunctionEditor
+                    ? 'btn-dark-slate dark'
+                    : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left flex-auto w-min"
+                  style="max-width: 50%;"
+                  on:click={visibleView == View.scoreFunctionEditor
+                    ? dismissScoreFunctionEditor
+                    : () => (visibleView = View.scoreFunctionEditor)}
+                  ><div class="text-xs w-full">
+                    <div class="text-slate-600 dark:text-slate-100 font-normal">
+                      Search criteria
+                    </div>
                     <div class="font-bold truncate">
                       {scoreFunctionToString(scoreFunctionSpec[0])}
                     </div>
-                  </div>
-                {/if}
-              </div>
-              <div class="p-3 flex items-center">
-                <button
-                  class="btn btn-blue disabled:opacity-50"
-                  on:click={loadSlices}
-                  disabled={retrievingSlices || isTraining}
-                  >{retrievingSlices ? 'Loading...' : 'Find Slices'}</button
+                  </div></button
                 >
-              </div>
-            {/if}
-          </div>
+              {/if}
+            </div>
+          {/if}
         </div>
+      </div>
 
+      {#if visibleView == View.specEditor}
+        <div class="mx-4 w-full">
+          <SliceSpecEditor
+            bind:sliceSpec
+            {timestepDefinition}
+            on:dismiss={dismissSpecEditor}
+          />
+        </div>
+      {:else if visibleView == View.scoreFunctionEditor}
+        <div class="w-full pb-4 mx-4">
+          <ScoreFunctionPanel
+            bind:scoreFunctionSpec
+            bind:changesPending={scoreFunctionsChanged}
+          />
+        </div>
+      {:else}
         <SliceSearchView
           {modelName}
           {modelsToShow}

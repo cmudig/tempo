@@ -17,8 +17,8 @@
 
   const dispatch = createEventDispatcher();
   export let sliceSpec: string = 'default';
-  export let scoreFunctionSpec: ScoreFunction[] = [];
   export let timestepDefinition: string = '';
+  export let specChanged = false;
 
   let specs: { [key: string]: SliceSpec } = {};
   let loadingSpecs: boolean = false;
@@ -42,8 +42,6 @@
   let specVariables: { [key: string]: VariableDefinition } | null = null;
   $: !!specs[sliceSpec] && resetSpec();
 
-  let specChanged = false;
-  let scoreFunctionsChanged = false;
   $: {
     specChanged = !areObjectsEqual(specs[sliceSpec], {
       variables: specVariables,
@@ -100,43 +98,8 @@
       specVariables = null;
     }
   }
-
-  function dismiss() {
-    if (
-      specChanged &&
-      !confirm(
-        'Are you sure you want to cancel? Your changes to the slicing variables will not be saved.'
-      )
-    )
-      return;
-
-    dispatch('dismiss');
-  }
 </script>
 
-<div class="mb-3 w-full">
-  <div class="rounded bg-slate-100 flex items-stretch whitespace-nowrap">
-    <div class="py-3 px-1 border-r border-slate-200 flex gap-2 items-center">
-      <button
-        class="btn text-slate-600 px-1 py-0.5 text-xs font-bold disabled:opacity-50"
-        on:click={dismiss}
-        ><Fa icon={faChevronLeft} class="inline mr-1" /> Back to Slices</button
-      >
-    </div>
-    <div class="p-3 text-xs" style="max-width: 25%;">
-      <div class="text-slate-600">Slicing variables</div>
-      <div class="font-bold truncate">{sliceSpec}</div>
-    </div>
-    {#if scoreFunctionSpec.length == 1}
-      <div class="p-3 text-xs flex-auto">
-        <div class="text-slate-600">Search criteria</div>
-        <div class="font-bold truncate">
-          {scoreFunctionToString(scoreFunctionSpec[0])}
-        </div>
-      </div>
-    {/if}
-  </div>
-</div>
 {#if loadingSpecs || savingSpecs}
   <div class="w-full h-full flex flex-col items-center justify-center">
     <div class="text-center mb-4">
@@ -169,12 +132,6 @@
         Error: <span class="font-mono">{saveError}</span>
       </div>
     {/if}
-    <div class="w-full pb-4">
-      <ScoreFunctionPanel
-        bind:scoreFunctionSpec
-        bind:changesPending={scoreFunctionsChanged}
-      />
-    </div>
     <div class="mt-2 mb-1 flex items-center w-full gap-2">
       <div class="font-bold">Slicing Variables</div>
       <select class="flat-select shrink min-w-0" bind:value={sliceSpec}>

@@ -267,12 +267,7 @@
 
 <div class="flex-auto min-h-0 overflow-auto relative">
   {#if !!baseSlice}
-    <div
-      class="bg-white sticky top-0 z-10 {Object.keys(savedSlices).length > 0
-        ? ''
-        : 'border-b-4 border-slate-200'}"
-      bind:this={searchViewHeader}
-    >
+    <div class="bg-white sticky top-0 z-10 px-4" bind:this={searchViewHeader}>
       <SliceTable
         slices={[]}
         {savedSlices}
@@ -296,7 +291,7 @@
       />
     </div>
     {#if Object.keys(savedSlices).length > 0}
-      <div class="border-b-4 border-slate-200 bg-white">
+      <div class="bg-white px-4">
         <SliceTable
           slices={Object.keys(savedSlices).map((sr) =>
             Object.assign(
@@ -337,7 +332,7 @@
         />
       </div>
     {/if}
-    <div class="flex-auto relative w-full">
+    <div class="flex-auto relative w-full px-4">
       {#if !!slices && slices.length > 0}
         <div class="w-full min-h-0" class:disable-div={runningSampler}>
           <SliceTable

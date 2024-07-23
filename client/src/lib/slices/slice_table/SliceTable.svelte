@@ -208,7 +208,7 @@
 <div class="relative">
   {#if showHeader}
     <div
-      class="px-2 text-left inline-flex align-top font-bold slice-header whitespace-nowrap bg-slate-100 rounded-t border-b border-slate-600"
+      class="px-2 text-left inline-flex align-top font-bold slice-header whitespace-nowrap bg-slate-100 rounded text-sm text-slate-700"
       style="min-width: 100%;"
     >
       {#if showCheckboxes}
@@ -294,6 +294,7 @@
   {/if}
   {#if !!baseSlice}
     <SliceRow
+      rowClass="my-2"
       slice={baseSlice}
       {scoreNames}
       {positiveOnly}
@@ -341,6 +342,7 @@
   {#each slices as slice, i (slice.stringRep || i)}
     {@const sliceToShow = sliceRequestResults[slice.stringRep] || slice}
     <SliceRow
+      rowClass="rounded-lg border border-slate-200 shadow my-2"
       {slice}
       {scoreNames}
       {positiveOnly}

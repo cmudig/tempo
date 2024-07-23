@@ -115,7 +115,7 @@
 
 {#if !!sliceToShow && !!slice}
   <div
-    class="slice-row py-1 px-2 {isSelected
+    class="slice-row py-3 px-2 {isSelected
       ? 'bg-blue-100 hover:bg-blue-50'
       : allowSelect
         ? 'bg-white hover:bg-slate-100'
@@ -175,7 +175,7 @@
             }}
           />
         {:else}
-          <div class="flex pt-1 items-center whitespace-nowrap">
+          <div class="flex pt-1 items-center whitespace-nowrap w-full">
             <div style="flex: 0 1 auto;" class="overflow-x-auto">
               <SliceFeature
                 feature={featuresHaveSameTree(
