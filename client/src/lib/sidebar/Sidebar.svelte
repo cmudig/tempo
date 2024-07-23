@@ -9,7 +9,6 @@
     SliceFeatureBase,
     SliceMetric,
   } from '../slices/utils/slice.type';
-  import { SidebarTableWidths } from '../utils/sidebarwidths';
   import {
     faPlus,
     faSort,
@@ -19,18 +18,21 @@
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
-  import { createEventDispatcher } from 'svelte';
-  import { active } from 'd3';
+  import { createEventDispatcher, getContext } from 'svelte';
+  import type { Writable } from 'svelte/store';
 
   const dispatch = createEventDispatcher();
 
-  export let models: {
-    [key: string]: { spec: ModelSummary; metrics?: ModelMetrics };
-  } = {};
-  export let activeModel: string | undefined;
+  let {
+    models,
+    currentModel,
+  }: {
+    models: Writable<{
+      [key: string]: { spec: ModelSummary; metrics?: ModelMetrics };
+    }>;
+    currentModel: Writable<string | null>;
+  } = getContext('models');
   export let selectedModels: string[] = [];
-  export let selectedSlice: SliceFeatureBase | null = null;
-  export let sliceSpec: string = 'default';
 
   export let metricToShow: string = 'AUROC';
 
@@ -46,8 +48,8 @@
   let metricScales: { [key: string]: (v: number) => number } = {};
 
   let metricOptions: string[] = [];
-  $: if (Object.values(models).length > 0) {
-    let modelsWithMetrics = Object.values(models).filter((m) => !!m.metrics);
+  $: if (Object.values($models).length > 0) {
+    let modelsWithMetrics = Object.values($models).filter((m) => !!m.metrics);
     if (modelsWithMetrics.length > 0)
       metricOptions = Array.from(
         new Set(
@@ -78,19 +80,19 @@
   };
 
   $: {
-    let maxInstances = Object.values(models)
+    let maxInstances = Object.values($models)
       .filter((m) => !!m.metrics)
       .reduce(
         (prev, curr) => Math.max(prev, curr.metrics?.n_test.instances ?? 0),
         0
       );
-    let maxTrajectories = Object.values(models)
+    let maxTrajectories = Object.values($models)
       .filter((m) => !!m.metrics)
       .reduce(
         (prev, curr) => Math.max(prev, curr.metrics?.n_test.trajectories ?? 0),
         0
       );
-    let maxMetricValue = Object.values(models)
+    let maxMetricValue = Object.values($models)
       .filter((m) => !!m.metrics)
       .reduce(
         (prev, curr) =>
@@ -110,55 +112,6 @@
     };
   }
 
-  $: if (!!selectedSlice) loadSliceScores(selectedSlice, sliceSpec);
-  else sliceMetrics = undefined;
-
-  async function loadSliceScores(sliceDef: SliceFeatureBase, spec: string) {
-    let sliceRequests: { [key: string]: SliceFeatureBase } = {
-      toScore: sliceDef,
-    };
-    try {
-      let results = await (
-        await fetch(`/slices/score`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            sliceRequests,
-            sliceSpec: spec,
-            selectedModel: activeModel,
-          }),
-        })
-      ).json();
-      let result = results.sliceRequestResults.toScore as Slice;
-      if (!!result)
-        sliceMetrics = result.metrics as {
-          [key: string]: { [key: string]: SliceMetric };
-        };
-      else sliceMetrics = undefined;
-      console.log(
-        'slice metrics:',
-        sliceMetrics,
-        results,
-        JSON.stringify({ sliceRequests })
-      );
-    } catch (e) {
-      console.log('error calculating slice for sidebar:', e);
-    }
-  }
-
-  function hasSameTimestepDefinition(
-    modelName: string,
-    otherModelName: string
-  ): boolean {
-    if (!models[modelName] || !models[otherModelName]) return false;
-    return (
-      models[modelName].spec.timestep_definition ==
-      models[otherModelName].spec.timestep_definition
-    );
-  }
-
   function setSort(field: string) {
     if (sortField != field) {
       sortField = field;
@@ -170,7 +123,7 @@
 
   $: {
     if (sortField == 'name') {
-      modelOrder = Object.keys(models).sort();
+      modelOrder = Object.keys($models).sort();
       if (sortDescending) modelOrder = modelOrder.reverse();
     } else {
       let metricValues: {
@@ -178,7 +131,7 @@
       };
       if (!!sliceMetrics)
         metricValues = Object.fromEntries(
-          Object.keys(models).map((m) => [
+          Object.keys($models).map((m) => [
             m,
             {
               Timesteps: sliceMetrics![m]['Timesteps']?.count ?? 0,
@@ -194,7 +147,7 @@
         );
       else
         metricValues = Object.fromEntries(
-          Object.entries(models).map(([modelName, model]) => [
+          Object.entries($models).map(([modelName, model]) => [
             modelName,
             {
               Timesteps: model.metrics?.n_test.instances ?? 0,
@@ -211,7 +164,7 @@
             },
           ])
         );
-      modelOrder = Object.keys(models).sort(
+      modelOrder = Object.keys($models).sort(
         (a, b) =>
           (metricValues[a][sortField] - metricValues[b][sortField]) *
           (sortDescending ? -1 : 1)
@@ -233,7 +186,9 @@
         Models
       </div>
       <div class="flex-auto" />
-      <ActionMenuButton buttonClass="bg-transparent px-1 hover:opacity-40"
+      <ActionMenuButton
+        buttonClass="bg-transparent px-1 hover:opacity-40"
+        align="right"
         ><span slot="button-content"><Fa icon={faPlus} class="inline" /></span>
         <div slot="options">
           <a
@@ -243,13 +198,13 @@
             on:click={() => dispatch('new', 'default')}
             >From Default Specification</a
           >
-          {#if !!activeModel}
+          {#if !!$currentModel}
             <a
               href="#"
               tabindex="0"
               role="menuitem"
-              on:click={() => dispatch('new', activeModel)}
-              >From <span class="font-mono">{activeModel}</span></a
+              on:click={() => dispatch('new', $currentModel)}
+              >From <span class="font-mono">{$currentModel}</span></a
             >
           {/if}
         </div></ActionMenuButton
@@ -264,8 +219,15 @@
               href="#"
               tabindex="0"
               role="menuitem"
+              title="Create a copy of this model"
+              on:click={() => dispatch('new', $currentModel)}>Duplicate</a
+            >
+            <a
+              href="#"
+              tabindex="0"
+              role="menuitem"
               title="Rename this model"
-              on:click={() => (editingModelName = activeModel ?? null)}
+              on:click={() => (editingModelName = $currentModel ?? null)}
               >Rename...</a
             >
           {/if}
@@ -275,7 +237,7 @@
             role="menuitem"
             title="Permanently delete these models"
             on:click={() =>
-              dispatch('delete', [activeModel, ...selectedModels])}>Delete</a
+              dispatch('delete', [$currentModel, ...selectedModels])}>Delete</a
           >
         </div>
       </ActionMenuButton>
@@ -295,24 +257,7 @@
       {/if}
     </div>
   </div>
-  {#if !!selectedSlice}
-    <div class="rounded bg-slate-100 px-3 py-3 mx-2 mb-2">
-      <div class="ml-2 flex text-xs font-bold text-slate-600">
-        <div class="flex-auto">Within slice:</div>
-        <button class="hover:opacity-50" on:click={() => (selectedSlice = null)}
-          ><Fa icon={faXmark} /></button
-        >
-      </div>
-      <div class="overflow-x-auto whitespace-nowrap">
-        <SliceFeature
-          feature={selectedSlice}
-          currentFeature={selectedSlice}
-          canToggle={false}
-        />
-      </div>
-    </div>
-  {/if}
-  {#if Object.keys(models).length == 0}
+  {#if Object.keys($models).length == 0}
     <div
       class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
     >
@@ -368,21 +313,24 @@
         {/each}
       </div> -->
       {#each modelOrder as modelName (modelName)}
-        {@const model = models[modelName]}
+        {@const model = $models[modelName]}
         <SidebarItem
-          model={model.spec}
-          metrics={model.metrics}
-          {modelName}
+          displayItem={{
+            name: modelName,
+            description:
+              model.spec?.draft?.description ?? model.spec?.description,
+            output_values: model.spec?.output_values,
+          }}
+          metrics={model.metrics ?? null}
           {metricToShow}
           {metricScales}
           isEditingName={editingModelName == modelName}
-          customMetrics={sliceMetrics?.[modelName] ?? undefined}
-          isActive={activeModel === modelName}
+          isActive={$currentModel === modelName}
           isChecked={selectedModels.includes(modelName) ||
-            activeModel === modelName}
-          allowCheck={activeModel != modelName}
+            $currentModel === modelName}
+          allowCheck={$currentModel != modelName}
           on:click={() => {
-            activeModel = modelName;
+            $currentModel = modelName;
             selectedModels = [];
           }}
           on:toggle={(e) => {

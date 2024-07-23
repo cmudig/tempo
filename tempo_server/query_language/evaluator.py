@@ -117,12 +117,18 @@ QUOTED_STRING: /["'`][^"'`]*["'`]/
 
 def get_all_trajectory_ids(attributes, events, intervals):
     all_ids = []
-    if attributes is not None and len(attributes.get_ids()):
-        all_ids.append(attributes.get_ids().values)
-    if events is not None and len(events.get_ids()):
-        all_ids.append(events.get_ids().unique())
-    elif intervals is not None and len(intervals.get_ids()):
-        all_ids.append(intervals.get_ids().unique())
+    if attributes is not None:
+        for attr_set in attributes:
+            if len(attr_set.get_ids()):
+                all_ids.append(attr_set.get_ids().values)
+    if events is not None:
+        for event_set in events:
+            if len(event_set.get_ids()):
+                all_ids.append(event_set.get_ids().values)
+    if intervals is not None:
+        for interval_set in intervals:
+            if len(interval_set.get_ids()):
+                all_ids.append(interval_set.get_ids().values)
     return np.unique(np.concatenate(all_ids))
 
 class EvaluateExpression(lark.visitors.Transformer):
@@ -155,30 +161,27 @@ class EvaluateExpression(lark.visitors.Transformer):
             el_name = list(csv.reader([el_name], skipinitialspace=True))[0]
             # Substitute macros again
             el_name = [x.strip() for el in el_name for x in self.eventtype_macros.get(el, el).split(",")]
+        candidates = []
         if len(comps) > 1:
-            scope = comps[0].lower()
             # Only search within the given scope
-            if scope == "attr":
-                if isinstance(el_name, list): raise ValueError(f"Cannot jointly retrieve multiple data elements from Attributes")
-                return self.attributes.get(el_name)
-            else:   
-                if scope == "event":
-                    return self.events.get(el_name)
-                elif scope == "interval":
-                    return self.intervals.get(el_name)
-                else:
-                    raise ValueError(f"Unknown data element scope {scope}")
-                
-        # Search for the element in attributes, events, intervals
-        candidates = (
-            [self.attributes.get(el_name)] if not isinstance(el_name, list) and self.attributes.has(el_name) else [] + 
-            [self.events.get(el_name), self.intervals.get(el_name)]
-        )
+            scope = comps[0].lower()
+            if scope == "attr" and isinstance(el_name, list): raise ValueError(f"Cannot jointly retrieve multiple data elements from Attributes")
+            if scope not in ("attr", "event", "interval"): raise ValueError(f"Unknown data element scope {scope}")
+        else:
+            scope = None
+            
+        if (scope is None or scope == "attr") and not isinstance(el_name, list):
+            candidates += [attr_set.get(el_name) for attr_set in self.attributes if attr_set.has(el_name)]
+        if scope is None or scope == "event":
+            candidates += [event_set.get(el_name) for event_set in self.events]
+        if scope is None or scope == "interval":
+            candidates += [interval_set.get(el_name) for interval_set in self.intervals]
+
         candidates = [c for c in candidates if len(c) > 0]
         if len(candidates) > 1:
-            raise ValueError(f"Multiple data elements found with name {el_name}. Try specifying a scope such as \{{attr:{el_name}\}} (or event: or interval:).")
+            raise ValueError(f"Multiple data elements found with name {comps[-1]}. Try specifying a scope such as {{attr:{comps[-1]}}} (or event: or interval:).")
         elif len(candidates) == 0:
-            raise KeyError(f"No data element found with name {el_name}")
+            raise KeyError(f"No data element found with name {query}")
         return candidates[0]
         
     def data_element(self, args):
@@ -309,8 +312,15 @@ class EvaluateExpression(lark.visitors.Transformer):
     
     def min_time(self, args):
         if self._mintimes is not None: return self._mintimes
-        event_mins = self.events.get_times().groupby(self.events.get_ids()).agg("min")
-        interval_mins = self.intervals.get_start_times().groupby(self.intervals.get_ids()).agg("min")
+        
+        event_times = pd.concat([event_set.get_times() for event_set in self.events]).reset_index(drop=True)
+        event_ids = pd.concat([event_set.get_ids() for event_set in self.events]).reset_index(drop=True)
+        event_mins = event_times.groupby(event_ids).agg("min")
+        
+        interval_times = pd.concat([interval_set.get_start_times() for interval_set in self.intervals]).reset_index(drop=True)
+        interval_ids = pd.concat([interval_set.get_ids() for interval_set in self.intervals]).reset_index(drop=True)
+        interval_mins = interval_times.groupby(interval_ids).agg("min")
+
         ids = self.get_all_ids()
         all_mins = pd.merge(pd.Series(ids, name="id"), pd.merge(event_mins, interval_mins, how='outer', left_index=True, right_index=True), left_on="id", right_index=True).set_index("id").min(axis=1)
         self._mintimes = Attributes(all_mins.rename("mintime"))
@@ -318,8 +328,15 @@ class EvaluateExpression(lark.visitors.Transformer):
     
     def max_time(self, args): 
         if self._maxtimes is not None: return self._maxtimes
-        event_maxes = self.events.get_times().groupby(self.events.get_ids()).agg("max")
-        interval_maxes = self.intervals.get_end_times().groupby(self.intervals.get_ids()).agg("max")
+        
+        event_times = pd.concat([event_set.get_times() for event_set in self.events]).reset_index(drop=True)
+        event_ids = pd.concat([event_set.get_ids() for event_set in self.events]).reset_index(drop=True)
+        event_maxes = event_times.groupby(event_ids).agg("max")
+        
+        interval_times = pd.concat([interval_set.get_start_times() for interval_set in self.intervals]).reset_index(drop=True)
+        interval_ids = pd.concat([interval_set.get_ids() for interval_set in self.intervals]).reset_index(drop=True)
+        interval_maxes = interval_times.groupby(interval_ids).agg("max")
+
         ids = self.get_all_ids()
         all_maxes = pd.merge(pd.Series(ids, name="id"), pd.merge(event_maxes, interval_maxes, how='outer', left_index=True, right_index=True), left_on="id", right_index=True).set_index("id").max(axis=1)
         # Offset the time by 1 so that it includes all events and intervals
@@ -442,7 +459,7 @@ class EvaluateExpression(lark.visitors.Transformer):
             elif isinstance(result, (Events, Attributes, Intervals, TimeSeries)):
                 if len(result.get_values()) != len(condition.get_values()):
                     raise ValueError(f"Case expression operands must be same length")
-                result = result.where(~condition.fillna(False).astype(bool), value)
+                result = result.where(~condition.fillna(0).astype(bool), value)
             elif isinstance(condition, (Attributes, Events, Intervals, TimeSeries)):
                 # We need to broadcast both value and result to condition's type
                 result = condition.apply(lambda x: pd.NA if pd.isna(x) else (value if x else result))
@@ -486,6 +503,10 @@ class EvaluateExpression(lark.visitors.Transformer):
             dtype = var_exp.get_values().dtype
             if isinstance(dtype, pd.CategoricalDtype):
                 var_exp = var_exp.with_values(var_exp.get_values().astype(dtype.categories.dtype))
+                dtype = var_exp.get_values().dtype
+            elif isinstance(impute_method, str) and pd.api.types.is_numeric_dtype(dtype):
+                # convert all values to strings
+                var_exp = var_exp.with_values(var_exp.get_values().astype(pd.StringDtype()))
                 dtype = var_exp.get_values().dtype
             scalar = dtype.type(impute_method)
             return var_exp.with_values(var_exp.get_values().where(nan_mask, scalar))
@@ -933,22 +954,22 @@ class QueryResultCache:
         self.cache_dir.write_file(self._query_cache, "query_cache.json")
 
     
-class TrajectoryDataset:
+class QueryEngine:
     def __init__(self, attributes, events, intervals, eventtype_macros=None, cache_fs=None):
-        self.attributes = attributes if attributes is not None else AttributeSet(pd.DataFrame([]))
-        self.events = events if events is not None else EventSet(pd.DataFrame({
+        self.attributes = attributes if attributes is not None else [AttributeSet(pd.DataFrame([]))]
+        self.events = events if events is not None else [EventSet(pd.DataFrame({
             "id": [],
             "eventtype": [],
             "time": [],
             "value": [],
-        }))
-        self.intervals = intervals if intervals is not None else IntervalSet(pd.DataFrame({
+        }))]
+        self.intervals = intervals if intervals is not None else [IntervalSet(pd.DataFrame({
             "id": [],
             "starttime": [],
             "endtime": [],
             "intervaltype": [],
             "value": []
-        }))
+        }))]
         self.parser = lark.Lark(GRAMMAR, parser="earley")
         self.eventtype_macros = eventtype_macros
         if cache_fs is not None: self.cache = QueryResultCache(cache_fs)
@@ -1005,7 +1026,7 @@ if __name__ == '__main__':
         'value': np.random.uniform(0, 100)
     } for _ in range(10)]))
 
-    dataset = TrajectoryDataset(attributes, events, intervals)
+    dataset = QueryEngine(attributes, events, intervals)
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
     # print(dataset.query("min {e1} from #now - 30 seconds to #now cut 3 quantiles impute 'Missing' at every {e1} from #mintime to #maxtime"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))

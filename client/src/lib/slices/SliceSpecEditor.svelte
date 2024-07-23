@@ -1,14 +1,24 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, getContext, onMount } from 'svelte';
   import type { SliceFilter, SliceSpec, VariableDefinition } from '../model';
   import VariableEditorPanel from '../model_editor/VariableEditorPanel.svelte';
   import { areObjectsEqual, deepCopy } from '../slices/utils/utils';
-  import { faRotateRight } from '@fortawesome/free-solid-svg-icons';
+  import {
+    faChevronLeft,
+    faRotateRight,
+  } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
+  import type { Writable } from 'svelte/store';
+  import { scoreFunctionToString, type ScoreFunction } from './scorefunctions';
+  import ScoreFunctionPanel from './ScoreFunctionPanel.svelte';
+
+  let { currentDataset }: { currentDataset: Writable<string | null> } =
+    getContext('dataset');
 
   const dispatch = createEventDispatcher();
   export let sliceSpec: string = 'default';
   export let timestepDefinition: string = '';
+  export let specChanged = false;
 
   let specs: { [key: string]: SliceSpec } = {};
   let loadingSpecs: boolean = false;
@@ -18,7 +28,7 @@
   async function loadSpecs() {
     try {
       loadingSpecs = true;
-      let response = await fetch('/slices/specs');
+      let response = await fetch(`/datasets/${$currentDataset}/slices/specs`);
       specs = await response.json();
       loadingSpecs = false;
     } catch (e) {
@@ -30,29 +40,18 @@
   onMount(loadSpecs);
 
   let specVariables: { [key: string]: VariableDefinition } | null = null;
-  let sliceFilter: SliceFilter | null = null;
   $: !!specs[sliceSpec] && resetSpec();
 
-  let specChanged = false;
   $: {
     specChanged = !areObjectsEqual(specs[sliceSpec], {
       variables: specVariables,
-      slice_filter: sliceFilter,
     });
-    console.log(
-      'changed:',
-      specChanged,
-      specs[sliceSpec],
-      specVariables,
-      sliceFilter
-    );
   }
 
   async function saveSpec(overwrite: boolean) {
     if (!specVariables) return;
     let newSpec: SliceSpec = {
       variables: specVariables,
-      slice_filter: sliceFilter ?? { type: 'base' },
     };
     let newSpecName: string = sliceSpec;
     if (!overwrite)
@@ -69,17 +68,22 @@
     savingSpecs = true;
 
     try {
-      let status = await fetch(`/slices/specs/${newSpecName}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(newSpec),
-      });
+      let status = await fetch(
+        `/datasets/${$currentDataset}/slices/specs/${newSpecName}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(newSpec),
+        }
+      );
       savingSpecs = false;
-      if (status.status == 200) dispatch('dismiss', newSpecName);
-      else {
+      if (status.status != 200) {
         saveError = await status.text();
+      } else {
+        sliceSpec = newSpecName;
+        await loadSpecs();
       }
     } catch (e) {
       saveError = `${e}`;
@@ -90,10 +94,8 @@
   function resetSpec() {
     if (!!sliceSpec) {
       specVariables = deepCopy(specs[sliceSpec].variables);
-      sliceFilter = deepCopy(specs[sliceSpec].slice_filter);
     } else {
       specVariables = null;
-      sliceFilter = null;
     }
   }
 </script>
@@ -124,69 +126,40 @@
     </div>
   </div>
 {:else}
-  <div class="w-full h-full flex flex-col">
-    <div class="w-full py-4 px-4 flex justify-between">
-      <div class="font-bold">Slice Specifications</div>
-      <div class="text-sm">
-        Saved specifications: <select
-          class="ml-1 flat-select"
-          bind:value={sliceSpec}
-        >
-          {#each Object.keys(specs) as specName}
-            <option value={specName}>{specName}</option>
-          {/each}
-        </select>
-        {#if specChanged}
-          <button class="ml-2 my-1 hover:opacity-50" on:click={resetSpec}>
-            <Fa icon={faRotateRight} class="inline" />
-          </button>
-        {/if}
-      </div>
-    </div>
+  <div class="w-full h-full overflow-y-auto pb-4">
     {#if !!saveError}
-      <div class="rounded mx-4 my-2 p-3 text-red-500 bg-red-50">
+      <div class="rounded my-2 p-3 text-red-500 bg-red-50">
         Error: <span class="font-mono">{saveError}</span>
       </div>
     {/if}
-    <h3 class="px-4 font-bold mt-2 mb-1">Slicing Variables</h3>
-    <div class="w-full flex-auto min-h-0 px-4">
-      {#if !!specVariables}
-        <VariableEditorPanel
-          {timestepDefinition}
-          bind:inputVariables={specVariables}
-        />
-      {/if}
-    </div>
-    <div class="mt-2 flex gap-2 justify-end items-center mb-4 mx-4">
-      {#if specChanged && sliceSpec != 'default'}
-        <div class="text-slate-500 text-xs mr-2">
-          Overwriting a specification will clear slices found using that
-          specification.
-        </div>
-      {/if}
-      <button
-        class="my-1 btn btn-slate"
-        on:click={() => dispatch('dismiss', null)}
-      >
-        Cancel
-      </button>
-      {#if specChanged}
-        {#if sliceSpec != 'default'}
-          <button class="my-1 btn btn-blue" on:click={() => saveSpec(true)}>
+    <div class="mt-2 mb-1 flex items-center w-full gap-2">
+      <div class="font-bold">Slicing Variables</div>
+      <select class="flat-select shrink min-w-0" bind:value={sliceSpec}>
+        {#each Object.keys(specs) as specName}
+          <option value={specName}>{specName}</option>
+        {/each}
+      </select>
+      <div class="flex gap-2 items-center justify-end flex-auto">
+        {#if specChanged}
+          <button class="btn btn-slate" on:click={resetSpec}> Reset </button>
+          <button class="btn btn-blue" on:click={() => saveSpec(true)}>
             Overwrite
           </button>
+          <button class="btn btn-blue" on:click={() => saveSpec(false)}>
+            Save As New...
+          </button>
         {/if}
-        <button class="my-1 btn btn-blue" on:click={() => saveSpec(false)}>
-          Save as New Specification...
-        </button>
-      {:else}
-        <button
-          class="my-1 btn btn-blue"
-          on:click={() => dispatch('dismiss', sliceSpec)}
-        >
-          Use Specification
-        </button>
-      {/if}
+      </div>
     </div>
+    <div class="text-slate-500 text-xs mb-2">
+      Use combinations of the following categorical variables to define slices:
+    </div>
+    {#if !!specVariables}
+      <VariableEditorPanel
+        {timestepDefinition}
+        fillHeight={false}
+        bind:inputVariables={specVariables}
+      />
+    {/if}
   </div>
 {/if}

@@ -27,14 +27,16 @@
 
   const dispatch = createEventDispatcher();
 
-  export let model: ModelSummary;
-  export let metrics: ModelMetrics;
-  export let modelName: string;
-  export let isActive: boolean;
-  export let isChecked: boolean;
-  export let metricToShow: string;
-  export let customMetrics: { [key: string]: SliceMetric } | undefined =
-    undefined;
+  export let displayItem: {
+    name: string;
+    description?: string | null;
+    output_values?: any[];
+  } | null = null;
+  export let displayItemType: string = 'model'; // for tooltips
+  export let metrics: ModelMetrics | null = null;
+  export let isActive: boolean = false;
+  export let isChecked: boolean = false;
+  export let metricToShow: string | null = null;
   export let showCheckbox: boolean = true;
   export let allowCheck: boolean = true;
   export let checkDisabledReason: string | null = null;
@@ -50,21 +52,7 @@
   let hovering = false;
 
   let metricValues: { [key: string]: SliceMetric | null } | undefined;
-  $: if (!!customMetrics)
-    metricValues = {
-      Timesteps: {
-        type: 'binary',
-        mean: customMetrics['Timesteps']?.count ?? 0,
-      },
-      Trajectories: {
-        type: 'binary',
-        mean: customMetrics['Trajectories']?.count ?? 0,
-      },
-      [metricToShow]: customMetrics[metricToShow] ?? null,
-      Labels: customMetrics['Labels'] ?? null,
-      Predictions: customMetrics['Predictions'] ?? null,
-    };
-  else if (!!model && !!metrics)
+  $: if (!!displayItem && !!metrics)
     metricValues = {
       Timesteps: {
         type: 'binary',
@@ -87,7 +75,7 @@
   else metricValues = undefined;
 
   let newName: string | null = null;
-  $: if (isEditingName && newName == null) newName = modelName;
+  $: if (isEditingName && newName == null) newName = displayItem?.name ?? null;
   else if (!isEditingName) newName = null;
   let oldEditBox: HTMLInputElement;
   let editBox: HTMLInputElement;
@@ -110,82 +98,88 @@
   on:mouseenter={() => (hovering = true)}
   on:mouseleave={() => (hovering = false)}
 >
-  <div
-    class="font-mono p-2 text-sm flex grow shrink items-center gap-2"
-    style="flex-basis: 0; min-width: 240px;"
-  >
-    {#if showCheckbox}
-      <div
-        class="grow-0 shrink-0"
-        style="width: {SidebarTableWidths.Checkbox}px;"
-      >
-        {#if !allowCheck && !!checkDisabledReason}
-          <Tooltip title={checkDisabledReason} position="right">
-            <Checkbox disabled={isActive || !allowCheck} checked={isChecked} />
-          </Tooltip>
+  {#if !!displayItem}
+    <div
+      class="font-mono p-2 text-sm flex grow shrink items-center gap-2"
+      style="flex-basis: 0; min-width: 240px;"
+    >
+      {#if showCheckbox}
+        <div
+          class="grow-0 shrink-0"
+          style="width: {SidebarTableWidths.Checkbox}px;"
+        >
+          {#if !allowCheck && !!checkDisabledReason}
+            <Tooltip title={checkDisabledReason} position="right">
+              <Checkbox
+                disabled={isActive || !allowCheck}
+                checked={isChecked}
+              />
+            </Tooltip>
+          {:else}
+            <Checkbox
+              disabled={isActive || !allowCheck}
+              checked={isChecked}
+              on:change={(e) => dispatch('toggle')}
+            />
+          {/if}
+        </div>
+      {/if}
+      <div class="flex-auto min-w-0">
+        {#if isEditingName}
+          <form
+            class="w-full"
+            on:submit|preventDefault={() =>
+              dispatch('rename', { old: displayItem.name, new: newName })}
+          >
+            <div class="flex w-full items-center gap-2">
+              <input
+                type="text"
+                class="flat-text-input flex-auto"
+                bind:value={newName}
+                bind:this={editBox}
+                on:blur={() => setTimeout(() => dispatch('canceledit'), 100)}
+              />
+              <button
+                class="bg-transparent hover:opacity-60 text-slate-600 text-lg"
+                type="button"
+                on:mousedown|preventDefault|stopPropagation={() => {}}
+                on:click|stopPropagation={() => {
+                  dispatch('canceledit');
+                }}
+                title="Cancel the rename"><Fa icon={faXmark} /></button
+              >
+              <button
+                class="bg-transparent hover:opacity-60 text-slate-600 text-lg disabled:opacity-50"
+                type="submit"
+                disabled={!newName || newName.length == 0}
+                title="Save the renamed {displayItemType}"
+                ><Fa icon={faCheck} /></button
+              >
+            </div>
+          </form>
         {:else}
-          <Checkbox
-            disabled={isActive || !allowCheck}
-            checked={isChecked}
-            on:change={(e) => dispatch('toggle')}
-          />
+          <div class="whitespace-nowrap truncate">
+            {#if !!metrics && metricsHaveWarnings(metrics)}
+              <Fa class="text-orange-300 inline" icon={faWarning} />
+            {/if}
+            {displayItem?.name ?? ''}
+          </div>
+        {/if}
+        {#if !!displayItem?.description}
+          <div class="text-slate-500 font-sans text-xs line-clamp-2">
+            {removeMd(displayItem?.description ?? '')}
+          </div>
+        {/if}
+        {#if differences.length > 0}
+          <div class="text-xs text-slate-500 font-sans">
+            <strong>&Delta;:</strong>
+            {differences.join(', ')}
+          </div>
         {/if}
       </div>
-    {/if}
-    <div class="flex-auto min-w-0">
-      {#if isEditingName}
-        <form
-          class="w-full"
-          on:submit|preventDefault={() =>
-            dispatch('rename', { old: modelName, new: newName })}
-        >
-          <div class="flex w-full items-center gap-2">
-            <input
-              type="text"
-              class="flat-text-input flex-auto"
-              bind:value={newName}
-              bind:this={editBox}
-              on:blur={() => setTimeout(() => dispatch('canceledit'), 100)}
-            />
-            <button
-              class="bg-transparent hover:opacity-60 text-slate-600 text-lg"
-              type="button"
-              on:mousedown|preventDefault|stopPropagation={() => {}}
-              on:click|stopPropagation={() => {
-                dispatch('canceledit');
-              }}
-              title="Cancel the rename"><Fa icon={faXmark} /></button
-            >
-            <button
-              class="bg-transparent hover:opacity-60 text-slate-600 text-lg disabled:opacity-50"
-              type="submit"
-              disabled={!newName || newName.length == 0}
-              title="Save the renamed model"><Fa icon={faCheck} /></button
-            >
-          </div>
-        </form>
-      {:else}
-        <div class="whitespace-nowrap truncate">
-          {#if !!metrics && metricsHaveWarnings(metrics)}
-            <Fa class="text-orange-300 inline" icon={faWarning} />
-          {/if}
-          {modelName}
-        </div>
-      {/if}
-      {#if !!model.description}
-        <div class="text-slate-500 font-sans text-xs line-clamp-2">
-          {removeMd(model.description)}
-        </div>
-      {/if}
-      {#if differences.length > 0}
-        <div class="text-xs text-slate-500 font-sans">
-          <strong>&Delta;:</strong>
-          {differences.join(', ')}
-        </div>
-      {/if}
     </div>
-  </div>
-  {#if hovering && !isEditingName}
+  {/if}
+  {#if hovering && !isEditingName && !!displayItem}
     <div
       class="grow-0 shrink-0"
       style="width: {SidebarTableWidths.Checkbox}px;"
@@ -202,22 +196,23 @@
             href="#"
             tabindex="0"
             role="menuitem"
-            title="Duplicate this model"
-            on:click={() => dispatch('duplicate', modelName)}>Duplicate</a
+            title="Duplicate this {displayItemType}"
+            on:click={() => dispatch('duplicate', displayItem.name)}
+            >Duplicate</a
           >
           <a
             href="#"
             tabindex="0"
             role="menuitem"
-            title="Rename this model"
-            on:click={() => dispatch('editname', modelName)}>Rename...</a
+            title="Rename this {displayItemType}"
+            on:click={() => dispatch('editname', displayItem.name)}>Rename...</a
           >
           <a
             href="#"
             tabindex="0"
             role="menuitem"
-            title="Permanently delete this model"
-            on:click={() => dispatch('delete', modelName)}>Delete</a
+            title="Permanently delete this {displayItemType}"
+            on:click={() => dispatch('delete', displayItem.name)}>Delete</a
           >
         </div>
       </ActionMenuButton>
@@ -328,7 +323,7 @@
             title={'Labels'}
             horizontalLayout
             colorScale={makeCategoricalColorScale(MetricColors.Labels)}
-            order={model.output_values ??
+            order={displayItem?.output_values ??
               Object.keys(metric.counts ?? {}).sort()}
             counts={metric.counts}
           />
@@ -380,213 +375,12 @@
             title={'Predictions'}
             horizontalLayout
             colorScale={makeCategoricalColorScale(MetricColors.Predictions)}
-            order={model.output_values ??
+            order={displayItem?.output_values ??
               Object.keys(metric.counts ?? {}).sort()}
             counts={metric.counts}
           />
         {/if}
       {/if}
-
-      <!-- {#each metricNames as name, i}
-    {@const metric = sliceForScores.metrics[name]}
-
-    {#if !!metricInfo[name] && metricInfo[name].visible}
-      {#if metric.type == 'binary'}
-        <div class="font-bold text-right">{name}</div>
-        <SliceMetricBar
-          value={metric.mean}
-          color={ColorWheel[i]}
-          width={null}
-          showFullBar
-          horizontalLayout
-          showTooltip={false}
-        />
-        <div>
-          <strong>{format('.1%')(metric.mean)}</strong>
-        </div>
-      {:else if metric.type == 'count'}
-        <div class="font-bold text-right">{name}</div>
-        <SliceMetricBar
-          value={metric.share}
-          width={null}
-          color={ColorWheel[i]}
-          showFullBar
-          horizontalLayout
-          showTooltip={false}
-        />
-        <div>
-          <strong>{format(',')(metric.count)}</strong>
-          <span style="font-size: 0.7rem;" class="italic text-gray-700"
-            >({format('.1%')(metric.share)})</span
-          >
-        </div>
-      {:else if metric.type == 'continuous'}
-        <SliceMetricHistogram
-          noParent
-          title={name}
-          width={null}
-          horizontalLayout
-          mean={metric.mean}
-          color={ColorWheel[i]}
-          histValues={metric.hist}
-        />
-      {:else if metric.type == 'categorical'}
-        <SliceMetricCategoryBar
-          noParent
-          width={null}
-          title={name}
-          horizontalLayout
-          colorScale={makeCategoricalColorScale(ColorWheel[i])}
-          order={metricInfo[name].order}
-          counts={metric.counts}
-        />
-      {/if}
-    {/if}
-  {/each}
-</div>
-
-    <div
-      class="p-2 grow-0 shrink-0"
-      style="width: {SidebarTableWidths.Metric}px;"
-    >
-      <SliceMetricBar
-        value={metricValues['Timesteps']?.mean ?? 0}
-        scale={metricScales['Timesteps'] ?? ((v) => v)}
-        color={MetricColors.Timesteps}
-        width={SidebarTableWidths.Metric - 20}
-      >
-        <span slot="caption">
-          <strong>{countFormat(metricValues['Timesteps']?.mean ?? 0)}</strong>
-        </span>
-      </SliceMetricBar>
-    </div>
-    <div
-      class="p-2 grow-0 shrink-0"
-      style="width: {SidebarTableWidths.Metric}px;"
-    >
-      <SliceMetricBar
-        value={metricValues['Trajectories']?.mean ?? 0}
-        scale={metricScales['Trajectories'] ?? ((v) => v)}
-        color={MetricColors.Trajectories}
-        width={SidebarTableWidths.Metric - 20}
-      >
-        <span slot="caption">
-          <strong>{countFormat(metricValues['Trajectories']?.mean ?? 0)}</strong
-          >
-        </span>
-      </SliceMetricBar>
-    </div>
-    <div
-      class="p-2 grow-0 shrink-0"
-      style="width: {SidebarTableWidths.Metric}px;"
-    >
-      {#if !metricValues[metricToShow] && !metricValues.Predictions}
-        <Tooltip title="Not enough data"><span>&mdash;</span></Tooltip>
-      {:else if !!metricValues[metricToShow]}
-        {@const metric = metricValues[metricToShow]}
-        <SliceMetricBar
-          value={metric?.value ?? 0}
-          scale={metricScales[metricToShow] ?? ((v) => v)}
-          color={MetricColors.Accuracy}
-          width={SidebarTableWidths.Metric - 20}
-        >
-          <span slot="caption">
-            <strong
-              >{decimalMetrics.includes(metricToShow)
-                ? decimalFormat(metric?.value ?? 0)
-                : accuracyFormat(metric?.value ?? 0)}</strong
-            >
-          </span>
-        </SliceMetricBar>
-      {:else}
-        &mdash;
-      {/if}
-    </div>
-    <div
-      class="p-2 grow-0 shrink-0 whitespace-nowrap"
-      style="width: {SidebarTableWidths.Metric}px;"
-    >
-      {#if !!metricValues.Labels}
-        {@const metric = metricValues.Labels}
-        {#if metric.type == 'binary'}
-          <SliceMetricBar
-            value={metric.mean}
-            color={MetricColors.Labels}
-            width={SidebarTableWidths.Metric - 20}
-          >
-            <span slot="caption">
-              <strong>{d3.format('.1%')(metric?.mean ?? 0)}</strong> pos.
-            </span>
-          </SliceMetricBar>
-        {:else if metric.type == 'numeric'}
-          <SliceMetricBar
-            value={metric.value}
-            color={MetricColors.Labels}
-            width={SidebarTableWidths.Metric - 20}
-          >
-            <span slot="caption">
-              <strong>{d3.format(',.3~')(metric?.value ?? 0)}</strong>
-            </span>
-          </SliceMetricBar>
-        {:else if metric.type == 'continuous'}
-          <SliceMetricHistogram
-            mean={metric.mean}
-            histValues={metric.hist}
-            color={MetricColors.Labels}
-            width={SidebarTableWidths.Metric - 20}
-          />
-        {:else if metric.type == 'categorical'}
-          <SliceMetricCategoryBar
-            order={model.output_values ??
-              Object.keys(metric.counts ?? {}).sort()}
-            counts={metric.counts}
-            width={SidebarTableWidths.Metric - 20}
-          />
-        {/if}
-      {/if}
-    </div>
-    <div
-      class="p-2 grow-0 shrink-0 whitespace-nowrap"
-      style="width: {SidebarTableWidths.Metric}px;"
-    >
-      {#if !!metricValues.Predictions}
-        {@const metric = metricValues.Predictions}
-        {#if metric.type == 'binary'}
-          <SliceMetricBar
-            value={metric.mean}
-            color={MetricColors.Predictions}
-            width={SidebarTableWidths.Metric - 20}
-          >
-            <span slot="caption">
-              <strong>{d3.format('.1%')(metric?.mean ?? 0)}</strong> pos.
-            </span>
-          </SliceMetricBar>
-        {:else if metric.type == 'numeric'}
-          <SliceMetricBar
-            value={metric.value}
-            color={MetricColors.Predictions}
-            width={SidebarTableWidths.Metric - 20}
-          >
-            <span slot="caption">
-              <strong>{d3.format(',.3~')(metric?.value ?? 0)}</strong>
-            </span>
-          </SliceMetricBar>
-        {:else if metric.type == 'continuous'}
-          <SliceMetricHistogram
-            mean={metric.mean}
-            histValues={metric.hist}
-            color={MetricColors.Predictions}
-            width={SidebarTableWidths.Metric - 20}
-          />
-        {:else if metric.type == 'categorical'}
-          <SliceMetricCategoryBar
-            order={model.output_values ??
-              Object.keys(metric.counts ?? {}).sort()}
-            counts={metric.counts}
-            width={SidebarTableWidths.Metric - 20}
-          />
-        {/if}
-      {/if}-->
     </div>
   {/if}
 </div>

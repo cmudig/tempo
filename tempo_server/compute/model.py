@@ -9,14 +9,21 @@ from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve
 from divisi.utils import convert_to_native_types
 
 class Model:
-    def __init__(self, model_fs):
+    def __init__(self, model_fs, result_fs=None):
         super().__init__()
         self.fs = model_fs
+        self.result_fs = result_fs if result_fs is not None else model_fs
+        self.predictions = None
+        self.metrics = None
+        self.spec = None
         
     def get_spec(self):
-        return self.fs.read_file("spec.json")
+        if self.spec is None:
+            self.spec = self.fs.read_file("spec.json")
+        return self.spec
     
     def write_draft_spec(self, draft):
+        self.spec = None
         try:
             meta = self.get_spec()
         except:
@@ -32,10 +39,33 @@ class Model:
         
     def write_spec(self, new_spec):
         self.fs.write_file(new_spec, "spec.json")
+        self.spec = new_spec
         
     def get_metrics(self):
-        return self.fs.read_file("metrics.json")
+        if self.metrics is None:
+            self.metrics = self.result_fs.read_file("metrics.json")
+        return self.metrics
     
+    def get_true_labels(self, split):
+        """split can be 'val' or 'test'."""
+        assert split in ('val', 'test'), f"Unknown split for model labels: '{split}'"
+        if not self.predictions:
+            self.predictions = tuple(x.astype(np.float64) for x in self.result_fs.read_file("preds.pkl"))
+        if split == 'val': return self.predictions[0]
+        return self.predictions[2]
+    
+    def get_model_predictions(self, split):
+        """split can be 'val' or 'test'."""
+        assert split in ('val', 'test'), f"Unknown split for model labels: '{split}'"
+        if not self.predictions:
+            self.predictions = tuple(x.astype(np.float64) for x in self.result_fs.read_file("preds.pkl"))
+        if split == 'val': return self.predictions[1]
+        return self.predictions[3]
+    
+    def get_optimal_threshold(self):
+        metrics = self.get_metrics()
+        return metrics["threshold"]
+        
     @classmethod
     def blank_spec(cls):
         return {
@@ -48,6 +78,15 @@ class Model:
             "outcome": "",
             "description": "",
         }
+        
+    def copy_to(self, model_fs, result_fs=None):
+        """Copies the contents to the given new locations, and returns a Model at the new locations."""
+        if self.fs.exists("spec.json"):
+            self.fs.copy_file(model_fs, "spec.json")
+        for fname in ["metrics.json", "model.json", "preds.pkl"]:
+            if self.result_fs.exists(fname):
+                self.result_fs.copy_file(result_fs, fname)
+        return Model(model_fs, result_fs)
         
     def _compute_predictions(self, model, model_type, X):
         if model_type == "regression":
@@ -63,36 +102,38 @@ class Model:
         result[apply_mask] = preds
         return result
     
-    def make_modeling_variables(self, dataset, variable_definitions, timestep_definition, update_fn=None):
+    def make_modeling_variables(self, query_engine, spec, update_fn=None, dummies=True):
         """Creates the variables dataframe."""
-        query = make_query(variable_definitions, timestep_definition)
+        query = make_query(spec["variables"], spec["timestep_definition"])
         print(query)
         if update_fn is not None:
             def prog(num_completed, num_total):
                 update_fn({'message': f'Loading variables ({num_completed} / {num_total})', 'progress': num_completed / num_total})
         else:
             prog = None
-        modeling_variables = dataset.query(query, update_fn=prog)
+        modeling_variables = query_engine.query(query, update_fn=prog)
         modeling_df = modeling_variables.values
 
-        print("Before:", modeling_df.shape)
-        modeling_df = pd.get_dummies(modeling_df, 
-                                    columns=[c for c in modeling_df.columns 
-                                            if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
-                                            or pd.api.types.is_string_dtype(modeling_df[c].dtype) 
-                                            or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)])
-        print("After:", modeling_df.shape)
+        if dummies:
+            print("Before:", modeling_df.shape)
+            modeling_df = pd.get_dummies(modeling_df, 
+                                        columns=[c for c in modeling_df.columns 
+                                                if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
+                                                or pd.api.types.is_string_dtype(modeling_df[c].dtype) 
+                                                or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)])
+            print("After:", modeling_df.shape)
 
         del modeling_variables
         return modeling_df
 
     def make_model(self, dataset, spec, modeling_df=None, update_fn=None):
+        query_engine = dataset.make_query_engine()
         if modeling_df is None:
             if update_fn is not None: update_fn({'message': 'Loading variables'})
-            modeling_df = self.make_modeling_variables(dataset, spec["variables"], spec["timestep_definition"], update_fn=update_fn)
+            modeling_df = self.make_modeling_variables(query_engine, spec, update_fn=update_fn)
             
         if update_fn is not None: update_fn({'message': 'Loading target variable'})
-        outcome = dataset.query("(" + spec['outcome'] + 
+        outcome = query_engine.query("(" + spec['outcome'] + 
                                     (f" where ({spec['cohort']})" if spec.get('cohort', '') else '') + ") " + 
                                     spec["timestep_definition"])
         print((~pd.isna(outcome.get_values())).sum())
@@ -143,17 +184,17 @@ class Model:
                            indent=2)
         
         # Save out the metrics    
-        self.fs.write_file(convert_to_native_types(metrics),
+        self.result_fs.write_file(convert_to_native_types(metrics),
                            "metrics.json")
             
         # Save out the model itself and its predictions
         with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
             model.save_model(model_file.name)
             model_file.seek(0)
-            self.fs.write_file(model_file.read(), "model.json")
+            self.result_fs.write_file(model_file.read(), "model.json")
         
         # Save out the true values and prediction (probabilities)
-        self.fs.write_file(predictions, "preds.pkl")
+        self.result_fs.write_file(predictions, "preds.pkl")
         
         return model, metrics, predictions
         
