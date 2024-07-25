@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build-with-prefix": "vite build --base=/tempo/",
+    "build-with-prefix": "vite build --base=/tempo",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "autobuild": "vite build --watch"
