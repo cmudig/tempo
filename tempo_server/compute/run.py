@@ -24,10 +24,10 @@ def _get_dataset(filesystem, dataset_name):
     return cache_dataset[1]
 
 def _get_worker_sample_dataset(filesystem, dataset_name):
-    """Only used by the worker to get a full-size dataset"""
+    """Only used by the worker to get a sample dataset for the test set"""
     global cache_worker_sample_dataset
     if cache_worker_sample_dataset is None or cache_worker_sample_dataset[1] != dataset_name:
-        ds = Dataset(filesystem.subdirectory("datasets", dataset_name))
+        ds = Dataset(filesystem.subdirectory("datasets", dataset_name), "test")
         ds.load_data()
         cache_worker_sample_dataset = (dataset_name, ds)
     return cache_worker_sample_dataset[1]
@@ -76,18 +76,22 @@ def task_runner(filesystem, task_info, update_fn):
         dataset = _get_worker_sample_dataset(filesystem, task_info['dataset_name'])
         
         result = {}
+        query_engine = dataset.make_query_engine()
         update_fn({'message': 'Summarizing attributes'})
-        result["attributes"] = {attr_name: make_query_result_summary(dataset, dataset.attributes.get(attr_name))
-                                for attr_name in dataset.attributes.df.columns}
+        result["attributes"] = {attr_name: make_query_result_summary(query_engine, attr_set.get(attr_name))
+                                for attr_set in dataset.attributes
+                                for attr_name in attr_set.df.columns}
         update_fn({'message': 'Summarizing events'})
-        result["events"] = {eventtype: make_query_result_summary(dataset, dataset.events.get(eventtype))
-                            for eventtype in dataset.events.get_types().unique()}
+        result["events"] = {eventtype: make_query_result_summary(query_engine, event_set.get(eventtype))
+                            for event_set in dataset.events
+                            for eventtype in event_set.get_types().unique()}
         update_fn({'message': 'Summarizing intervals'})
-        result["intervals"] = {eventtype: make_query_result_summary(dataset, dataset.intervals.get(eventtype))
-                            for eventtype in dataset.intervals.get_types().unique()}
+        result["intervals"] = {eventtype: make_query_result_summary(query_engine, interval_set.get(eventtype))
+                               for interval_set in dataset.intervals
+                            for eventtype in interval_set.get_types().unique()}
         update_fn({'message': 'Generating report'})
         data_summary = convert_to_native_types(result)
-        cache_worker_sample_dataset[1].split_cache_dir.write_file(data_summary, "summary.json")
+        dataset.split_cache_dir.write_file(data_summary, "summary.json")
     elif cmd == Commands.GENERATE_QUERY_DOWNLOAD:
         update_fn({'message': 'Loading data'})
         dataset = _get_dataset(filesystem, task_info['dataset_name'])
