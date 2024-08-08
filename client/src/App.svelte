@@ -293,7 +293,7 @@
     <button
       class="mr-3 btn btn-dark-slate"
       on:click={() => (showingQueryReference = true)}
-      ><Fa icon={faBook} class="inline mr-2" /> Syntax Guide</button
+      ><Fa icon={faBook} class="inline mr-2" /> Syntax Reference</button
     >
     <button
       class="btn btn-dark-slate"

@@ -64,6 +64,7 @@
   export let isSelected = false;
   export let isEditing = false;
 
+  export let searchCriteriaName: string | null = null;
   export let showCheckbox: boolean = true;
   export let allowFavorite: boolean = true;
   export let allowEdit: boolean = true;
@@ -241,24 +242,21 @@
               SearchCriteriaMetricGroup,
               '0',
             ])}
-            <div
-              class="ml-2 mt-3 flex items-center w-1/3 gap-2"
-              style="max-width: 360px;"
-            >
-              <div class="text-slate-600">Search criteria</div>
+            <div class="ml-2 mt-3 flex items-center w-full gap-2">
+              <SliceMetricBar
+                value={metric.mean}
+                scale={(v) => v}
+                color={'#be185d'}
+                width={100}
+                horizontalLayout
+                showFullBar
+                showTooltip={false}
+              />
               <div class="flex-auto">
-                <SliceMetricBar
-                  value={metric.mean}
-                  scale={(v) => v}
-                  color={'#be185d'}
-                  width={null}
-                  horizontalLayout
-                  showFullBar
-                  showTooltip={false}
-                />
-              </div>
-              <div>
                 <strong>{format('.1%')(metric.mean)}</strong>
+                <span class="text-slate-600"
+                  >{searchCriteriaName ?? 'search criteria'}</span
+                >
               </div>
             </div>
           {/if}

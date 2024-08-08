@@ -101,18 +101,22 @@
     }
     try {
       let results = await (
-        await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${baseModel}/score`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            slices: requests,
-            score_function_spec: scoreFunctionSpec,
-            variable_spec_name: sliceSpec,
-            model_names: models,
-          }),
-        })
+        await fetch(
+          import.meta.env.BASE_URL +
+            `/datasets/${$currentDataset}/slices/${baseModel}/score`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              slices: requests,
+              score_function_spec: scoreFunctionSpec,
+              variable_spec_name: sliceSpec,
+              model_names: models,
+            }),
+          }
+        )
       ).json();
       return results.slices;
     } catch (e) {
@@ -279,6 +283,9 @@
         {valueNames}
         {allowedValues}
         bind:metricGroups
+        searchCriteriaName={scoreFunctionSpec.length > 0
+          ? scoreFunctionToString(scoreFunctionSpec[0])
+          : null}
         allowFavorite={true}
         allowMultiselect={false}
         metricInfo={(n) => getMetric(metricInfo, n)}
@@ -309,6 +316,9 @@
           showHeader={false}
           bind:sliceRequests={savedSliceRequests}
           bind:sliceRequestResults={savedSliceRequestResults}
+          searchCriteriaName={scoreFunctionSpec.length > 0
+            ? scoreFunctionToString(scoreFunctionSpec[0])
+            : null}
           {positiveOnly}
           {valueNames}
           {allowedValues}
@@ -341,6 +351,9 @@
             bind:selectedSlices
             bind:sliceRequests
             bind:sliceRequestResults
+            searchCriteriaName={scoreFunctionSpec.length > 0
+              ? scoreFunctionToString(scoreFunctionSpec[0])
+              : null}
             {positiveOnly}
             {valueNames}
             {allowedValues}

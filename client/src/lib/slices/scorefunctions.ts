@@ -88,6 +88,20 @@ function matchTemplates(scoreFn: ScoreFunction): string | undefined {
         rhs.rhs.value == 0)
     )
       return `${modelName} false positive`;
+    if (
+      lhs.lhs.property == 'label' &&
+      lhs.rhs.value == 1 &&
+      rhs.lhs.property == 'prediction' &&
+      rhs.rhs.value == 1
+    )
+      return `${modelName} true positive`;
+    if (
+      lhs.lhs.property == 'label' &&
+      lhs.rhs.value == 0 &&
+      rhs.lhs.property == 'prediction' &&
+      rhs.rhs.value == 0
+    )
+      return `${modelName} true negative`;
   }
 }
 

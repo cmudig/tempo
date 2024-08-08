@@ -66,6 +66,8 @@
   export let allowSearch: boolean = true;
   export let allowMultiselect: boolean = true;
 
+  export let searchCriteriaName: string | null = null;
+
   let editingSlice: string | null = null;
   let tempRevertedSlice: string | null = null;
 
@@ -306,6 +308,7 @@
       {metricGroups}
       {metricInfo}
       {metricGetter}
+      {searchCriteriaName}
       {allowedValues}
       {allowEdit}
       {allowFavorite}
@@ -354,6 +357,7 @@
       {metricGroups}
       {metricInfo}
       {metricGetter}
+      {searchCriteriaName}
       {allowedValues}
       {allowEdit}
       {allowFavorite}
