@@ -191,7 +191,10 @@
     if (!model) return null;
     try {
       saveError = null;
-      let result = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/${model}`);
+      let result = await fetch(
+        import.meta.env.BASE_URL +
+          `/datasets/${$currentDataset}/models/${model}`
+      );
       let spec = (await result.json()).spec;
       return spec;
     } catch (e) {
@@ -205,16 +208,19 @@
     newModelName = modelName;
     await Promise.all(
       [newModelName, ...otherModels].map((m) =>
-        fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name: m,
-            draft: {},
-          }),
-        })
+        fetch(
+          import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: m,
+              draft: {},
+            }),
+          }
+        )
       )
     );
     loadAllModelSpecs([modelName, ...otherModels]);
@@ -224,9 +230,13 @@
     try {
       await Promise.all(
         [modelName, ...otherModels].map((m) =>
-          fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/${m}`, {
-            method: 'DELETE',
-          })
+          fetch(
+            import.meta.env.BASE_URL +
+              `/datasets/${$currentDataset}/models/${m}`,
+            {
+              method: 'DELETE',
+            }
+          )
         )
       );
     } catch (e) {
@@ -250,23 +260,26 @@
     try {
       let modelsToSave = [newModelName, ...otherModels];
       for (let i = 0; i < modelsToSave.length; i++) {
-        let result = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name: modelsToSave[i],
-            spec: {
-              variables: inputVariables ?? allSpecs[i].variables,
-              outcome: outcomeVariable ?? allSpecs[i].outcome,
-              cohort: patientCohort ?? allSpecs[i].cohort,
-              timestep_definition:
-                timestepDefinition ?? allSpecs[i].timestep_definition,
-              description: description ?? allSpecs[i].description,
+        let result = await fetch(
+          import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
             },
-          }),
-        });
+            body: JSON.stringify({
+              name: modelsToSave[i],
+              spec: {
+                variables: inputVariables ?? allSpecs[i].variables,
+                outcome: outcomeVariable ?? allSpecs[i].outcome,
+                cohort: patientCohort ?? allSpecs[i].cohort,
+                timestep_definition:
+                  timestepDefinition ?? allSpecs[i].timestep_definition,
+                description: description ?? allSpecs[i].description,
+              },
+            }),
+          }
+        );
         if (result.status == 200) {
           saveError = null;
         } else {
@@ -324,16 +337,19 @@
           anyKeepsDraft = true;
         }
 
-        let result = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name: modelsToSave[i],
-            draft,
-          }),
-        });
+        let result = await fetch(
+          import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: modelsToSave[i],
+              draft,
+            }),
+          }
+        );
         if (result.status != 200) {
           saveError = await result.text();
           break;
@@ -363,7 +379,8 @@
     }
     try {
       let result = await fetch(
-        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models/${newName}`
+        import.meta.env.BASE_URL +
+          `/datasets/${$currentDataset}/models/${newName}`
       );
       if (result.status == 200) {
         saveError = 'A model with that name already exists.';
@@ -372,16 +389,19 @@
     } catch (e) {}
     newModelName = newName!;
     // reset the existing model (remove any drafts)
-    await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: modelName,
-        draft: {},
-      }),
-    });
+    await fetch(
+      import.meta.env.BASE_URL + `/datasets/${$currentDataset}/models`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: modelName,
+          draft: {},
+        }),
+      }
+    );
     await trainModel(true);
   }
 
@@ -390,7 +410,9 @@
   async function pollDownload() {
     if (!downloadTaskID) return;
     try {
-      let result = await (await fetch(import.meta.env.BASE_URL + `/tasks/${downloadTaskID}`)).json();
+      let result = await (
+        await fetch(import.meta.env.BASE_URL + `/tasks/${downloadTaskID}`)
+      ).json();
       if (result.status == 'complete') {
         saveError = null;
         downloadProgress = null;
@@ -421,20 +443,23 @@
         .filter((v) => v[1].enabled ?? true)
         .map(([varName, varObj]) => `${varName}: ${varObj.query}`)
         .join(',\n\t');
-      let response = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/download`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          queries: {
-            inputs: `(\n\t${inputVariableString}\n)\n${timestepDefinition}`,
-            target: `${outcomeVariable}${
-              !!patientCohort ? ' where (' + patientCohort + ')' : ''
-            } ${timestepDefinition}`,
+      let response = await fetch(
+        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/download`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-        }),
-      });
+          body: JSON.stringify({
+            queries: {
+              inputs: `(\n\t${inputVariableString}\n)\n${timestepDefinition}`,
+              target: `${outcomeVariable}${
+                !!patientCohort ? ' where (' + patientCohort + ')' : ''
+              } ${timestepDefinition}`,
+            },
+          }),
+        }
+      );
       if (response.status != 200) {
         saveError = await response.text();
         return;
@@ -497,11 +522,11 @@
     >
       {#if otherModels.length == 0}
         <h2 class="text-lg font-bold flex-auto">
-          Edit Model <span class="font-mono">{modelName}</span>
+          Specification for <span class="font-mono">{modelName}</span>
         </h2>
       {:else}
         <h2 class="text-lg font-bold flex-auto">
-          Edit {1 + otherModels.length} Models
+          Specification for {1 + otherModels.length} Models
         </h2>
       {/if}
       <div class="flex gap-2 items-center">
