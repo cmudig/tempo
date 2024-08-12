@@ -26,6 +26,8 @@ class LocalFilesystem:
         self.temporary = temporary
         
     def list_files(self, *path):
+        if not os.path.exists(os.path.join(self.base_path, *path)):
+            return []
         return [x for x in os.listdir(os.path.join(self.base_path, *path))
                 if not x.startswith(".")]
         
