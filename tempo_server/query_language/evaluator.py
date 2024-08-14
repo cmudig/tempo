@@ -313,13 +313,13 @@ class EvaluateExpression(lark.visitors.Transformer):
     def min_time(self, args):
         if self._mintimes is not None: return self._mintimes
         
-        event_times = pd.concat([event_set.get_times() for event_set in self.events]).reset_index(drop=True)
-        event_ids = pd.concat([event_set.get_ids() for event_set in self.events]).reset_index(drop=True)
-        event_mins = event_times.groupby(event_ids).agg("min")
+        event_times = np.concatenate([event_set.get_times() for event_set in self.events] if self.events else [np.array([])])
+        event_ids = np.concatenate([event_set.get_ids() for event_set in self.events] if self.events else [np.array([])])
+        event_mins = pd.Series(event_times, name='times').groupby(event_ids).agg("min")
         
-        interval_times = pd.concat([interval_set.get_start_times() for interval_set in self.intervals]).reset_index(drop=True)
-        interval_ids = pd.concat([interval_set.get_ids() for interval_set in self.intervals]).reset_index(drop=True)
-        interval_mins = interval_times.groupby(interval_ids).agg("min")
+        interval_times = np.concatenate([interval_set.get_start_times() for interval_set in self.interval] if self.intervals else [np.array([])])
+        interval_ids = np.concatenate([interval_set.get_ids() for interval_set in self.intervals] if self.intervals else [np.array([])])
+        interval_mins = pd.Series(interval_times, name='times').groupby(interval_ids).agg("min")
 
         ids = self.get_all_ids()
         all_mins = pd.merge(pd.Series(ids, name="id"), pd.merge(event_mins, interval_mins, how='outer', left_index=True, right_index=True), left_on="id", right_index=True).set_index("id").min(axis=1)
@@ -329,13 +329,13 @@ class EvaluateExpression(lark.visitors.Transformer):
     def max_time(self, args): 
         if self._maxtimes is not None: return self._maxtimes
         
-        event_times = pd.concat([event_set.get_times() for event_set in self.events]).reset_index(drop=True)
-        event_ids = pd.concat([event_set.get_ids() for event_set in self.events]).reset_index(drop=True)
-        event_maxes = event_times.groupby(event_ids).agg("max")
+        event_times = np.concatenate([event_set.get_times() for event_set in self.events] if self.events else [np.array([])])
+        event_ids = np.concatenate([event_set.get_ids() for event_set in self.events] if self.events else [np.array([])])
+        event_maxes = pd.Series(event_times, name='times').groupby(event_ids).agg("max")
         
-        interval_times = pd.concat([interval_set.get_start_times() for interval_set in self.intervals]).reset_index(drop=True)
-        interval_ids = pd.concat([interval_set.get_ids() for interval_set in self.intervals]).reset_index(drop=True)
-        interval_maxes = interval_times.groupby(interval_ids).agg("max")
+        interval_times = np.concatenate([interval_set.get_end_times() for interval_set in self.interval] if self.intervals else [np.array([])])
+        interval_ids = np.concatenate([interval_set.get_ids() for interval_set in self.intervals] if self.intervals else [np.array([])])
+        interval_maxes = pd.Series(interval_times, name='times').groupby(interval_ids).agg("max")
 
         ids = self.get_all_ids()
         all_maxes = pd.merge(pd.Series(ids, name="id"), pd.merge(event_maxes, interval_maxes, how='outer', left_index=True, right_index=True), left_on="id", right_index=True).set_index("id").max(axis=1)
