@@ -198,12 +198,10 @@ class Model:
         
         return model, metrics, predictions
         
-    def _train_model(self, spec, variables, outcomes, ids, train_mask, val_mask, test_mask, model_type="binary_classification", columns_to_drop=None, columns_to_add=None, row_mask=None, full_metrics=True, update_fn=None, **model_params):
+    def _train_model(self, spec, variables, outcomes, ids, train_mask, val_mask, test_mask, model_type="binary_classification", row_mask=None, full_metrics=True, update_fn=None, **model_params):
         """
         variables: a dataframe containing variables for all patients
         """
-        variables = variables.drop(columns=[c for c in variables.columns
-                                            if columns_to_drop is not None and re.search(columns_to_drop, c) is not None])
         if row_mask is None: row_mask = np.ones(len(variables), dtype=bool)
         train_X = variables[train_mask & row_mask].values
         train_y = outcomes[train_mask & row_mask]
@@ -220,10 +218,6 @@ class Model:
             train_y = train_y.astype(int)
             val_y = val_y.astype(int)
             test_y = test_y.astype(int)
-        if columns_to_add is not None:
-            train_X = np.hstack([train_X, columns_to_add[train_mask & row_mask].values])
-            val_X = np.hstack([val_X, columns_to_add[val_mask & row_mask].values])
-            test_X = np.hstack([test_X, columns_to_add[test_mask & row_mask].values])
         val_sample = np.random.uniform(size=len(val_X)) < 0.1
         
         print("Training", train_X.shape)
