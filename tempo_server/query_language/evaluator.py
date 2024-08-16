@@ -317,7 +317,7 @@ class EvaluateExpression(lark.visitors.Transformer):
         event_ids = np.concatenate([event_set.get_ids() for event_set in self.events] if self.events else [np.array([])])
         event_mins = pd.Series(event_times, name='times').groupby(event_ids).agg("min")
         
-        interval_times = np.concatenate([interval_set.get_start_times() for interval_set in self.interval] if self.intervals else [np.array([])])
+        interval_times = np.concatenate([interval_set.get_start_times() for interval_set in self.intervals] if self.intervals else [np.array([])])
         interval_ids = np.concatenate([interval_set.get_ids() for interval_set in self.intervals] if self.intervals else [np.array([])])
         interval_mins = pd.Series(interval_times, name='times').groupby(interval_ids).agg("min")
 
@@ -333,7 +333,7 @@ class EvaluateExpression(lark.visitors.Transformer):
         event_ids = np.concatenate([event_set.get_ids() for event_set in self.events] if self.events else [np.array([])])
         event_maxes = pd.Series(event_times, name='times').groupby(event_ids).agg("max")
         
-        interval_times = np.concatenate([interval_set.get_end_times() for interval_set in self.interval] if self.intervals else [np.array([])])
+        interval_times = np.concatenate([interval_set.get_end_times() for interval_set in self.intervals] if self.intervals else [np.array([])])
         interval_ids = np.concatenate([interval_set.get_ids() for interval_set in self.intervals] if self.intervals else [np.array([])])
         interval_maxes = pd.Series(interval_times, name='times').groupby(interval_ids).agg("max")
 
