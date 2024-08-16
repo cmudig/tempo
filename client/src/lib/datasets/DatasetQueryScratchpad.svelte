@@ -12,8 +12,10 @@
     performAutocomplete,
   } from '../utils/query_autocomplete';
   import type { Writable } from 'svelte/store';
-  import { faCheck } from '@fortawesome/free-solid-svg-icons';
+  import { faCheck, faChevronDown } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa';
+  import DatasetInfoView from './DatasetInfoView.svelte';
+  import QueryLanguageReferenceView from '../QueryLanguageReferenceView.svelte';
 
   let {
     dataFields,
@@ -29,6 +31,9 @@
   let queryInput: HTMLElement;
 
   let autocompleteVisible: boolean = false;
+
+  let showingDatasetInfo: boolean = false;
+  let showingQueryReference: boolean = false;
 
   let hints: string[] = [
     '{field}',
@@ -76,8 +81,6 @@
     }
     queryHistory = [finalQuery, ...queryHistory];
   }
-
-  $: if (query !== finalQuery) finalQuery = '';
 </script>
 
 <div class="w-full">
@@ -123,24 +126,24 @@
           >Evaluate</button
         >
         <button
+          class="btn {showingQueryReference ? 'btn-dark-slate' : 'btn-slate'}"
           on:click={() => {
-            query = '';
-            queryInput.focus();
-          }}
-          class="btn btn-slate">Clear</button
+            showingQueryReference = !showingQueryReference;
+            showingDatasetInfo = false;
+          }}>Syntax <Fa icon={faChevronDown} class="inline" /></button
         >
-        <button on:click={copyQuery} class="btn btn-slate">Copy Query</button>
-        <div
-          class="transition-opacity duration-300 text-slate-500 text-sm"
-          class:opacity-0={!copiedText}
+        <button
+          class="btn {showingDatasetInfo ? 'btn-dark-slate' : 'btn-slate'}"
+          on:click={() => {
+            showingDatasetInfo = !showingDatasetInfo;
+            showingQueryReference = false;
+          }}>Dataset Info <Fa icon={faChevronDown} class="inline" /></button
         >
-          <Fa icon={faCheck} class="inline mr-1" /> Copied to clipboard.
-        </div>
       </div>
     </div>
     <div
       class="text-sm w-48 shrink-0 grow-0 self-stretch ml-2 p-2"
-      class:hidden={finalQuery.length == 0 || finalQuery != query}
+      class:hidden={finalQuery.length == 0}
     >
       <QueryResultView
         query={finalQuery}
@@ -152,7 +155,18 @@
       />
     </div>
   </div>
-  {#if queryHistory.length > 0}
+  {#if showingDatasetInfo}
+    <div
+      class="w-full border-t border-slate-400 pb-4 overflow-y-auto"
+      style="max-height: 50vh;"
+    >
+      <DatasetInfoView showHeader={false} />
+    </div>
+  {:else if showingQueryReference}
+    <div class="w-full border-t border-slate-400" style="height: 50vh;">
+      <QueryLanguageReferenceView showHeader={false} />
+    </div>
+  {:else if queryHistory.length > 0}
     <div class="overflow-y-auto w-full border-t border-slate-400">
       {#each queryHistory as historyItem (historyItem)}
         <button

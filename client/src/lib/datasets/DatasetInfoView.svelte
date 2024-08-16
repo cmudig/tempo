@@ -26,6 +26,7 @@
     intervals: { [key: string]: QueryResult };
   };
   export let datasetInfo: DatasetInfo | null = null;
+  export let showHeader: boolean = true;
   let loadingInfo: boolean = false;
   let infoLoadStatus: {
     id: string;
@@ -92,18 +93,20 @@
 </script>
 
 <div class="flex flex-col w-full h-full">
-  <div class="w-full py-4 px-4 flex justify-between">
-    <div class="font-bold">
-      Dataset Info for <span class="font-mono"
-        >{$currentDataset ?? '(none)'}</span
+  {#if showHeader}
+    <div class="w-full py-4 px-4 flex justify-between">
+      <div class="font-bold">
+        Dataset Info for <span class="font-mono"
+          >{$currentDataset ?? '(none)'}</span
+        >
+      </div>
+      <button
+        class="text-slate-600 px-2 hover:opacity-50"
+        on:click={() => dispatch('close')}
+        ><Fa icon={faXmark} class="inline" /></button
       >
     </div>
-    <button
-      class="text-slate-600 px-2 hover:opacity-50"
-      on:click={() => dispatch('close')}
-      ><Fa icon={faXmark} class="inline" /></button
-    >
-  </div>
+  {/if}
   <div class="w-full flex-auto overflow-y-auto min-h-0 relative">
     {#if loadingInfo}
       <div class="w-full flex-auto flex flex-col items-center justify-center">

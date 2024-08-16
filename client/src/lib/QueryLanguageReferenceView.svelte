@@ -7,6 +7,8 @@
 
   let scrollParent: HTMLElement;
 
+  export let showHeader: boolean = false;
+
   function scrollTo(id: string) {
     let offset = scrollParent.querySelector(`#${id}`)?.offsetTop ?? 0;
     scrollParent.scrollTo({ top: offset, behavior: 'smooth' });
@@ -14,14 +16,16 @@
 </script>
 
 <div class="flex flex-col w-full h-full">
-  <div class="w-full py-4 px-4 flex justify-between">
-    <div class="font-bold">Tempo Query Language Reference</div>
-    <button
-      class="text-slate-600 px-2 hover:opacity-50"
-      on:click={() => dispatch('close')}
-      ><Fa icon={faXmark} class="inline" /></button
-    >
-  </div>
+  {#if showHeader}
+    <div class="w-full py-4 px-4 flex justify-between">
+      <div class="font-bold">Tempo Query Language Reference</div>
+      <button
+        class="text-slate-600 px-2 hover:opacity-50"
+        on:click={() => dispatch('close')}
+        ><Fa icon={faXmark} class="inline" /></button
+      >
+    </div>
+  {/if}
   <div class="w-full flex flex-auto min-h-0">
     <div
       class="w-1/5 px-3 h-full shrink-0"
