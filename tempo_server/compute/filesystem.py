@@ -25,6 +25,9 @@ class LocalFilesystem:
         self.readonly = readonly
         self.temporary = temporary
         
+    def __str__(self):
+        return f"<LocalFilesystem '{self.base_path}'{', readonly' if self.readonly else ''}{', temporary' if self.temporary else ''}>"
+        
     def list_files(self, *path):
         if not os.path.exists(os.path.join(self.base_path, *path)):
             return []
