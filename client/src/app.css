@@ -20,7 +20,8 @@
 .btn-blue:hover {
   @apply bg-blue-200;
 }
-.btn:disabled {
+.btn:disabled,
+.btn-sm:disabled {
   @apply opacity-30;
 }
 
@@ -214,4 +215,26 @@ input[type='search'].flat-text-input {
 
 .carta-viewer.carta-theme__tempo-preview {
   @apply prose;
+}
+
+.tempo-string {
+  @apply text-rose-700 font-mono;
+}
+
+.tempo-keyword {
+  @apply text-blue-700;
+}
+.tempo-function {
+  @apply text-violet-600 font-mono;
+}
+.tempo-constant {
+  @apply text-green-700 font-mono;
+}
+.tempo-data-field {
+  @apply text-black font-semibold font-mono;
+}
+
+.tempo-placeholder-token {
+  @apply rounded bg-blue-200/60 border border-blue-400 border-opacity-50;
+  padding: 0 calc(1ch - 1px);
 }

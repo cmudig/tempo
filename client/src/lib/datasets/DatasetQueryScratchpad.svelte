@@ -16,6 +16,11 @@
   import Fa from 'svelte-fa';
   import DatasetInfoView from './DatasetInfoView.svelte';
   import QueryLanguageReferenceView from '../QueryLanguageReferenceView.svelte';
+  import QueryEditorTextarea from '../model_editor/QueryEditorTextarea.svelte';
+  import {
+    QueryTemplatesNoTimestepDefs,
+    QueryTemplatesTimestepDefsOnly,
+  } from '../model_editor/querytemplates';
 
   let {
     dataFields,
@@ -28,7 +33,7 @@
   export let queryHistory: string[] = [];
   let query: string = '';
   let finalQuery: string = '';
-  let queryInput: HTMLElement;
+  let queryInput: QueryEditorTextarea;
 
   let autocompleteVisible: boolean = false;
 
@@ -64,13 +69,6 @@
     hintTimer = null;
   });
 
-  let copiedText: boolean = false;
-  function copyQuery() {
-    navigator.clipboard.writeText(queryInput.value);
-    copiedText = true;
-    setTimeout(() => (copiedText = false), 5000);
-  }
-
   function addToHistory() {
     if (queryHistory.includes(finalQuery)) {
       let idx = queryHistory.indexOf(finalQuery);
@@ -86,12 +84,17 @@
 <div class="w-full">
   <div class="flex items-stretch p-4 gap-4">
     <div class="flex-auto flex flex-col">
-      <div class="relative w-full flex-auto h-24 mb-2">
-        <textarea
-          class="resize-none appearance-none text-slate-700 font-mono p-2 caret-blue-600 leading-relaxed w-full h-full font-mono text-base focus:outline-none focus:border-blue-600"
-          spellcheck={false}
-          bind:value={query}
+      <div class="relative w-full flex-auto h-28 mb-2">
+        <QueryEditorTextarea
           bind:this={queryInput}
+          class="resize-none appearance-none p-2 caret-blue-600 leading-relaxed w-full h-20 focus:outline-none focus:border-blue-600"
+          textClass="font-mono text-base"
+          templates={[
+            ...QueryTemplatesNoTimestepDefs,
+            ...QueryTemplatesTimestepDefsOnly,
+          ]}
+          bind:value={query}
+          bind:autocompleteVisible
           placeholder={'Enter a query, such as: ' + hints[hintIndex]}
           on:keydown={(e) => {
             if (
@@ -105,21 +108,6 @@
             }
           }}
         />
-        {#if $dataFields.length > 0}
-          <TextareaAutocomplete
-            ref={queryInput}
-            resolveFn={(query, prefix) =>
-              getAutocompleteOptions($dataFields, query, prefix)}
-            replaceFn={performAutocomplete}
-            triggers={['{', '#', ',']}
-            delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
-            menuItemTextFn={(v) => v.value}
-            maxItems={3}
-            menuItemClass="p-2"
-            on:replace={(e) => (query = e.detail)}
-            bind:visible={autocompleteVisible}
-          />
-        {/if}
       </div>
       <div class="flex shrink-0 items-center gap-2">
         <button class="btn btn-blue" on:click={() => (finalQuery = query)}

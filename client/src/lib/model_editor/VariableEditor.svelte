@@ -1,21 +1,13 @@
 <script lang="ts">
   import { type VariableDefinition } from '../model';
   import Checkbox from '../utils/Checkbox.svelte';
-  import { createEventDispatcher, getContext } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import QueryResultView from '../QueryResultView.svelte';
   import { areObjectsEqual } from '../slices/utils/utils';
-  import TextareaAutocomplete from '../slices/utils/TextareaAutocomplete.svelte';
-  import {
-    getAutocompleteOptions,
-    performAutocomplete,
-  } from '../utils/query_autocomplete';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
-  import type { Writable } from 'svelte/store';
+  import QueryEditorTextarea from './QueryEditorTextarea.svelte';
 
   const dispatch = createEventDispatcher();
-
-  let { dataFields }: { dataFields: Writable<string[]> } =
-    getContext('dataset');
 
   export let varName: string = '';
   export let varInfo: VariableDefinition | null = null;
@@ -25,10 +17,12 @@
   export let showTableControls = true;
   export let autosave = false;
   export let isChecked = false;
+  export let templates: {
+    title: string;
+    children: { name: string; query: string }[];
+  }[] = [];
 
   export let timestepDefinition: string = '';
-
-  let queryInput: HTMLElement;
 
   let newVariableName: string | null = null;
   let newVariableQuery: string | null = null;
@@ -171,14 +165,12 @@
               <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
             {/if}
             <div class="relative w-full {showName ? 'h-24' : ''}">
-              <textarea
-                spellcheck={false}
-                class="flat-text-input w-full h-full font-mono"
+              <QueryEditorTextarea
                 style="field-sizing: content; {!showName
                   ? 'min-height: 84px;'
                   : ''}"
-                bind:this={queryInput}
                 bind:value={newVariableQuery}
+                {templates}
                 on:input={() => {
                   if (autosave) {
                     dispatch('save', {
@@ -187,18 +179,6 @@
                     });
                   }
                 }}
-              />
-              <TextareaAutocomplete
-                ref={queryInput}
-                resolveFn={(query, prefix) =>
-                  getAutocompleteOptions($dataFields, query, prefix)}
-                replaceFn={performAutocomplete}
-                triggers={['{', '#']}
-                delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
-                menuItemTextFn={(v) => v.value}
-                maxItems={3}
-                menuItemClass="p-2"
-                on:replace={(e) => (newVariableQuery = e.detail)}
               />
             </div>
           </div>

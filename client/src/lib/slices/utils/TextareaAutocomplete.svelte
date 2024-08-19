@@ -158,7 +158,7 @@
         ref.value[triggerIdx],
         preMention,
         postMention,
-        ref.value.substr(triggerIdx, ref.selectionStart)
+        ref.value.slice(triggerIdx, ref.selectionStart)
       );
       ref.setSelectionRange(triggerIdx, ref.selectionStart);
       document.execCommand('insertText', false, mention);

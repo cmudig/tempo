@@ -448,7 +448,7 @@
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 flex mt-24 items-start justify-center pointer-events-none"
     >
       <div
-        class="w-1/2 z-20 rounded-md bg-white pointer-events-auto shadow-lg overflow-hidden"
+        class="w-1/2 z-20 rounded-md bg-white pointer-events-auto shadow-lg"
         style="min-width: 300px; max-width: 70%;"
       >
         <DatasetQueryScratchpad bind:queryHistory />

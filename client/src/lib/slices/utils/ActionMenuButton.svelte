@@ -1,7 +1,11 @@
+<svelte:options accessors />
+
 <script lang="ts">
   import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
-  import { onMount } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import Fa from 'svelte-fa/src/fa.svelte';
+
+  const dispatch = createEventDispatcher();
 
   export let visible = false;
 
@@ -17,6 +21,8 @@
 
   export let singleClick: boolean = true;
 
+  export let allowFocus: boolean = true;
+
   let optionsMenuOpacity = 0.0;
   let optionsMenu: Element;
 
@@ -31,16 +37,19 @@
     }
   }
 
-  function showOptionsMenu() {
+  export function showOptionsMenu() {
     optionsMenuOpacity = 0;
     visible = true;
     setTimeout(() => (optionsMenuOpacity = 1.0), 10);
-    if (!!optionsMenu) optionsMenu.focus();
+    if (!!optionsMenu && allowFocus) optionsMenu.focus();
+    dispatch('show');
   }
 
-  function hideOptionsMenu() {
+  export function hideOptionsMenu(e: Event = undefined) {
+    if (!allowFocus && !!e) e.preventDefault();
     optionsMenuOpacity = 0;
     setTimeout(() => (visible = false), 200);
+    dispatch('hide');
   }
 
   function dismiss() {
@@ -55,7 +64,14 @@
     id="menu-button"
     title={buttonTitle}
     {disabled}
-    on:click|stopPropagation={showOptionsMenu}
+    on:click|stopPropagation={allowFocus ? showOptionsMenu : undefined}
+    on:mousedown={allowFocus
+      ? undefined
+      : (e) => {
+          showOptionsMenu();
+          e.preventDefault();
+          e.stopPropagation();
+        }}
     aria-expanded={visible}
     aria-label="Options menu"
     aria-haspopup="true"
@@ -68,11 +84,11 @@
     <div
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full"
       style="z-index: 999;"
-      on:click|stopPropagation={hideOptionsMenu}
+      on:mousedown|stopPropagation={hideOptionsMenu}
       on:keydown={(e) => {}}
     />
     <div
-      class="absolute left-0 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none transition-opacity duration-200"
+      class="absolute left-0 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none transition-opacity duration-200 overflow-visible"
       style="opacity: {optionsMenuOpacity}; width: {menuWidth}px; transform: translateX({align ==
       'right'
         ? '-100%'

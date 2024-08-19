@@ -24,6 +24,13 @@
   } from '../utils/query_autocomplete';
   import type { Writable } from 'svelte/store';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
+  import highlight from 'custom-syntax-highlighter';
+  import { highlightPatterns } from './syntaxhighlight';
+  import {
+    QueryTemplatesNoTimestepDefs,
+    QueryTemplatesTimestepDefsOnly,
+  } from './querytemplates';
+  import QueryEditorTextarea from './QueryEditorTextarea.svelte';
 
   let {
     currentDataset,
@@ -612,24 +619,12 @@
       Run the model at these time points in each trajectory:
     </div>
     {#if timestepDefinition !== null}
-      <textarea
-        spellcheck={false}
-        class="w-full font-mono flat-text-input"
-        bind:value={timestepDefinition}
-        bind:this={timestepEditor}
-      />
-      <TextareaAutocomplete
-        ref={timestepEditor}
-        resolveFn={(query, prefix) =>
-          getAutocompleteOptions($dataFields, query, prefix)}
-        replaceFn={performAutocomplete}
-        triggers={['{', '#']}
-        delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
-        menuItemTextFn={(v) => v.value}
-        maxItems={3}
-        menuItemClass="p-2"
-        on:replace={(e) => (timestepDefinition = e.detail)}
-      />
+      <div class="relative">
+        <QueryEditorTextarea
+          bind:value={timestepDefinition}
+          templates={QueryTemplatesTimestepDefsOnly}
+        />
+      </div>
     {:else}
       <div class="text-sm text-slate-600 mb-1">
         The selected models have multiple values. To modify all models, choose a
@@ -666,6 +661,7 @@
         varName="cohort"
         varInfo={{ query: patientCohort, category: '', enabled: true }}
         {timestepDefinition}
+        templates={QueryTemplatesNoTimestepDefs}
         showTableControls={false}
         showButtons={false}
         autosave
