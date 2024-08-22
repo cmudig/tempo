@@ -7,6 +7,8 @@ import uuid
 import pickle
 import datetime
 import time
+import logging
+import traceback
 from ..query_language.data_types import *
 from sklearn.metrics import roc_auc_score, confusion_matrix, r2_score, f1_score
 from .utils import make_query
@@ -389,6 +391,7 @@ class SliceFinder:
             try:
                 results_json = self.results_fs.read_file(matching_result["path"])
             except:
+                logging.info("Slice results file was removed")
                 # file was removed
                 self._results_cache[key] = [x for x in self._results_cache[key] if x != matching_result]
                 self.write_cache()
@@ -439,6 +442,7 @@ class SliceFinder:
             )
             results_json = convert_to_native_types([slice_obj.to_dict() for slice_obj in results])
         except Exception as e:
+            logging.info("Error loading model variables: " + traceback.format_exc())
             results_json = {"error": str(e)}
             
             self.results_fs.write_file(results_json, path)

@@ -9,9 +9,30 @@ import threading
 import _thread
 import uuid
 import traceback
+import logging
+import logging.handlers
 
 from functools import partial
 
+def listener_process(queue, path):
+    root = logging.getLogger()
+    h = logging.handlers.RotatingFileHandler(os.path.join(path, 'log.txt'), 'a', 100000, 10)
+    f = logging.Formatter('%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s')
+    h.setFormatter(f)
+    root.addHandler(h)
+    
+    while True:
+        try:
+            record = queue.get()
+            if record is None:  # We send this as a sentinel to tell the listener to quit.
+                break
+            logger = logging.getLogger(record.name)
+            logger.handle(record)  # No level or filter logic applied - just do it!
+        except Exception:
+            import sys, traceback
+            print('Whoops! Problem:', file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            
 class TaskStatus:
     WAITING = "waiting"
     RUNNING = "running"
@@ -27,7 +48,13 @@ def interrupt_handler(interrupt_event):
         _thread.interrupt_main()
         interrupt_event.clear()
 
-def start_worker(task_runner, interrupt_event, request_queue, status, verbose=False):
+def configure_worker_logging(queue):
+    h = logging.handlers.QueueHandler(queue)
+    root = logging.getLogger()
+    root.addHandler(h)
+    root.setLevel(logging.DEBUG)
+    
+def start_worker(task_runner, interrupt_event, request_queue, status, log_queue, verbose=False):
     """
     Args:
     * task_runner: A function that takes a task_info object and an update
@@ -43,46 +70,48 @@ def start_worker(task_runner, interrupt_event, request_queue, status, verbose=Fa
         background. Each task is a tuple of three elements: a task ID string,
         and an object containing task info describing how to perform the task.
     """
+
+    configure_worker_logging(log_queue)
     
     task = threading.Thread(target=interrupt_handler, args=(interrupt_event,))
     task.start()
 
     if verbose:
-        print("[background_worker] Starting PID:", os.getpid())
+        logging.info(f"[background_worker] Starting PID: {os.getpid()}")
     while True:
         task_id, task_info = request_queue.get()
         try:
             if task_id in status and status[task_id][0] == TaskStatus.CANCELING:
                 if verbose:
-                    print(f"[background_worker] Aborting task {task_id}")
+                    logging.info(f"[background_worker] Aborting task {task_id}")
                 status[task_id] = (TaskStatus.CANCELED, None)
                 continue
             
             status[task_id] = (TaskStatus.RUNNING, None)
             if verbose:
-                print("[background_worker] Running command:", task_id)
+                logging.info(f"[background_worker] Running command: {task_id}")
             def update_fn(update_info):
                 status[task_id] = (TaskStatus.RUNNING, update_info)
             try:
                 result = task_runner(task_info, update_fn)
             except KeyboardInterrupt:
                 if verbose:
-                    print("[background_worker] Received interrupt")
+                    logging.info("[background_worker] Received interrupt")
                 status[task_id] = (TaskStatus.CANCELED, None)
             except Exception as e:
                 if verbose:
-                    print("[background_worker] Exception raised")
-                    print(traceback.format_exc())
+                    logging.info("[background_worker] Exception raised")
+                    logging.info(traceback.format_exc())
                 status[task_id] = (TaskStatus.ERROR, str(e))
             else:
                 status[task_id] = (TaskStatus.COMPLETE, result)
         except KeyboardInterrupt:
             if verbose:
-                print("[background_worker] Received interrupt")
+                logging.info("[background_worker] Received interrupt")
             status[task_id] = (TaskStatus.CANCELED, None)
             
 class BackgroundWorker:
-    def __init__(self, task_runner, verbose=False):
+    def __init__(self, task_runner, log_path, verbose=False):
         """
         Args:
         * task_runner: A function that takes a task_info object and an update
@@ -105,13 +134,20 @@ class BackgroundWorker:
         self.task_lock = mp.Lock()
         self.worker_process = None
         
+        self.log_queue = mp.Queue()
+        self.log_path = log_path
+        
     def start(self):
         assert self.worker_process is None, "Cannot start a worker process while an existing worker is running"
         self.worker_process = mp.Process(target=partial(start_worker, self.task_runner, verbose=self.verbose), 
                                          args=(self.interrupt_event, 
                                                self.request_queue, 
-                                               self.task_status))
+                                               self.task_status,
+                                               self.log_queue))
         self.worker_process.start()
+        self.log_process = mp.Process(target=listener_process,
+                                       args=(self.log_queue, self.log_path))
+        self.log_process.start()
         
     def submit_task(self, task_info):
         with self.task_lock:
@@ -153,10 +189,10 @@ class BackgroundWorker:
     def cancel_task(self, task_id):
         with self.task_lock:
             if task_id not in self.task_status:
-                print(f"[cancel_task]: Task {task_id} not in list of tasks")
+                logging.info(f"[cancel_task]: Task {task_id} not in list of tasks")
                 return
             current_status = self.task_status[task_id][0]
-            print(f"[cancel_task]: Task {task_id} status: {current_status}")
+            logging.info(f"[cancel_task]: Task {task_id} status: {current_status}")
             if current_status == TaskStatus.RUNNING:
                 self.interrupt_event.set()
             elif current_status == TaskStatus.WAITING:
@@ -172,7 +208,12 @@ class BackgroundWorker:
         if self.manager is not None:
             self.manager.shutdown()
             self.manager = None
-    
+        if self.log_process is not None:
+            self.log_queue.put_nowait(None)
+            self.log_process.terminate()
+            self.log_queue = None
+            self.log_process = None            
+            
 def example_runner(info, update_fn):
     if info == "my_task":
         for i in range(5):

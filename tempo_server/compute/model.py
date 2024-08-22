@@ -7,6 +7,7 @@ import xgboost
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve, f1_score
 from divisi.utils import convert_to_native_types
+import logging
 
 class Model:
     def __init__(self, model_fs, result_fs=None):
@@ -105,7 +106,7 @@ class Model:
     def make_modeling_variables(self, query_engine, spec, update_fn=None, dummies=True):
         """Creates the variables dataframe."""
         query = make_query(spec["variables"], spec["timestep_definition"])
-        print(query)
+        logging.info(query)
         if update_fn is not None:
             def prog(num_completed, num_total):
                 update_fn({'message': f'Loading variables ({num_completed} / {num_total})', 'progress': num_completed / num_total})
@@ -115,13 +116,13 @@ class Model:
         modeling_df = modeling_variables.values
 
         if dummies:
-            print("Before:", modeling_df.shape)
+            logging.info(f"Before: {modeling_df.shape}")
             modeling_df = pd.get_dummies(modeling_df, 
                                         columns=[c for c in modeling_df.columns 
                                                 if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
                                                 or pd.api.types.is_string_dtype(modeling_df[c].dtype) 
                                                 or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)])
-            print("After:", modeling_df.shape)
+            logging.info(f"After: {modeling_df.shape}")
 
         del modeling_variables
         return modeling_df
@@ -136,7 +137,7 @@ class Model:
         outcome = query_engine.query("(" + spec['outcome'] + 
                                     (f" where ({spec['cohort']})" if spec.get('cohort', '') else '') + ") " + 
                                     spec["timestep_definition"])
-        print((~pd.isna(outcome.get_values())).sum())
+        logging.info(f"Outcome missingness: {(~pd.isna(outcome.get_values())).sum()}")
         
         if update_fn is not None: update_fn({'message': 'Training model'})
         if "model_type" not in spec:
@@ -205,11 +206,11 @@ class Model:
         if row_mask is None: row_mask = np.ones(len(variables), dtype=bool)
         train_X = variables[train_mask & row_mask].values
         train_y = outcomes[train_mask & row_mask]
-        print(train_X, train_y, pd.isna(train_X).sum(axis=0), pd.isna(train_y).sum())
+        logging.info(f"Training samples and missingness: {train_X}, {train_y}, {pd.isna(train_X).sum(axis=0)}, {pd.isna(train_y).sum()}")
         train_ids = ids[train_mask & row_mask]
         val_X = variables[val_mask & row_mask].values
         val_y = outcomes[val_mask & row_mask]
-        print(val_X, val_y, pd.isna(val_X).sum(axis=0), pd.isna(val_y).sum())
+        logging.info(f"Val samples and missingness: {val_X}, {val_y}, {pd.isna(val_X).sum(axis=0)}, {pd.isna(val_y).sum()}")
         val_ids = ids[val_mask & row_mask]
         test_X = variables[test_mask & row_mask].values
         test_y = outcomes[test_mask & row_mask]
@@ -220,7 +221,7 @@ class Model:
             test_y = test_y.astype(int)
         val_sample = np.random.uniform(size=len(val_X)) < 0.1
         
-        print("Training", train_X.shape)
+        logging.info("Training")
         model_cls = xgboost.XGBRegressor if model_type == "regression" else xgboost.XGBClassifier
         # Don't do class weights - instead, we can simply choose a better operating point
         # if not regressor:
@@ -237,7 +238,7 @@ class Model:
         model = model_cls(**model_params)
         model.fit(train_X, train_y, eval_set=[(val_X[val_sample], val_y[val_sample])], **params)
         
-        print("Evaluating")
+        logging.info("Evaluating")
         if update_fn is not None: update_fn({'message': 'Evaluating model'})
             
         test_pred = self._compute_predictions(model, model_type, test_X)
