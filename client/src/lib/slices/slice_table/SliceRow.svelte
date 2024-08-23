@@ -28,6 +28,7 @@
   import Checkbox from '../utils/Checkbox.svelte';
   import { interpolateViridis } from 'd3';
   import Tooltip from '../../utils/Tooltip.svelte';
+  import * as d3 from 'd3';
 
   const dispatch = createEventDispatcher();
 
@@ -351,6 +352,8 @@
                   width={null}
                   order={mInfo.order}
                   counts={metric.counts}
+                  colorScale={mInfo.colorScale ??
+                    Array.from(d3.schemeTableau10)}
                 />
               {/if}
             {/if}

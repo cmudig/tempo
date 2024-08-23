@@ -183,6 +183,7 @@ export function featuresHaveSameTree(
 }
 
 const prefixMetrics = ['count', 'timesteps', 'trajectories'];
+const suffixMetrics = ['labels', 'predictions'];
 
 export function sortMetrics(a: string, b: string): number {
   if (prefixMetrics.includes(a.toLocaleLowerCase())) {
@@ -190,6 +191,11 @@ export function sortMetrics(a: string, b: string): number {
       return a.localeCompare(b);
     else return -1;
   } else if (prefixMetrics.includes(b.toLocaleLowerCase())) return 1;
+  if (suffixMetrics.includes(a.toLocaleLowerCase())) {
+    if (suffixMetrics.includes(b.toLocaleLowerCase()))
+      return a.localeCompare(b);
+    else return 1;
+  } else if (suffixMetrics.includes(b.toLocaleLowerCase())) return -1;
   return a.localeCompare(b);
 }
 

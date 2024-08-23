@@ -66,6 +66,10 @@ class Model:
     def get_optimal_threshold(self):
         metrics = self.get_metrics()
         return metrics["threshold"]
+    
+    @property
+    def is_trained(self):
+        return "model_type" in self.get_spec() and self.result_fs.exists("metrics.json")
         
     @classmethod
     def blank_spec(cls):

@@ -11,7 +11,8 @@
   export let title: string | null = null;
   export let horizontalLayout = false;
   export let noParent: boolean = false;
-  export let colorScale: string[] | ((v: number) => string) = schemeTableau10;
+  export let colorScale: string[] | ((v: number) => string) =
+    Array.from(schemeTableau10);
 
   export let counts: { [key: string]: number } = null;
 

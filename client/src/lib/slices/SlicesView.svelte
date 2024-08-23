@@ -162,7 +162,9 @@
     if (!searchTaskID) return;
     try {
       loadingSliceStatus = true;
-      searchStatus = await (await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}`)).json();
+      searchStatus = await (
+        await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}`)
+      ).json();
     } catch (e) {
       console.log('error getting slice status');
       searchStatus = null;
@@ -208,7 +210,8 @@
       retrievingSlices = true;
       sliceSearchError = null;
       let response = await fetch(
-        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${modelName}`,
+        import.meta.env.BASE_URL +
+          `/datasets/${$currentDataset}/slices/${modelName}`,
         {
           method: 'POST',
           headers: {
@@ -278,16 +281,20 @@
 
       console.log('STARTING slice finding');
       let result = await (
-        await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${modelName}/find`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            variable_spec_name: sliceSpec,
-            score_function_spec: scoreFunctionSpec,
-          }),
-        })
+        await fetch(
+          import.meta.env.BASE_URL +
+            `/datasets/${$currentDataset}/slices/${modelName}/find`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              variable_spec_name: sliceSpec,
+              score_function_spec: scoreFunctionSpec,
+            }),
+          }
+        )
       ).json();
 
       if (!!result.id) {
@@ -307,7 +314,9 @@
   async function stopFindingSlices() {
     if (!searchTaskID) return;
     try {
-      await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}/stop`, { method: 'POST' });
+      await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}/stop`, {
+        method: 'POST',
+      });
       pollSliceStatus();
     } catch (e) {
       console.error("couldn't stop slice finding:", e);
@@ -556,7 +565,7 @@
     >
       <SliceDetailsView
         slice={selectedSlice}
-        modelNames={modelsToShow}
+        {modelName}
         {sliceSpec}
         on:close={() => (selectedSlices = [])}
       />

@@ -9,11 +9,15 @@
   } from './slicedescription';
   import SliceFeatureDetails from './SliceFeatureDetails.svelte';
   import SliceDetailsColumn from './SliceDetailsColumn.svelte';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, getContext } from 'svelte';
+  import type { Writable } from 'svelte/store';
+
+  let { currentDataset }: { currentDataset: Writable<string | null> } =
+    getContext('dataset');
 
   const dispatch = createEventDispatcher();
 
-  export let modelNames: string[] = [];
+  export let modelName: string | null = null;
   export let sliceSpec: string | null = 'default';
   export let slice: SliceFeatureBase | null = null;
 
@@ -32,17 +36,21 @@
 
       console.log('Loading slice description', slice);
       let result = await (
-        await fetch(import.meta.env.BASE_URL + `/slices/${modelNames.join(',')}/compare`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            slice: slice,
-            sliceSpec: sliceSpec ?? 'default',
-            ...(offset != 0 ? { offset: offset } : {}),
-          }),
-        })
+        await fetch(
+          import.meta.env.BASE_URL +
+            `/datasets/${$currentDataset}/slices/${modelName}/compare`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              slice: slice,
+              variable_spec_name: sliceSpec ?? 'default',
+              ...(offset != 0 ? { offset: offset } : {}),
+            }),
+          }
+        )
       ).json();
       loadingSliceDescription = false;
       if (offset != 0) {

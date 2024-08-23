@@ -7,7 +7,7 @@
   import { areSetsEqual, sortMetrics } from './utils/utils';
   import SliceTable from './slice_table/SliceTable.svelte';
   import { createEventDispatcher, getContext } from 'svelte';
-  import { MetricColors } from '../colors';
+  import { makeCategoricalColorScale, MetricColors } from '../colors';
   import type { Writable } from 'svelte/store';
   import { type ScoreFunction, scoreFunctionToString } from './scorefunctions';
 
@@ -222,7 +222,7 @@
               Math.max(curr, getMetric(next.metrics!, n)?.value ?? -1e9),
             -1e9
           ) + 0.01;
-        newInfo.scale = (v: number) => v / maxScore;
+        newInfo.scale = (v: number) => v / Math.max(1, maxScore);
       } else if (met.type == 'categorical') {
         let uniqueKeys: Set<string> = new Set();
         allSlices.forEach((s) =>
@@ -233,6 +233,9 @@
         let order = Array.from(uniqueKeys).sort();
         // order.sort((a, b) => met.counts![b] - met.counts![a]);
         newInfo.order = order;
+        newInfo.colorScale = makeCategoricalColorScale(
+          MetricColors[groupedMetrics ? n[1] : n]
+        );
       }
       newInfo.visible = (
         getMetric<SliceMetricInfo>(oldMetricInfo, n) || { visible: true }
