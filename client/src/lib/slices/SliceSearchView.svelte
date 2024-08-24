@@ -455,7 +455,7 @@
           <div
             class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
           >
-            <div>No slices yet!</div>
+            <div>No subgroups yet!</div>
           </div>
         {/if}
       </div>
@@ -464,17 +464,17 @@
     <div
       class="w-full flex-auto min-h-0 mt-6 flex flex-col items-center justify-center text-slate-500"
     >
-      <div>No slices yet!</div>
+      <div>No subgroups yet!</div>
     </div>
   {/if}
   {#if retrievingSlices}
     <div
       class="absolute top-0 left-0 bg-white/80 w-full h-full flex flex-col items-center justify-center z-20"
     >
-      <div>Retrieving slices...</div>
+      <div>Retrieving subgroups...</div>
       {#if showDetailLoadingMessage}
         <div class="mt-2 text-sm text-slate-500">
-          It may take up to a minute to rank slices on your first visit.
+          It may take up to a minute to rank subgroups on your first visit.
         </div>
       {/if}
       <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-4">

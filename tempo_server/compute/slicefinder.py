@@ -321,7 +321,7 @@ class SliceFinder:
         discovery_df = variable_spec.discrete_df.filter(variable_spec.ids.isin(discovery_ids)).filter(valid_masks[0])
         discovery_filter = self.filter_single_values(discovery_df)
         
-        if update_fn is not None: update_fn({"message": "Finding slices"})
+        if update_fn is not None: update_fn({"message": "Finding subgroups"})
         finder = divisi.sampling.SamplingSliceFinder(
             discovery_df, 
             discovery_score_fns,
@@ -337,11 +337,11 @@ class SliceFinder:
         #     finder.all_scores += list(seen_slices.keys())
         
         def progress(current, total):
-            if update_fn is not None: update_fn({ 'message': f'Finding slices {current} / {total}', 'progress': current / total})
+            if update_fn is not None: update_fn({ 'message': f'Finding subgroups {current} / {total}', 'progress': current / total})
         finder.progress_fn = progress
         results, _ = finder.sample(n_samples)
         
-        if update_fn is not None: update_fn({"message": "Evaluating slices"})
+        if update_fn is not None: update_fn({"message": "Evaluating subgroups"})
         eval_ids = self.dataset.split_ids[2]
         eval_df = variable_spec.discrete_df.filter(variable_spec.ids.isin(eval_ids)).filter(valid_masks[1]) # validation set
 

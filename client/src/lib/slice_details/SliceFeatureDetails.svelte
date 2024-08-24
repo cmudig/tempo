@@ -64,7 +64,7 @@
         <div
           class="w-16 shrink-0 grow-0 font-bold text-slate-500 text-xs text-right"
         >
-          In slice
+          In subgroup
         </div>
         <div class="flex-auto h-12 overflow-visible">
           <SliceMetricCategoryBar
@@ -90,14 +90,14 @@
             <strong>{enrichment.destination_value}</strong>{:else}remain <strong
               >{enrichment.source_value}</strong
             >{/if}
-          in slice than overall
+          in subgroup than overall
         </div>
       {:else}
         <div class="text-xs text-slate-600 mb-1">
           {ratioFormat(Math.abs(enrichment.ratio))}
           {enrichment.ratio > 0 ? 'more' : 'less'} likely to be
           <strong>{enrichment.value}</strong>
-          in slice than overall
+          in subgroup than overall
         </div>
       {/if}
     {/each}

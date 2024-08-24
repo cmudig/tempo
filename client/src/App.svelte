@@ -50,7 +50,7 @@
   enum View {
     editor = 'Specification',
     results = 'Metrics',
-    slices = 'Slices',
+    slices = 'Subgroups',
   }
   let currentView: View = View.results;
   let showingDatasetInfo: boolean = false;

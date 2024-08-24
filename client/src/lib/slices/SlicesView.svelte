@@ -381,13 +381,15 @@
   {#if !!sliceSearchError}
     <div class="px-4">
       <div class="rounded p-3 mb-2 text-red-500 bg-red-50">
-        Slice search error: <span class="font-mono">{sliceSearchError}</span>
+        Subgroup discovery error: <span class="font-mono"
+          >{sliceSearchError}</span
+        >
       </div>
     </div>
   {/if}
   <div class="px-4 text-lg font-bold mb-3 w-full flex items-center gap-2">
     <div>
-      Slices for <span class="font-mono">{modelName}</span
+      Subgroups for <span class="font-mono">{modelName}</span
       >{#if modelsToShow.length > 1}&nbsp; vs. <span class="font-mono"
           >{modelsToShow.filter((m) => m != modelName).join(', ')}</span
         >{/if}
@@ -413,7 +415,7 @@
                 class="btn btn-blue disabled:opacity-50"
                 on:click={loadSlices}
                 disabled={retrievingSlices || isTraining}
-                >{retrievingSlices ? 'Loading...' : 'Find Slices'}</button
+                >{retrievingSlices ? 'Loading...' : 'Find Subgroups'}</button
               >
             {/if}
           </div>
@@ -455,7 +457,7 @@
             </div>
             <div class="mx-3 flex-auto whitespace-nowrap self-center">
               <div class="text-sm">
-                {samplerProgressMessage ?? 'Waiting to load slices...'}
+                {samplerProgressMessage ?? 'Waiting to load subgroups...'}
               </div>
               {#if samplerRunProgress != null}
                 <div
@@ -480,9 +482,9 @@
               class="py-4 px-6 flex gap-4 items-center flex-auto whitespace-nowrap font-bold text-sm"
             >
               {#if numSaved == 0}
-                No saved slices yet.
+                No saved subgroups yet.
               {:else}
-                {numSaved} saved slice{numSaved != 1 ? 's' : ''}
+                {numSaved} saved subgroup{numSaved != 1 ? 's' : ''}
               {/if}
             </div>
           {:else}
@@ -500,7 +502,7 @@
                   : () => (visibleView = View.specEditor)}
                 ><div class="text-xs w-full">
                   <div class="text-slate-600 dark:text-slate-100 font-normal">
-                    Slicing variables
+                    Grouping variables
                   </div>
                   <div class="font-bold truncate">{sliceSpec}</div>
                 </div></button
@@ -616,7 +618,6 @@
   </div> -->
   {#if !!selectedSlice}
     <ResizablePanel
-      class="bg-slate-50"
       topResizable
       height={300}
       minHeight={200}

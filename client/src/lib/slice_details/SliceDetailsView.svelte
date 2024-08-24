@@ -94,7 +94,7 @@
 {#if !!slice}
   {#if loadingSliceDescription}
     <div class="w-full h-full flex flex-col items-center justify-center">
-      <div>Loading slice details...</div>
+      <div>Loading subgroup details...</div>
       <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-2">
         <svg
           aria-hidden="true"

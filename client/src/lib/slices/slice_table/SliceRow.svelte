@@ -214,7 +214,7 @@
                 class="bg-transparent px-1.5 {isSaved
                   ? 'text-rose-600 hover:text-rose-400'
                   : 'text-slate-400 hover:text-slate-600'} py-2"
-                title={isSaved ? 'Unsave this slice' : 'Save this slice'}
+                title={isSaved ? 'Unsave this subgroup' : 'Save this subgroup'}
                 on:click={() => dispatch('saveslice', slice)}
                 ><Fa icon={isSaved ? faHeart : faHeartOutline} /></button
               >
@@ -222,7 +222,7 @@
             {#if showCreateSliceButton}
               <button
                 class="bg-transparent hover:text-slate-600 px-1.5 py-3 text-slate-400"
-                title="Add a new custom slice"
+                title="Add a new custom subgroup"
                 on:click={() => dispatch('create')}><Fa icon={faPlus} /></button
               >
             {/if}
@@ -233,7 +233,7 @@
                   isEditing = true;
                   dispatch('beginedit');
                 }}
-                title="Temporarily modify the slice definition"
+                title="Temporarily modify the subgroup definition"
                 ><Fa icon={faPencil} /></button
               >
               {#if !!temporarySlice && !areObjectsEqual(temporarySlice, slice)}
@@ -245,7 +245,7 @@
                   }}
                   on:mouseenter={() => temporaryRevertSlice(true)}
                   on:mouseleave={() => temporaryRevertSlice(false)}
-                  title="Reset the slice definition"
+                  title="Reset the subgroup definition"
                   ><Fa icon={faRotateRight} /></button
                 >
               {/if}
@@ -256,7 +256,8 @@
                     dispatch('hover', {});
                     dispatch('delete');
                   }}
-                  title="Delete this custom slice"><Fa icon={faTrash} /></button
+                  title="Delete this custom subgroup"
+                  ><Fa icon={faTrash} /></button
                 >
               {/if}
             {/if}

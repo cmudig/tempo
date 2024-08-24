@@ -222,7 +222,7 @@
         class="flex-auto"
         style="min-width: {TableWidths.FeatureList}px; max-width: 800px;"
       >
-        <div class="p-2">Slice</div>
+        <div class="p-2">Subgroup Definition</div>
       </div>
       {#if !!metricGroups}
         {#each metricGroups as groupName}
