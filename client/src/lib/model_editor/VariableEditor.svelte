@@ -6,6 +6,8 @@
   import { areObjectsEqual } from '../slices/utils/utils';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
   import QueryEditorTextarea from './QueryEditorTextarea.svelte';
+  import highlight from 'custom-syntax-highlighter';
+  import { highlightPatterns } from './syntaxhighlight';
 
   const dispatch = createEventDispatcher();
 
@@ -41,6 +43,22 @@
   }
 
   let evaluationError: string | null = null;
+
+  let timestepDefLabel: HTMLElement;
+  let timestepDefLabelID: string =
+    'timestepDefLabel-' +
+    new Array(20)
+      .fill(0)
+      .map(() => Math.floor(Math.random() * 10))
+      .join('');
+
+  $: if (!!timestepDefLabel) {
+    timestepDefLabel.innerText = timestepDefinition;
+    highlight({
+      selector: `#${timestepDefLabelID}`,
+      patterns: highlightPatterns,
+    });
+  }
 </script>
 
 {#if !!varInfo && !!varName}
@@ -159,31 +177,46 @@
     {#if editing}
       <div></div>
       <div class="flex flex-auto w-full">
-        {#if !!timestepDefinition}
-          <div class="flex-auto">
-            {#if showName}
-              <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
-            {/if}
-            <div class="relative w-full {showName ? 'h-24' : ''}">
-              <QueryEditorTextarea
-                style="field-sizing: content; {!showName
-                  ? 'min-height: 84px;'
-                  : ''}"
-                bind:value={newVariableQuery}
-                {templates}
-                on:input={() => {
-                  if (autosave) {
-                    dispatch('save', {
-                      name: newVariableName,
-                      query: newVariableQuery,
-                    });
-                  }
-                }}
-              />
-            </div>
+        <div class="flex-auto">
+          {#if showName}
+            <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
+          {/if}
+          <div class="relative w-full {showName ? 'h-24' : ''}">
+            <QueryEditorTextarea
+              style="field-sizing: content; {!showName
+                ? 'min-height: 84px;'
+                : ''}"
+              bind:value={newVariableQuery}
+              {templates}
+              on:input={() => {
+                if (autosave) {
+                  dispatch('save', {
+                    name: newVariableName,
+                    query: newVariableQuery,
+                  });
+                }
+              }}
+            >
+              <div class="text-xs" slot="buttons">
+                {#if !!timestepDefinition}
+                  <span class="text-slate-500">Evaluated at timesteps:</span>
+                  <span
+                    class="font-mono"
+                    id={timestepDefLabelID}
+                    bind:this={timestepDefLabel}
+                  ></span>
+                {:else}
+                  <span class="text-slate-500"
+                    >Variables require a Timestep Definition to be evaluated.</span
+                  >
+                {/if}
+              </div>
+            </QueryEditorTextarea>
           </div>
+        </div>
 
-          <div class="text-sm w-48 shrink-0 grow-0 self-stretch ml-2 p-2">
+        {#if !!timestepDefinition}
+          <div class="text-sm w-48 shrink-0 grow-0 self-stretch ml-4">
             <QueryResultView
               delayEvaluation
               bind:evaluationError

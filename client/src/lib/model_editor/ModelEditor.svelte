@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { type ModelSummary, type VariableDefinition } from '../model';
+  import {
+    type ModelSummary,
+    type QueryEvaluationResult,
+    type VariableDefinition,
+  } from '../model';
   import {
     createEventDispatcher,
     getContext,
@@ -492,6 +496,52 @@
       console.error('Error downloading model data:', e);
     }
   }
+
+  let oldTimestepDefinition: string | null = null;
+  $: if (oldTimestepDefinition != timestepDefinition) {
+    evaluateTSDefIfNeeded(timestepDefinition);
+    oldTimestepDefinition = timestepDefinition;
+  }
+  let timestepDefinitionError: string | null = null;
+  let tsDefEvaluationTimer: number | null = null;
+
+  function evaluateTSDefIfNeeded(q: string | null) {
+    if (q == null || q.length == 0) {
+      timestepDefinitionError = null;
+      return;
+    }
+
+    if (!!tsDefEvaluationTimer) clearTimeout(tsDefEvaluationTimer);
+    tsDefEvaluationTimer = setTimeout(evaluateTimestepDefinition, 2000);
+  }
+
+  async function evaluateTimestepDefinition() {
+    let q = `1 ${timestepDefinition}`;
+    if ($currentDataset == null) {
+      console.warn(
+        'cannot evaluate timestep definition without a currentDataset prop'
+      );
+      return;
+    }
+    let result: QueryEvaluationResult;
+    let encodedQuery = encodeURIComponent(q);
+    try {
+      result = await (
+        await fetch(
+          import.meta.env.BASE_URL +
+            `/datasets/${$currentDataset}/data/query?q=${encodedQuery}`
+        )
+      ).json();
+    } catch (e) {
+      timestepDefinitionError = `${e}`;
+      return;
+    }
+    if (result.error) {
+      timestepDefinitionError = result.error;
+    } else if (result.query == q && !!result.result) {
+      timestepDefinitionError = null;
+    }
+  }
 </script>
 
 {#if isLoadingSpecs}
@@ -619,11 +669,21 @@
       Run the model at these time points in each trajectory:
     </div>
     {#if timestepDefinition !== null}
-      <div class="relative">
-        <QueryEditorTextarea
-          bind:value={timestepDefinition}
-          templates={QueryTemplatesTimestepDefsOnly}
-        />
+      <div class="flex flex-auto w-full relative">
+        <div class="flex-auto">
+          <QueryEditorTextarea
+            class="flat-text-input w-full h-20"
+            bind:value={timestepDefinition}
+            templates={QueryTemplatesTimestepDefsOnly}
+          />
+        </div>
+        {#if !!timestepDefinitionError}
+          <div class="text-red-600 text-sm w-48 ml-4">
+            {@html '<p>' +
+              timestepDefinitionError.replace('\n', '</p><p>') +
+              '</p>'}
+          </div>
+        {/if}
       </div>
     {:else}
       <div class="text-sm text-slate-600 mb-1">

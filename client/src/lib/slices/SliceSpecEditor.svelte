@@ -28,7 +28,9 @@
   async function loadSpecs() {
     try {
       loadingSpecs = true;
-      let response = await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/specs`);
+      let response = await fetch(
+        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/specs`
+      );
       specs = await response.json();
       loadingSpecs = false;
     } catch (e) {
@@ -69,7 +71,8 @@
 
     try {
       let status = await fetch(
-        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/specs/${newSpecName}`,
+        import.meta.env.BASE_URL +
+          `/datasets/${$currentDataset}/slices/specs/${newSpecName}`,
         {
           method: 'POST',
           headers: {
@@ -142,9 +145,11 @@
       <div class="flex gap-2 items-center justify-end flex-auto">
         {#if specChanged}
           <button class="btn btn-slate" on:click={resetSpec}> Reset </button>
-          <button class="btn btn-blue" on:click={() => saveSpec(true)}>
-            Overwrite
-          </button>
+          {#if !sliceSpec.endsWith('(Default)')}
+            <button class="btn btn-blue" on:click={() => saveSpec(true)}>
+              Overwrite
+            </button>
+          {/if}
           <button class="btn btn-blue" on:click={() => saveSpec(false)}>
             Save As New...
           </button>

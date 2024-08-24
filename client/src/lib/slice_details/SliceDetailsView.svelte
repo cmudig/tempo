@@ -124,13 +124,13 @@
     <div class="w-full h-full flex flex-col gap-2 p-2">
       <div class="w-full h-8 flex">
         <div class="w-1/3 font-bold text-sm text-slate-600 py-1.5 px-2">
-          Correlated features
+          Distinguishing Features
         </div>
         <div
           class="flex-auto grow-1 shrink-0 font-bold text-sm text-slate-600 px-2"
         >
           {#if offset != 0}
-            Correlated features at <select
+            Distinguishing Features at <select
               class="ml-2 flat-select font-normal text-xs"
               bind:value={offset}
             >

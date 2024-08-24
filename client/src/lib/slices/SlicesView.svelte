@@ -15,11 +15,16 @@
     type Slice,
     type SliceFeatureBase,
   } from '../slices/utils/slice.type';
-  import { areObjectsEqual } from '../slices/utils/utils';
+  import { areObjectsEqual, randomStringRep } from '../slices/utils/utils';
   import SliceDetailsView from '../slice_details/SliceDetailsView.svelte';
   import ResizablePanel from '../utils/ResizablePanel.svelte';
   import type { Writable } from 'svelte/store';
-  import { faChevronLeft, faWrench } from '@fortawesome/free-solid-svg-icons';
+  import {
+    faChevronLeft,
+    faHeart,
+    faPlus,
+    faWrench,
+  } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa';
   import SliceSpecEditor from './SliceSpecEditor.svelte';
   import { scoreFunctionToString, type ScoreFunction } from './scorefunctions';
@@ -41,6 +46,7 @@
     slices = 0,
     specEditor = 1,
     scoreFunctionEditor = 2,
+    favorites = 3,
   }
   let visibleView: View = View.slices;
 
@@ -55,6 +61,9 @@
   let selectedSlices: SliceFeatureBase[] = [];
   export let savedSlices: {
     [key: string]: { [key: string]: SliceFeatureBase };
+  } = {};
+  export let customSlices: {
+    [key: string]: SliceFeatureBase;
   } = {};
 
   let oldSelectedSlices: SliceFeatureBase[] = [];
@@ -249,12 +258,14 @@
       } else if (!!result.error) {
         baseSlice = null;
         slices = null;
+        customSlices = {};
         selectedSlice = null;
         valueNames = null;
         sliceSearchError = result.error;
       } else {
         baseSlice = null;
         slices = null;
+        customSlices = {};
         selectedSlice = null;
         valueNames = null;
         if (!!result.status) {
@@ -392,7 +403,9 @@
                 class="btn text-slate-600 px-1 py-0.5 text-xs font-bold disabled:opacity-50"
                 on:click={visibleView == View.specEditor
                   ? dismissSpecEditor
-                  : dismissScoreFunctionEditor}
+                  : visibleView == View.scoreFunctionEditor
+                    ? dismissScoreFunctionEditor
+                    : () => (visibleView = View.slices)}
                 ><Fa icon={faChevronLeft} class="inline mr-1" /> Back</button
               >
             {:else}
@@ -461,6 +474,17 @@
                 on:click={stopFindingSlices}>Stop</button
               >
             </div>
+          {:else if visibleView == View.favorites}
+            {@const numSaved = Object.keys(savedSlices[sliceSpec] ?? {}).length}
+            <div
+              class="py-4 px-6 flex gap-4 items-center flex-auto whitespace-nowrap font-bold text-sm"
+            >
+              {#if numSaved == 0}
+                No saved slices yet.
+              {:else}
+                {numSaved} saved slice{numSaved != 1 ? 's' : ''}
+              {/if}
+            </div>
           {:else}
             <div
               class="p-3 flex gap-4 items-center flex-auto whitespace-nowrap"
@@ -504,11 +528,45 @@
               {/if}
             </div>
           {/if}
+          {#if visibleView == View.slices}
+            <div class="p-3 border-r border-slate-200 flex gap-2 items-center">
+              <button
+                class="btn btn-slate disabled:opacity-50 shrink-0"
+                on:click={() => {
+                  customSlices[randomStringRep()] = { type: 'base' };
+                }}
+                disabled={isTraining ||
+                  !!searchStatus ||
+                  loadingSliceStatus ||
+                  retrievingSlices}
+                ><Fa icon={faPlus} class="inline mr-2" />Rule</button
+              >
+              <button
+                class="btn btn-slate disabled:opacity-50 shrink-0"
+                on:click={() => (visibleView = View.favorites)}
+                disabled={isTraining ||
+                  !!searchStatus ||
+                  loadingSliceStatus ||
+                  retrievingSlices}
+                ><Fa icon={faHeart} class="inline mr-2" />Saved</button
+              >
+            </div>
+          {:else if visibleView == View.favorites}
+            <div class="p-3 border-r border-slate-200 flex gap-2 items-center">
+              <button
+                class="btn btn-slate disabled:opacity-50 shrink-0"
+                on:click={() => {
+                  savedSlices[sliceSpec] = {};
+                  visibleView = View.slices;
+                }}>Clear Saved</button
+              >
+            </div>
+          {/if}
         </div>
       </div>
 
       {#if visibleView == View.specEditor}
-        <div class="mx-4 w-full">
+        <div class="px-4 w-full">
           <SliceSpecEditor
             bind:sliceSpec
             {timestepDefinition}
@@ -516,7 +574,7 @@
           />
         </div>
       {:else if visibleView == View.scoreFunctionEditor}
-        <div class="w-full pb-4 mx-4">
+        <div class="w-full pb-4 px-4">
           <ScoreFunctionPanel
             bind:scoreFunctionSpec
             bind:changesPending={scoreFunctionsChanged}
@@ -535,7 +593,9 @@
             'Predictions',
           ]}
           slices={slices ?? []}
+          bind:customSlices
           {baseSlice}
+          showSavedSlices={visibleView == View.favorites}
           savedSlices={savedSlices[sliceSpec] ?? []}
           bind:selectedSlices
           bind:sliceSpec

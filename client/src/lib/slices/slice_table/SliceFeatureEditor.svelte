@@ -78,7 +78,7 @@
   }
 </script>
 
-<div class="w-full">
+<div class="w-full pl-2">
   <div class="flex w-full">
     <div class="relative w-full flex-auto mr-2">
       <textarea
@@ -129,5 +129,11 @@
   </div>
   {#if !!errorText}
     <div class="mt-1 text-red-600 text-xs">{errorText}</div>
+  {:else}
+    <div class="mt-1 text-slate-600 text-xs">
+      Define rules in the form <span class="font-mono"
+        >&#123;Variable&#125; = "value" and ...</span
+      >
+    </div>
   {/if}
 </div>

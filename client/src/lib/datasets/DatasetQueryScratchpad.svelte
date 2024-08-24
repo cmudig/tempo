@@ -84,7 +84,7 @@
 <div class="w-full">
   <div class="flex items-stretch p-4 gap-4">
     <div class="flex-auto flex flex-col">
-      <div class="relative w-full flex-auto h-28 mb-2">
+      <div class="relative w-full flex-auto h-32 mb-2">
         <QueryEditorTextarea
           bind:this={queryInput}
           class="resize-none appearance-none p-2 caret-blue-600 leading-relaxed w-full h-20 focus:outline-none focus:border-blue-600"

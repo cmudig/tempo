@@ -795,6 +795,10 @@ class EvaluateQuery(lark.visitors.Interpreter):
                     (var_exp.get_ids().values == evaluator.time_index.get_ids().values).all()):
                 # This is an Events but is perfectly aligned to the time index
                 var_exp = TimeSeries(TimeIndex.from_events(var_exp), var_exp.get_values())
+            elif isinstance(var_exp, (int, float, str, np.generic)):
+                # constant value at timesteps
+                val = var_exp.item() if isinstance(var_exp, np.generic) else var_exp
+                var_exp = TimeSeries(evaluator.time_index, pd.Series([val] * len(evaluator.time_index)))
         return var_exp
 
     def _parse_time_series(self, tree, evaluator):

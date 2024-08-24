@@ -17,6 +17,7 @@
     faPlus,
     faRotateRight,
     faHeart,
+    faTrash,
   } from '@fortawesome/free-solid-svg-icons';
   import { faHeart as faHeartOutline } from '@fortawesome/free-regular-svg-icons';
   import ActionMenuButton from '../utils/ActionMenuButton.svelte';
@@ -48,7 +49,7 @@
 
   export let fixedFeatureOrder: Array<any> = [];
 
-  export let customSlice: Slice | null = null; // if the slice is custom-created
+  export let custom: boolean = false;
   export let temporarySlice: Slice | null = null; // if a variable is adjusted dynamically
 
   export let scoreCellWidth = 72;
@@ -72,11 +73,22 @@
   export let allowSearch: boolean = true;
   export let allowSelect: boolean = false;
 
-  let showButtons = false;
-
   const indentAmount = 24;
 
   export let showCreateSliceButton = false;
+
+  let justMounted = false;
+  onMount(() => (justMounted = true));
+  $: if (
+    justMounted &&
+    custom &&
+    !!sliceToShow &&
+    areObjectsEqual(sliceToShow.feature, { type: 'base' })
+  ) {
+    isEditing = true;
+    dispatch('beginedit');
+    justMounted = false;
+  }
 
   /*let featureOrder = [];
   $: {
@@ -92,13 +104,11 @@
     });
   }*/
 
-  let baseSlice: Slice | null = null;
-  $: baseSlice = customSlice || slice;
   let sliceToShow: Slice | null = null;
-  $: sliceToShow = temporarySlice || customSlice || slice;
+  $: sliceToShow = temporarySlice || slice;
 
   let sliceForScores: Slice | null = null;
-  $: sliceForScores = revertedScores ? customSlice || slice : sliceToShow;
+  $: sliceForScores = revertedScores ? slice : sliceToShow;
 
   let revertedScores: boolean = false;
   function temporaryRevertSlice(revert: boolean) {
@@ -118,14 +128,12 @@
 {#if !!sliceToShow && !!slice}
   <div
     class="slice-row py-3 px-2 {isSelected
-      ? 'bg-blue-100 hover:bg-blue-50'
-      : allowSelect
-        ? 'bg-white hover:bg-slate-100'
-        : 'bg-white'} {rowClass ? rowClass : ''} inline-flex items-center"
+      ? 'border-2 border-blue-600'
+      : ''} {allowSelect ? 'bg-white hover:bg-slate-100' : 'bg-white'} {rowClass
+      ? rowClass
+      : ''} inline-flex items-center"
     style="min-width: 100%; margin-left: {indentAmount *
       (maxIndent - indent)}px;"
-    on:mouseenter={() => (showButtons = true)}
-    on:mouseleave={() => (showButtons = false)}
     on:click={(e) => {
       if (e.target.tagName.toLocaleLowerCase() !== 'div') return;
       if (allowSelect) dispatch('select', !isSelected);
@@ -178,63 +186,78 @@
           />
         {:else}
           <div class="flex pt-1 items-center whitespace-nowrap w-full">
-            <div style="flex: 0 1 auto;" class="overflow-x-auto">
+            <div style="flex: 0 1 auto;" class="overflow-auto text-sm">
               <SliceFeature
                 feature={featuresHaveSameTree(
                   slice.feature,
-                  sliceToShow.feature
+                  sliceToShow.feature,
+                  true
                 ) && slice.feature.type != 'base'
                   ? slice.feature
                   : sliceToShow.feature}
                 currentFeature={sliceToShow.feature}
                 canToggle={featuresHaveSameTree(
                   slice.feature,
-                  sliceToShow.feature
+                  sliceToShow.feature,
+                  true
                 )}
                 {positiveOnly}
                 on:toggle
+                {allowedValues}
               />
+              {#if !custom && !areObjectsEqual(slice.feature, sliceToShow.feature)}
+                <span class="text-sm text-slate-400">(Edited)</span>
+              {/if}
             </div>
-            {#if (showButtons || isSaved) && allowFavorite}
+            {#if allowFavorite}
               <button
-                class="bg-transparent hover:opacity-60 ml-1 px-1 text-slate-600 py-1"
-                title="Add a new custom slice"
-                on:click={() => dispatch('saveslice', sliceToShow)}
+                class="bg-transparent px-1.5 {isSaved
+                  ? 'text-rose-600 hover:text-rose-400'
+                  : 'text-slate-400 hover:text-slate-600'} py-2"
+                title={isSaved ? 'Unsave this slice' : 'Save this slice'}
+                on:click={() => dispatch('saveslice', slice)}
                 ><Fa icon={isSaved ? faHeart : faHeartOutline} /></button
               >
             {/if}
-            {#if showButtons}
-              {#if showCreateSliceButton}
+            {#if showCreateSliceButton}
+              <button
+                class="bg-transparent hover:text-slate-600 px-1.5 py-3 text-slate-400"
+                title="Add a new custom slice"
+                on:click={() => dispatch('create')}><Fa icon={faPlus} /></button
+              >
+            {/if}
+            {#if allowEdit}
+              <button
+                class="bg-transparent hover:text-slate-600 px-1.5 py-3 text-slate-400"
+                on:click={() => {
+                  isEditing = true;
+                  dispatch('beginedit');
+                }}
+                title="Temporarily modify the slice definition"
+                ><Fa icon={faPencil} /></button
+              >
+              {#if !!temporarySlice && !areObjectsEqual(temporarySlice, slice)}
                 <button
-                  class="bg-transparent hover:opacity-60 ml-1 px-1 text-slate-600 py-1"
-                  title="Add a new custom slice"
-                  on:click={() => dispatch('create')}
-                  ><Fa icon={faPlus} /></button
+                  class="bg-transparent hover:text-slate-600 px-1.5 py-3 text-slate-400"
+                  on:click={() => {
+                    temporaryRevertSlice(false);
+                    dispatch('reset');
+                  }}
+                  on:mouseenter={() => temporaryRevertSlice(true)}
+                  on:mouseleave={() => temporaryRevertSlice(false)}
+                  title="Reset the slice definition"
+                  ><Fa icon={faRotateRight} /></button
                 >
               {/if}
-              {#if allowEdit}
+              {#if custom}
                 <button
-                  class="bg-transparent hover:opacity-60 ml-1 px-1 py-1 text-slate-600"
+                  class="bg-transparent hover:text-slate-600 px-1.5 text-slate-400"
                   on:click={() => {
-                    isEditing = true;
-                    dispatch('beginedit');
+                    dispatch('hover', {});
+                    dispatch('delete');
                   }}
-                  title="Temporarily modify the slice definition"
-                  ><Fa icon={faPencil} /></button
+                  title="Delete this custom slice"><Fa icon={faTrash} /></button
                 >
-                {#if !!temporarySlice && !areObjectsEqual(temporarySlice, slice)}
-                  <button
-                    class="bg-transparent hover:opacity-60 ml-1 py-1 px-1 text-slate-600"
-                    on:click={() => {
-                      temporaryRevertSlice(false);
-                      dispatch('reset');
-                    }}
-                    on:mouseenter={() => temporaryRevertSlice(true)}
-                    on:mouseleave={() => temporaryRevertSlice(false)}
-                    title="Reset the slice definition"
-                    ><Fa icon={faRotateRight} /></button
-                  >
-                {/if}
               {/if}
             {/if}
           </div>

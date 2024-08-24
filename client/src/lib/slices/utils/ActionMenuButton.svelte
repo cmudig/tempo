@@ -1,16 +1,13 @@
-<svelte:options accessors />
-
 <script lang="ts">
   import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { onMount } from 'svelte';
   import Fa from 'svelte-fa/src/fa.svelte';
-
-  const dispatch = createEventDispatcher();
 
   export let visible = false;
 
   export let buttonClass =
     'bg-transparent hover:opacity-60 text-slate-600 py-2 px-1 mr-2';
+  export let buttonActiveClass = '';
   export let buttonTitle = 'Show more actions';
   export let buttonStyle = '';
   export let align: 'left' | 'center' | 'right' = 'left';
@@ -21,13 +18,35 @@
 
   export let singleClick: boolean = true;
 
-  export let allowFocus: boolean = true;
-
   let optionsMenuOpacity = 0.0;
   let optionsMenu: Element;
 
-  $: if (visible) window.addEventListener('keydown', escapeOptionsMenu, true);
-  else window.removeEventListener('keydown', escapeOptionsMenu, true);
+  let observer: ResizeObserver | null = null;
+  let button: HTMLElement;
+  let container: HTMLElement;
+  let menuX: number = 0;
+  let menuY: number = 0;
+
+  $: if (visible) {
+    window.addEventListener('keydown', escapeOptionsMenu, true);
+    if (!!button) {
+      if (!!observer) observer.unobserve(button);
+      observer = new ResizeObserver(() => {
+        if (!container || !button) return;
+        let bounds = button.getBoundingClientRect();
+        let containerBounds = container.getBoundingClientRect();
+        menuX = bounds.left - containerBounds.left;
+        menuY = bounds.bottom - containerBounds.top;
+      });
+      observer.observe(button);
+    }
+  } else {
+    window.removeEventListener('keydown', escapeOptionsMenu, true);
+    if (!!button && !!observer) {
+      observer.unobserve(button);
+      observer = null;
+    }
+  }
 
   function escapeOptionsMenu(e) {
     if (e.key === 'Escape') {
@@ -37,19 +56,16 @@
     }
   }
 
-  export function showOptionsMenu() {
+  function showOptionsMenu() {
     optionsMenuOpacity = 0;
     visible = true;
     setTimeout(() => (optionsMenuOpacity = 1.0), 10);
-    if (!!optionsMenu && allowFocus) optionsMenu.focus();
-    dispatch('show');
+    if (!!optionsMenu) optionsMenu.focus();
   }
 
-  export function hideOptionsMenu(e: Event = undefined) {
-    if (!allowFocus && !!e) e.preventDefault();
+  function hideOptionsMenu() {
     optionsMenuOpacity = 0;
     setTimeout(() => (visible = false), 200);
-    dispatch('hide');
   }
 
   function dismiss() {
@@ -59,19 +75,13 @@
 
 <div class="relative">
   <button
-    class={buttonClass}
+    bind:this={button}
+    class="{buttonClass} {visible ? buttonActiveClass : ''}"
     style={buttonStyle}
     id="menu-button"
     title={buttonTitle}
     {disabled}
-    on:click|stopPropagation={allowFocus ? showOptionsMenu : undefined}
-    on:mousedown={allowFocus
-      ? undefined
-      : (e) => {
-          showOptionsMenu();
-          e.preventDefault();
-          e.stopPropagation();
-        }}
+    on:click|stopPropagation={showOptionsMenu}
     aria-expanded={visible}
     aria-label="Options menu"
     aria-haspopup="true"
@@ -83,27 +93,29 @@
   {#if visible}
     <div
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full"
+      bind:this={container}
       style="z-index: 999;"
-      on:mousedown|stopPropagation={hideOptionsMenu}
-      on:keydown={(e) => {}}
-    />
-    <div
-      class="absolute left-0 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none transition-opacity duration-200 overflow-visible"
-      style="opacity: {optionsMenuOpacity}; width: {menuWidth}px; transform: translateX({align ==
-      'right'
-        ? '-100%'
-        : align == 'center'
-          ? '-50%'
-          : '0'}); z-index: 1000;"
-      role="menu"
-      aria-orientation="vertical"
-      aria-labelledby="menu-button"
-      bind:this={optionsMenu}
-      on:click|stopPropagation={singleClick ? hideOptionsMenu : () => {}}
+      on:click|stopPropagation={hideOptionsMenu}
       on:keydown={(e) => {}}
     >
-      <div class="menu-options py-1" role="none">
-        <slot name="options" {dismiss} />
+      <div
+        class="absolute rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none transition-opacity duration-200"
+        style="top: {menuY}px; left: {menuX}px; opacity: {optionsMenuOpacity}; width: {menuWidth}px; transform: translate({align ==
+        'right'
+          ? '-100%'
+          : align == 'center'
+            ? '-50%'
+            : '0'}, 4px); z-index: 1000;"
+        role="menu"
+        aria-orientation="vertical"
+        aria-labelledby="menu-button"
+        bind:this={optionsMenu}
+        on:click|stopPropagation={singleClick ? hideOptionsMenu : () => {}}
+        on:keydown={(e) => {}}
+      >
+        <div class="menu-options py-1" role="none">
+          <slot name="options" {dismiss} />
+        </div>
       </div>
     </div>
   {/if}
@@ -116,9 +128,5 @@
 
   .menu-options :global(a:hover) {
     @apply bg-slate-100;
-  }
-
-  .menu-options :global(a:active) {
-    @apply bg-slate-200;
   }
 </style>

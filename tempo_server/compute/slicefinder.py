@@ -497,6 +497,9 @@ class SliceFinder:
             slices = {k: rank_list.encode_slice(v) for k, v in slices.items()} if encode_slices else slices
             slice_descs = {name: self.describe_slice(rank_list, metrics, ids, slice_obj, model_names, score_metrics=score_metrics)
                        for name, slice_obj in slices.items()}
+            # make sure to preserve custom string representations
+            for name, desc in slice_descs.items():
+                desc["stringRep"] = name
         elif isinstance(slices, divisi.slices.Slice) or (encode_slices and isinstance(slices, dict)):
             slices = rank_list.encode_slice(slices) if encode_slices else slices
             slice_descs = self.describe_slice(rank_list, metrics, ids, slices, model_names, score_metrics=score_metrics)

@@ -3,8 +3,6 @@
 <script lang="ts">
   import highlight from 'custom-syntax-highlighter';
   import { highlightPatterns } from './syntaxhighlight';
-  import { faPlus } from '@fortawesome/free-solid-svg-icons';
-  import Fa from 'svelte-fa';
   import QueryTemplateMenu from './QueryTemplateMenu.svelte';
   import TextareaAutocomplete from '../slices/utils/TextareaAutocomplete.svelte';
   import {
@@ -95,8 +93,8 @@
 
 <textarea
   spellcheck={false}
-  class="w-full h-full {textClass ?? 'font-mono text-xs'} {$$props.class ??
-    'flat-text-input'}"
+  class="{textClass ?? 'font-mono text-xs'} {$$props.class ??
+    'flat-text-input w-full h-full'}"
   style="color: transparent; {style ?? ''}"
   bind:this={queryInput}
   bind:value
@@ -126,11 +124,14 @@
   bind:visible={autocompleteVisible}
   on:replace={(e) => (value = e.detail)}
 />
-<QueryTemplateMenu
-  disabled={!editorFocused}
-  {templates}
-  on:insert={(e) => {
-    if (!editorFocused) return;
-    document.execCommand('insertText', false, e.detail.query);
-  }}
-/>
+<div class="flex gap-2 items-center">
+  <QueryTemplateMenu
+    disabled={!editorFocused}
+    {templates}
+    on:insert={(e) => {
+      if (!editorFocused) return;
+      document.execCommand('insertText', false, e.detail.query);
+    }}
+  />
+  <slot name="buttons" />
+</div>
