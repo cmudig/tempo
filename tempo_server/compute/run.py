@@ -40,7 +40,8 @@ def task_runner(filesystem, task_info, update_fn):
     if cmd == Commands.TRAIN_MODEL:
         update_fn({'message': 'Loading data'})
         dataset = _get_dataset(filesystem, task_info['dataset_name'])
-            
+        logging.info("Split sizes:", [len(x) for x in dataset.split_ids])
+                
         model_name = task_info['model_name']
         spec = task_info['spec']
         update_fn({'message': 'Loading variables'})
@@ -107,7 +108,7 @@ def task_runner(filesystem, task_info, update_fn):
     elif cmd == Commands.FIND_SLICES:
         update_fn({'message': 'Loading data'})
         dataset = _get_dataset(filesystem, task_info['dataset_name'])
-        print("Split sizes:", [len(x) for x in dataset.split_ids])
+        logging.info("Split sizes:", [len(x) for x in dataset.split_ids])
         
         slicefinder = SliceFinder(dataset)
         slicefinder.find_slices(task_info['model_name'], 

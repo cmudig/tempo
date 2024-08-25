@@ -82,12 +82,10 @@ def get_slice_finding_results(dataset_name, model_name):
             body['variable_spec_name'],
             body['score_function_spec']
         )
-
-        if not results: return jsonify({})
         
         timestep_def = dataset.get_model(model_name).get_spec()['timestep_definition']
         evaluation_results = slice_evaluator.evaluate_slices(
-            results, 
+            results if results else [], 
             timestep_def, 
             body['variable_spec_name'],
             body.get('model_names', [model_name]),
@@ -97,7 +95,7 @@ def get_slice_finding_results(dataset_name, model_name):
         return jsonify(convert_to_native_types(evaluation_results))
     except Exception as e:
         traceback.print_exc()
-        return f"Error occurred while retrieving slices: {str(e)}", 500
+        return f"Error occurred while retrieving subgroups: {str(e)}", 500
     
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/find")
 def start_slice_finding(dataset_name, model_name):
@@ -188,7 +186,7 @@ def validate_score_function_spec(dataset_name, model_name):
         slice_evaluator = slice_evaluators[dataset_name]
         
         eval_data = slice_evaluator.parse_score_expression(body['score_function'], 'test')
-        uniques = np.unique(eval_data).astype(int)
+        uniques = np.unique(eval_data[~np.isnan(eval_data)]).astype(int)
         assert len(uniques) <= 2 and not (set(uniques) - set([0, 1])), "Score functions must result in a binary value"
         return jsonify(convert_to_native_types({"result": {"values": make_series_summary(eval_data)}}))
     except Exception as e:

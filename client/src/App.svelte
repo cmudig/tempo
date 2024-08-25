@@ -329,12 +329,7 @@
             class="rounded my-2 py-1 text-center w-36 {currentView == view
               ? 'bg-blue-600 text-white font-bold hover:bg-blue-700'
               : 'text-slate-700 hover:bg-slate-300'}"
-            on:click={() => (currentView = view)}
-            >{#if view == View.results && !!$currentModel && !!$models && !!$models[$currentModel]?.metrics && metricsHaveWarnings($models[$currentModel].metrics)}<Fa
-                icon={faWarning}
-                class="inline mr-1"
-              />{/if}
-            {view}</button
+            on:click={() => (currentView = view)}>{view}</button
           >
         {/each}
       </div>

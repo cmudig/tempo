@@ -1,6 +1,11 @@
 <script lang="ts">
   import { type ModelMetrics, type VariableDefinition } from '../model';
-  import { createEventDispatcher, getContext, onDestroy } from 'svelte';
+  import {
+    createEventDispatcher,
+    getContext,
+    onDestroy,
+    onMount,
+  } from 'svelte';
   import * as d3 from 'd3';
   import ModelTrainingView from '../ModelTrainingView.svelte';
   import {
@@ -156,6 +161,23 @@
       'slicingSettings',
       JSON.stringify(slicingSettings)
     );
+  }
+
+  onMount(loadSavedSlices);
+  let oldSavedSlices: { [key: string]: { [key: string]: SliceFeatureBase } } =
+    {};
+  $: if (oldSavedSlices !== savedSlices) {
+    saveSavedSlicesToStorage();
+    oldSavedSlices = savedSlices;
+  }
+
+  function loadSavedSlices() {
+    let savedSlicesString = window.localStorage.getItem('savedSlices');
+    if (!!savedSlicesString) savedSlices = JSON.parse(savedSlicesString);
+  }
+
+  function saveSavedSlicesToStorage() {
+    window.localStorage.setItem('savedSlices', JSON.stringify(savedSlices));
   }
 
   function initiateSliceLookup() {
@@ -495,8 +517,7 @@
                 disabled={retrievingSlices || isTraining}
                 class="btn {visibleView == View.specEditor
                   ? 'btn-dark-slate dark'
-                  : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left"
-                style="max-width: 50%;"
+                  : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left shrink"
                 on:click={visibleView == View.specEditor
                   ? dismissSpecEditor
                   : () => (visibleView = View.specEditor)}
@@ -513,8 +534,7 @@
                   disabled={retrievingSlices || isTraining}
                   class="btn {visibleView == View.scoreFunctionEditor
                     ? 'btn-dark-slate dark'
-                    : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left flex-auto w-min"
-                  style="max-width: 50%;"
+                    : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left flex-auto w-0 shrink"
                   on:click={visibleView == View.scoreFunctionEditor
                     ? dismissScoreFunctionEditor
                     : () => (visibleView = View.scoreFunctionEditor)}
@@ -530,37 +550,36 @@
               {/if}
             </div>
           {/if}
-          {#if visibleView == View.slices}
-            <div class="p-3 border-r border-slate-200 flex gap-2 items-center">
+          {#if visibleView == View.slices || visibleView == View.favorites}
+            <div
+              class="p-3 border-l border-slate-200 flex gap-2 items-center shrink-0"
+            >
+              {#if visibleView == View.slices}
+                <button
+                  class="btn btn-slate disabled:opacity-50 shrink-0"
+                  on:click={() => {
+                    customSlices[randomStringRep()] = { type: 'base' };
+                  }}
+                  disabled={isTraining ||
+                    !!searchStatus ||
+                    loadingSliceStatus ||
+                    retrievingSlices}
+                  ><Fa icon={faPlus} class="inline mr-2" />Rule</button
+                >
+              {/if}
               <button
-                class="btn btn-slate disabled:opacity-50 shrink-0"
+                class="btn {visibleView == View.favorites
+                  ? 'btn-dark-slate'
+                  : 'btn-slate'} disabled:opacity-50 shrink-0"
                 on:click={() => {
-                  customSlices[randomStringRep()] = { type: 'base' };
+                  if (visibleView == View.slices) visibleView = View.favorites;
+                  else visibleView = View.slices;
                 }}
                 disabled={isTraining ||
                   !!searchStatus ||
                   loadingSliceStatus ||
                   retrievingSlices}
-                ><Fa icon={faPlus} class="inline mr-2" />Rule</button
-              >
-              <button
-                class="btn btn-slate disabled:opacity-50 shrink-0"
-                on:click={() => (visibleView = View.favorites)}
-                disabled={isTraining ||
-                  !!searchStatus ||
-                  loadingSliceStatus ||
-                  retrievingSlices}
                 ><Fa icon={faHeart} class="inline mr-2" />Saved</button
-              >
-            </div>
-          {:else if visibleView == View.favorites}
-            <div class="p-3 border-r border-slate-200 flex gap-2 items-center">
-              <button
-                class="btn btn-slate disabled:opacity-50 shrink-0"
-                on:click={() => {
-                  savedSlices[sliceSpec] = {};
-                  visibleView = View.slices;
-                }}>Clear Saved</button
               >
             </div>
           {/if}
@@ -616,7 +635,7 @@
   >
     <SliceDetailsView slice={selectedSlice} modelNames={modelsToShow} />
   </div> -->
-  {#if !!selectedSlice}
+  {#if !!selectedSlice && (visibleView == View.slices || visibleView == View.favorites)}
     <ResizablePanel
       topResizable
       height={300}

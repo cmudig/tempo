@@ -159,9 +159,6 @@
           </form>
         {:else}
           <div class="whitespace-nowrap truncate">
-            {#if !!metrics && metricsHaveWarnings(metrics)}
-              <Fa class="text-orange-300 inline" icon={faWarning} />
-            {/if}
             {displayItem?.name ?? ''}
           </div>
         {/if}

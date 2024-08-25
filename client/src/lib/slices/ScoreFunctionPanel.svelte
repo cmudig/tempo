@@ -11,7 +11,8 @@
 
 <div class="mt-2 mb-1 font-bold">Search Criteria</div>
 <div class="text-slate-500 text-xs mb-2">
-  Search for slices that contain more instances matching these characteristics:
+  Search for subgroups that contain more instances matching these
+  characteristics:
 </div>
 {#each scoreFunctionSpec as scoreFunction, i}
   <ScoreFunctionEditor

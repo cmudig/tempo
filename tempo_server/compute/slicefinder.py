@@ -164,7 +164,9 @@ class SliceFinder:
         spec = self._variable_specs_cache[(timestep_definition, variable_spec_name)]
         if spec.discrete_df is None and load_if_needed:
             engine = self.dataset.make_query_engine(cache_fs=self.variable_cache_fs)
+            logging.info(f"Engine has {len(np.unique(engine.get_ids()))} ids")
             spec.load_slicing_variables(engine, timestep_definition, update_fn=update_fn)
+            logging.info("Loaded slicing variables with length {len(spec.discrete_df)}, {len(np.unique(spec.ids))} ids")
         return spec
         
     def filter_single_values(self, valid_df):
@@ -206,6 +208,8 @@ class SliceFinder:
                 outcome = np.abs(model.get_model_predictions(split) - model.get_true_labels(split))
             else:
                 raise ValueError(f"Unknown score expression property '{score_expression['property']}'")
+            valid_mask = ~np.isnan(model.get_true_labels(split))
+            outcome = np.where(valid_mask, outcome, np.nan)
             return outcome
         elif score_expression["type"] == "constant":
             return score_expression["value"]
@@ -215,29 +219,30 @@ class SliceFinder:
             lhs = self.parse_score_expression(score_expression["lhs"], split)
             rhs = self.parse_score_expression(score_expression["rhs"], split)
             if score_expression["relation"] == "=":
-                return lhs == rhs
+                result = lhs == rhs
             elif score_expression["relation"] == "!=":
-                return lhs != rhs
+                result = lhs != rhs
             elif score_expression["relation"] == "<":
-                return lhs < rhs
+                result = lhs < rhs
             elif score_expression["relation"] == "<=":
-                return lhs <= rhs
+                result = lhs <= rhs
             elif score_expression["relation"] == ">":
-                return lhs > rhs
+                result = lhs > rhs
             elif score_expression["relation"] == ">=":
-                return lhs >= rhs
+                result = lhs >= rhs
             elif score_expression["relation"] == "in":
                 assert isinstance(rhs, (list, np.array)), f"Right-hand side of 'in' expression must be a list, but got {rhs}"
-                return np.isin(lhs, rhs)
+                result = np.isin(lhs, rhs)
             elif score_expression["relation"] == "not-in":
                 assert isinstance(rhs, (list, np.array)), f"Right-hand side of 'in' expression must be a list, but got {rhs}"
-                return ~np.isin(lhs, rhs)
+                result = ~np.isin(lhs, rhs)
             elif score_expression["relation"] == "and":
-                return np.logical_and(lhs, rhs)
+                result = np.logical_and(lhs, rhs)
             elif score_expression["relation"] == "or":
-                return np.logical_or(lhs, rhs)
+                result = np.logical_or(lhs, rhs)
             else:
                 raise ValueError(f"Unknown score expression relation '{score_expression['relation']}'")
+            return np.where(np.logical_and(~np.isnan(lhs), ~np.isnan(rhs)), result, np.nan)
         else:
             raise ValueError(f"Unknown score expression type '{score_expression['type']}'")
         
@@ -248,8 +253,8 @@ class SliceFinder:
         for split, functions, metrics in zip(('val', 'test'), all_functions, all_metrics):
             for i, spec in enumerate(score_function_spec):
                 score_fn_data = self.parse_score_expression(spec, split)
-                print("For split", split, "score function data has", score_fn_data.mean())
-                uniques = np.unique(score_fn_data).astype(int)
+                logging.info(f"For split {split} score function data has mean {score_fn_data.mean()}")
+                uniques = np.unique(score_fn_data[~np.isnan(score_fn_data)]).astype(int)
                 assert len(uniques) <= 2 and not (set(uniques) - set([0, 1])), "Score functions must result in a binary value"
                 functions[f"{i}"] = divisi.OutcomeRateScore(score_fn_data)
                 functions[f"{i} Interaction"] = divisi.InteractionEffectScore(score_fn_data)
@@ -273,6 +278,13 @@ class SliceFinder:
         all_functions[1]["Simple Rule"] = divisi.NumFeaturesScore()
         weights["Large Slice"] = 0.5
         weights["Simple Rule"] = 0.5
+        
+        if all_masks:
+            if sampling_mask is not None:
+                sampling_mask = sampling_mask[all_masks[0]]
+            all_functions = tuple({n: fn.subslice(mask_set) for n, fn in score_fns.items()}
+                                  for score_fns, mask_set in zip(all_functions, all_masks))
+
         return (all_functions, all_metrics, weights, tuple(all_masks), sampling_mask)
     
     def get_eval_metrics(self, model_names):
@@ -503,6 +515,8 @@ class SliceFinder:
         elif isinstance(slices, divisi.slices.Slice) or (encode_slices and isinstance(slices, dict)):
             slices = rank_list.encode_slice(slices) if encode_slices else slices
             slice_descs = self.describe_slice(rank_list, metrics, ids, slices, model_names, score_metrics=score_metrics)
+        elif slices is None:
+            slice_descs = []
         if include_meta:
             return {
                 "slices": slice_descs,
