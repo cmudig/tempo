@@ -154,6 +154,11 @@ select.flat-select-sm {
   @apply rounded text-xs p-1;
 }
 
+select.flat-select:disabled,
+select.flat-select-sm:disabled {
+  @apply opacity-50;
+}
+
 select:focus {
   @apply ring-blue-500 border-blue-500;
 }
