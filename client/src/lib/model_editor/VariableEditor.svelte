@@ -112,9 +112,10 @@
             on:click={() => dispatch('cancel')}>Cancel</button
           >
           <button
-            class="shrink-0 py-1 btn btn-blue text-sm"
-            class:opacity-30={newVariableQuery == varInfo.query}
-            disabled={newVariableQuery == varInfo.query || !!evaluationError}
+            class="shrink-0 py-1 btn btn-blue text-sm disabled:opacity-30"
+            disabled={(newVariableQuery == varInfo.query &&
+              newVariableName == varName) ||
+              !!evaluationError}
             on:click={() =>
               dispatch('save', {
                 name: newVariableName,
