@@ -11,6 +11,8 @@ class Commands:
     
 def make_series_summary(values, value_type=None):
     summary = {}
+    if len(values) == 0: return summary
+    
     if pd.isna(values).sum() > 0:
         summary["missingness"] = pd.isna(values).mean()
         values = values[~pd.isna(values)]
