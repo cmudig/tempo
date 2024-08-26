@@ -94,7 +94,7 @@
 <textarea
   spellcheck={false}
   class="{textClass ?? 'font-mono text-xs'} {$$props.class ??
-    'flat-text-input w-full h-full'}"
+    'flat-text-input w-full h-full leading-tight'}"
   style="color: transparent; {style ?? ''}"
   bind:this={queryInput}
   bind:value

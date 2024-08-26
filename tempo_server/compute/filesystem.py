@@ -39,6 +39,7 @@ class LocalFilesystem:
         return os.path.exists(os.path.join(self.base_path, *path))
     
     def delete(self, *path):
+        if not os.path.exists(os.path.join(self.base_path, *path)): return
         if not path: shutil.rmtree(self.base_path)
         else:
             fp = os.path.join(self.base_path, *path)

@@ -20,6 +20,12 @@
 .btn-blue:hover {
   @apply bg-blue-200;
 }
+.btn-red {
+  @apply text-red-800 bg-red-100;
+}
+.btn-red:hover {
+  @apply bg-red-200;
+}
 .btn:disabled,
 .btn-sm:disabled {
   @apply opacity-30;

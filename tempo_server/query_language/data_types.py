@@ -401,6 +401,9 @@ class Compilable:
     def __rtruediv__(self, other): return self._handle_binary_op("/", other, reverse=True)
     def __rxor__(self, other): return self._handle_binary_op("^", other, reverse=True)
     
+    def isin(self, value_list):
+        return self.mono_parent(lambda immediate: f"({self.function_string(immediate)}).isin({value_list})")
+        
     def min(self, other): 
         if not isinstance(other, Compilable):
             other = Compilable.wrap(other)

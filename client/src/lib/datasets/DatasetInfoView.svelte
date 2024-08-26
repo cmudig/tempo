@@ -33,6 +33,7 @@
     status: string;
     status_info?: { message: string };
   } | null = null;
+  export let showCloseButton: boolean = true;
 
   let tabNames: (keyof DatasetInfo)[] = ['attributes', 'events', 'intervals'];
   let tabExplanatoryText: { [key in keyof DatasetInfo]: string } = {
@@ -100,11 +101,13 @@
           >{$currentDataset ?? '(none)'}</span
         >
       </div>
-      <button
-        class="text-slate-600 px-2 hover:opacity-50"
-        on:click={() => dispatch('close')}
-        ><Fa icon={faXmark} class="inline" /></button
-      >
+      {#if showCloseButton}
+        <button
+          class="text-slate-600 px-2 hover:opacity-50"
+          on:click={() => dispatch('close')}
+          ><Fa icon={faXmark} class="inline" /></button
+        >
+      {/if}
     </div>
   {/if}
   <div class="w-full flex-auto overflow-y-auto min-h-0 relative">

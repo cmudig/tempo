@@ -428,6 +428,7 @@
         <DatasetView
           bind:currentDataset={$currentDataset}
           datasets={datasetOptions}
+          on:close={() => (showingDatasetManagement = false)}
         />
       </div>
     </div>
