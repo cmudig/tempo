@@ -20,13 +20,16 @@
     try {
       clearCacheMessage = null;
       clearingCache = true;
-      let result = await fetch(`/datasets/${currentDataset}/clear_cache`, {
-        body: JSON.stringify({ target }),
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      let result = await fetch(
+        import.meta.env.BASE_URL + `/datasets/${currentDataset}/clear_cache`,
+        {
+          body: JSON.stringify({ target }),
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
       if (result.status != 200) console.error('error clearing cache:', result);
       else clearCacheMessage = await result.text();
       clearingCache = false;
@@ -69,58 +72,62 @@
         ><Fa icon={faXmark} class="inline" /></button
       >
     </div>
-    <div
-      class="mb-4 px-4 grid gap-4 items-center"
-      style="grid-template-columns: max-content auto;"
-    >
-      <button
-        class="btn btn-red"
-        disabled={clearingCache}
-        on:click={() => clearCache('variables')}
+    <div class="flex-auto min-h-0 overflow-auto w-full">
+      <div
+        class="mb-4 px-4 grid gap-4 items-center"
+        style="grid-template-columns: max-content auto;"
       >
-        Clear Variable Caches
-      </button>
-      <div class="flex-auto text-sm text-slate-500">
-        Remove all computed variables for model training, slicing, and queries.
+        <button
+          class="btn btn-red"
+          disabled={clearingCache}
+          on:click={() => clearCache('variables')}
+        >
+          Clear Variable Caches
+        </button>
+        <div class="flex-auto text-sm text-slate-500">
+          Remove all computed variables for model training, slicing, and
+          queries.
+        </div>
+        <button
+          class="btn btn-red"
+          disabled={clearingCache}
+          on:click={() => clearCache('models')}
+        >
+          Clear Trained Models
+        </button>
+        <div class="flex-auto text-sm text-slate-500">
+          Remove all model training results (without removing the
+          specifications).
+        </div>
+        <button
+          class="btn btn-red"
+          disabled={clearingCache}
+          on:click={() => clearCache('slices')}
+        >
+          Clear Subgroup Results
+        </button>
+        <div class="flex-auto text-sm text-slate-500">
+          Remove discovered subgroups.
+        </div>
+        <button
+          class="btn btn-red"
+          disabled={clearingCache}
+          on:click={() => clearCache('all')}
+        >
+          Clear All Caches
+        </button>
+        <div class="flex-auto text-sm text-slate-500">
+          Remove all of the above cached data for this dataset, including the
+          train/val/test split.
+        </div>
       </div>
-      <button
-        class="btn btn-red"
-        disabled={clearingCache}
-        on:click={() => clearCache('models')}
-      >
-        Clear Trained Models
-      </button>
-      <div class="flex-auto text-sm text-slate-500">
-        Remove all model training results (without removing the specifications).
-      </div>
-      <button
-        class="btn btn-red"
-        disabled={clearingCache}
-        on:click={() => clearCache('slices')}
-      >
-        Clear Subgroup Results
-      </button>
-      <div class="flex-auto text-sm text-slate-500">
-        Remove discovered subgroups.
-      </div>
-      <button
-        class="btn btn-red"
-        disabled={clearingCache}
-        on:click={() => clearCache('all')}
-      >
-        Clear All Caches
-      </button>
-      <div class="flex-auto text-sm text-slate-500">
-        Remove all of the above cached data for this dataset, including the
-        train/val/test split.
-      </div>
-    </div>
-    {#if !!clearCacheMessage}
-      <div class="px-4 mb-4 text-blue-500 text-sm">{clearCacheMessage}</div>
-    {/if}
-    <div class="min-h-0 flex-auto overflow-auto px-4 pb-4">
-      <div class="p-4 border-2 border-slate-300 rounded-md">
-        <DatasetInfoView showCloseButton={false} />
+      {#if !!clearCacheMessage}
+        <div class="px-4 mb-4 text-blue-500 text-sm">{clearCacheMessage}</div>
+      {/if}
+      <div class="px-4 pb-4">
+        <div class="p-4 border-2 border-slate-300 rounded-md">
+          <DatasetInfoView showCloseButton={false} scroll={false} />
+        </div>
       </div>
     </div>
   </div>

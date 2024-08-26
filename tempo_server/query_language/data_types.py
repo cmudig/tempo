@@ -280,7 +280,15 @@ class Compilable:
         
         return TimeSeries(index, pd.Series(grouped_values, name=result_name or "aggregated_series").convert_dtypes())
         
-    def where(self, condition, other):
+    def where(self, condition, other=None):
+        if not hasattr(other, "get_values"):
+            if other is None: other = "pd.NA"
+            return Compilable(lambda immediate: (
+            f"({self.function_string()}).where(({condition.function_string(immediate)}).get_values().astype(bool), {other})" 
+            if immediate else 
+            f"np.where({condition.function_string(immediate)}, {self.function_string(immediate)}, {other})"),
+                          leaves={**self.leaves, **condition.leaves},
+                          time_expression=self.time_expression)
         if not isinstance(other, Compilable):
             other = Compilable.wrap(other)
         if not isinstance(condition, Compilable):

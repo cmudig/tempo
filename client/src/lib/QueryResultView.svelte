@@ -249,7 +249,7 @@
         {#if values.type == 'binary' && !!values.mean}
           <SliceMetricBar
             value={values.mean}
-            width={metricWidth}
+            width={null}
             color="#d97706"
             showFullBar
           >
@@ -263,7 +263,7 @@
           <SliceMetricHistogram
             mean={values.mean ?? 0}
             histValues={values.hist}
-            width={metricWidth}
+            width={null}
           />
         {:else if values.type == 'categorical' && !!values.counts}
           <SliceMetricCategoryBar
@@ -271,7 +271,7 @@
               (a, b) => values.counts[b] - values.counts[a]
             )}
             counts={values.counts}
-            width={metricWidth}
+            width={null}
           />
         {/if}
       </div>
@@ -285,7 +285,7 @@
         {#if values.type == 'binary' && !!values.mean}
           <SliceMetricBar
             value={values.mean}
-            width={metricWidth}
+            width={null}
             color="#d97706"
             showFullBar
           >
@@ -299,7 +299,7 @@
           <SliceMetricHistogram
             mean={values.mean ?? 0}
             histValues={values.hist}
-            width={metricWidth}
+            width={null}
           />
         {:else if values.type == 'categorical' && !!values.counts}
           <SliceMetricCategoryBar
@@ -307,7 +307,7 @@
               (a, b) => values.counts[b] - values.counts[a]
             )}
             counts={values.counts}
-            width={metricWidth}
+            width={null}
           />
         {/if}
       </div>
@@ -321,7 +321,7 @@
         {#if values.type == 'binary' && !!values.mean}
           <SliceMetricBar
             value={values.mean}
-            width={metricWidth}
+            width={null}
             color="#d97706"
             showFullBar
           >
@@ -335,7 +335,7 @@
           <SliceMetricHistogram
             mean={values.mean ?? 0}
             histValues={values.hist}
-            width={metricWidth}
+            width={null}
           />
         {:else if values.type == 'categorical' && !!values.counts}
           <SliceMetricCategoryBar
@@ -343,7 +343,7 @@
               (a, b) => values.counts[b] - values.counts[a]
             )}
             counts={values.counts}
-            width={metricWidth}
+            width={null}
           />
         {/if}
       </div>
