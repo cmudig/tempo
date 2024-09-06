@@ -3,10 +3,15 @@ import re
 import tempfile
 from tempo_server.query_language.data_types import *
 from .utils import make_series_summary, make_query
-import xgboost
+import fresh_clone.tempo.tempo_server.compute.xgb as xgb
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve, f1_score
 from divisi.utils import convert_to_native_types
+from .nn import NeuralNetwork
+import shap
+from .raytuner import RayTuner
+from .xgb import XGBoost
+import torch
 
 class Model:
     def __init__(self, model_fs, result_fs=None):
@@ -164,8 +169,21 @@ class Model:
         train_mask = outcome.get_ids().isin(train_ids)
         val_mask = outcome.get_ids().isin(val_ids)
         test_mask = outcome.get_ids().isin(test_ids)
+
+        df_mask = pd.isna(modeling_df)
+        # if df_mask.any().any():
+        #     raise ValueError('There exist Nan values in the data')
+        df_mask = ~df_mask
+        df_mask = df_mask.all(axis=1)
+        outcome_mask = ~pd.isna(outcome_values)
+        row_mask = df_mask&outcome_mask
         
-        model, metrics, predictions = self._train_model(
+        # print(f'raw df mask {df_mask}')
+        # print(f'df mask {df_mask}')
+        # print(f'outcome mask {outcome_mask}')
+        # print(f'row_mask {row_mask}')
+        
+        model_archi, model, metrics, predictions = self._train_model(
             spec,
             modeling_df,
             outcome_values,
@@ -173,7 +191,8 @@ class Model:
             train_mask,
             val_mask,
             test_mask,
-            row_mask=~pd.isna(outcome_values),
+            # row_mask=~pd.isna(outcome_values),
+            row_mask=row_mask,
             update_fn=update_fn,
             model_type=spec["model_type"],
             early_stopping_rounds=3)
@@ -188,211 +207,79 @@ class Model:
                            "metrics.json")
             
         # Save out the model itself and its predictions
-        with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
-            model.save_model(model_file.name)
-            model_file.seek(0)
-            self.result_fs.write_file(model_file.read(), "model.json")
-        
+
+        if model_archi == 'pytorch':
+            with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
+                torch.save(model, 'model1.pth')
+                model_file.seek(0)
+                self.result_fs.write_file(model_file.read(), "model.json")
+        else:
+            with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
+                model.save_model(model_file.name)
+                model_file.seek(0)
+                self.result_fs.write_file(model_file.read(), "model.json")
+
         # Save out the true values and prediction (probabilities)
         self.result_fs.write_file(predictions, "preds.pkl")
         
         return model, metrics, predictions
-        
+    
     def _train_model(self, spec, variables, outcomes, ids, train_mask, val_mask, test_mask, model_type="binary_classification", row_mask=None, full_metrics=True, update_fn=None, **model_params):
         """
         variables: a dataframe containing variables for all patients
         """
         if row_mask is None: row_mask = np.ones(len(variables), dtype=bool)
+
         train_X = variables[train_mask & row_mask].values
+        train_x = variables[train_mask & row_mask]
         train_y = outcomes[train_mask & row_mask]
-        print(train_X, train_y, pd.isna(train_X).sum(axis=0), pd.isna(train_y).sum())
         train_ids = ids[train_mask & row_mask]
+
         val_X = variables[val_mask & row_mask].values
+        val_x = variables[val_mask & row_mask]
         val_y = outcomes[val_mask & row_mask]
-        print(val_X, val_y, pd.isna(val_X).sum(axis=0), pd.isna(val_y).sum())
         val_ids = ids[val_mask & row_mask]
+
         test_X = variables[test_mask & row_mask].values
+        test_x = variables[test_mask & row_mask]
         test_y = outcomes[test_mask & row_mask]
         test_ids = ids[test_mask & row_mask]
-        if model_type.endswith("classification"):
-            train_y = train_y.astype(int)
-            val_y = val_y.astype(int)
-            test_y = test_y.astype(int)
+
         val_sample = np.random.uniform(size=len(val_X)) < 0.1
         
-        print("Training", train_X.shape)
-        model_cls = xgboost.XGBRegressor if model_type == "regression" else xgboost.XGBClassifier
-        # Don't do class weights - instead, we can simply choose a better operating point
-        # if not regressor:
-        #     model_params['scale_pos_weight'] = (len(train_y) - train_y.sum()) / train_y.sum()
-        if model_type == "multiclass_classification":
-            weights = compute_sample_weight(
-                class_weight='balanced',
-                y=train_y
-            )
-            params = {'sample_weight': weights}
-        else:
-            params = {}
-            
-        model = model_cls(**model_params)
-        model.fit(train_X, train_y, eval_set=[(val_X[val_sample], val_y[val_sample])], **params)
-        
+        model_type = 'transformer'
+        if model_type == 'rnn' or model_type == 'transformer':
+            config = spec['tuning_config']
+            config['num_epochs'] = {'type': 'fix', 'value': 1}
+            config['input_size'] = {'type': 'fix', 'value': train_X.shape[1]}
+            config['num_classes'] = {'type': 'fix', 'value': 1}
+            model = NeuralNetwork(model_type,train_x,train_y,train_ids,test_x,test_y,test_ids,val_x,val_y,val_ids,spec['tuning_config'])
+            model_archi = 'pytorch'
+        else: 
+            model_archi = 'xgboost'
+            if model_type.endswith("classification"):
+                train_y = train_y.astype(int)
+                val_y = val_y.astype(int)
+                test_y = test_y.astype(int)
+            model = XGBoost(model_type, train_x,train_y,train_ids,val_X,val_y,val_ids,val_sample,test_X,test_y,test_ids,**model_params)
+
+        print("Training")
+        model.train()
+       
         print("Evaluating")
         if update_fn is not None: update_fn({'message': 'Evaluating model'})
-            
-        test_pred = self._compute_predictions(model, model_type, test_X)
-        metrics = {}
-        metrics["labels"] = make_series_summary(test_y 
-                                                     if model_type != 'multiclass_classification' 
-                                                     else pd.Series([spec["output_values"][i] for i in test_y]))
-        if model_type == "regression":
-            metrics["performance"] = {
-                "R^2": float(r2_score(test_y, test_pred)),
-                "MSE": float(np.mean((test_y - test_pred) ** 2))
-            }
-            bin_edges = np.histogram_bin_edges(np.concatenate([test_y, test_pred]), bins=10)
-            metrics["hist"] = {
-                "values": np.histogram2d(test_y, test_pred, bins=bin_edges)[0].tolist(),
-                "bins": bin_edges.tolist()
-            }
-            hist, bin_edges = np.histogram((test_pred - test_y), bins=10)
-            metrics["difference_hist"] = {
-                "values": hist.tolist(),
-                "bins": bin_edges.tolist()
-            }
-            metrics["predictions"] = make_series_summary(test_pred)
-
-            submodel_metric = "R^2"
-        else:
-            test_y = test_y.astype(np.uint8)
-            if len(np.unique(test_y)) > 1:
-                if model_type == "binary_classification":
-                    fpr, tpr, thresholds = roc_curve(test_y, test_pred)
-                    opt_threshold = thresholds[np.argmax(tpr - fpr)]
-                    if np.isinf(opt_threshold):
-                        # Set to 1 if positive label is never predicted, otherwise 0
-                        if (test_y > 0).mean() < 0.01:
-                            opt_threshold = 1e-6
-                        else:
-                            opt_threshold = 1 - 1e-6
-                        
-                    metrics["threshold"] = float(opt_threshold)
-                    metrics["performance"] = {
-                        "Accuracy": float((test_y == (test_pred >= opt_threshold)).mean()),
-                        "AUROC": float(roc_auc_score(test_y, test_pred)),
-                        "Micro F1": float(f1_score(test_y, test_pred >= opt_threshold, average="micro")),
-                        "Macro F1": float(f1_score(test_y, test_pred >= opt_threshold, average="macro")),
-                    }
-                    metrics["roc"] = {}
-                    for t in sorted([*np.arange(0, 1, 0.02), 
-                                    float(opt_threshold)]):
-                        conf = confusion_matrix(test_y, (test_pred >= t))
-                        tn, fp, fn, tp = conf.ravel()
-                        metrics["roc"].setdefault("thresholds", []).append(round(t, 3))
-                        metrics["roc"].setdefault("fpr", []).append(fp / (fp + tn))
-                        metrics["roc"].setdefault("tpr", []).append(tp / (tp + fn))
-                        precision = float(tp / (tp + fp))
-                        recall = float(tp / (tp + fn))
-                        metrics["roc"].setdefault("performance", []).append({
-                            "Accuracy": (tp + tn) / conf.sum(),
-                            "Sensitivity": recall,
-                            "Specificity": float(tn / (tn + fp)),
-                            "Precision": precision,
-                            "Micro F1": 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0,
-                            "Macro F1": 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0,
-                        })
-                    
-                    conf = confusion_matrix(test_y, (test_pred >= opt_threshold))
-                    metrics["confusion_matrix"] = conf.tolist()
-                    tn, fp, fn, tp = conf.ravel()
-                    metrics["performance"]["Sensitivity"] = float(tp / (tp + fn))
-                    metrics["performance"]["Specificity"] = float(tn / (tn + fp))
-                    metrics["performance"]["Precision"] = float(tp / (tp + fp))
-                    metrics["predictions"] = make_series_summary(test_pred)
-
-                    submodel_metric = "AUROC"
-                elif model_type == "multiclass_classification":
-                    max_predictions = np.argmax(test_pred, axis=1)
-                    metrics["performance"] = {
-                        "Accuracy": (test_y == max_predictions).mean(),
-                        "Micro F1": float(f1_score(test_y, max_predictions, average="micro")),
-                        "Macro F1": float(f1_score(test_y, max_predictions, average="macro")),
-                    }
-                    conf = confusion_matrix(test_y, max_predictions)
-                    metrics["confusion_matrix"] = conf.tolist()
-                    
-                    metrics["perclass"] = [{
-                        "label": c,
-                        "performance": {
-                            "Sensitivity": float(((max_predictions == i) & (test_y == i)).sum() / 
-                                                (((max_predictions == i) & (test_y == i)).sum() + 
-                                                ((max_predictions != i) & (test_y == i)).sum())),
-                            "Specificity": float(((max_predictions != i) & (test_y != i)).sum() / 
-                                                (((max_predictions != i) & (test_y != i)).sum() + 
-                                                ((max_predictions == i) & (test_y != i)).sum())),
-                            "Precision": float(((max_predictions == i) & (test_y == i)).sum() / 
-                                                (((max_predictions == i) & (test_y == i)).sum() + 
-                                                ((max_predictions == i) & (test_y != i)).sum()))
-                        }
-                    } for i, c in enumerate(spec["output_values"])]
-                    metrics["predictions"] = make_series_summary(pd.Series([spec["output_values"][i] for i in max_predictions]))
-
-                    submodel_metric = "Macro F1"
-                
-                if full_metrics:
-                    # Check whether any classes are never predicted
-                    class_true_positive_threshold = 0.1
-                    for true_class, probs in enumerate(conf):
-                        tp_fraction = probs[true_class] / probs.sum()
-                        if tp_fraction < class_true_positive_threshold:
-                            metrics.setdefault("class_not_predicted_warnings", []).append({
-                                "class": true_class,
-                                "true_positive_fraction": tp_fraction,
-                                "true_positive_threshold": class_true_positive_threshold
-                            })
-            else:
-                submodel_metric = None
-                
-        metrics["n_train"] = {"instances": len(train_X), "trajectories": len(np.unique(train_ids))}
-        metrics["n_val"] = {"instances": len(val_X), "trajectories": len(np.unique(val_ids))}
-        metrics["n_test"] = {"instances": len(test_X), "trajectories": len(np.unique(test_ids))}
-        
-        if submodel_metric is not None and full_metrics:
-            # Check for trivial solutions
-            max_variables = 5
-            metric_fraction = 0.95
-            
-            variable_names = []
-            for i in reversed(np.argsort(model.feature_importances_)[-max_variables:]):
-                variable_names.append(variables.columns[i])
-                _, sub_metrics, _ = self._train_model(
-                    spec,
-                    variables[variable_names],
-                    outcomes,
-                    ids,
-                    train_mask,
-                    val_mask,
-                    test_mask,
-                    row_mask=row_mask, 
-                    model_type=model_type,
-                    full_metrics=False,
-                    **model_params)
-                if sub_metrics["performance"][submodel_metric] >= metrics["performance"][submodel_metric] * metric_fraction:
-                    if len(variable_names) <= len(variables.columns) * 0.5:
-                        metrics["trivial_solution_warning"] = {
-                            "metric": submodel_metric,
-                            "variables": variable_names,
-                            "metric_value": sub_metrics["performance"][submodel_metric],
-                            "metric_threshold": metrics["performance"][submodel_metric] * metric_fraction,
-                            "metric_fraction": metric_fraction
-                        }
-                    break
+        metrics = model.evaluate(spec,full_metrics,variables,outcomes,train_mask,val_mask,test_mask,row_mask,**model_params)
+        predict = model.predict()
+        print(f'predict type{type(predict)}, size {predict.shape}')
+        print(f'metrics {metrics}')
         
         # Return preds and true values in the validation and test sets, putting
         # nans whenever the row shouldn't be considered part of the
         # cohort for this model
-        val_pred = self._compute_predictions(model, model_type, val_X)
-        return model, metrics, (
+        
+        val_pred = model.predict(data_type='val')
+        test_pred = model.predict()
+        return model_archi, model.model, metrics, (
             np.where(val_mask & row_mask, outcomes, np.nan)[val_mask],
             self._get_dataset_aligned_predictions(outcomes, val_pred, (val_mask & row_mask).values)[val_mask],
             np.where(test_mask & row_mask, outcomes, np.nan)[test_mask],
