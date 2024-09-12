@@ -411,7 +411,8 @@ class NeuralNetwork:
         sorted_perf_index = np.argsort(perf)
         performance = [self.column_names[i] for i in sorted_perf_index]
 
-        metrics['shap values'] = performance
+        metrics['features'] = performance
+        metrics['shap values'] = perf
 
         return metrics
     

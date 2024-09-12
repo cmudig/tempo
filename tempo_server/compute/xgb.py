@@ -179,7 +179,8 @@ class XGBoost:
         perf = np.sum(shap_values,axis=0)
         sorted_perf_index = np.argsort(perf)
         performance = [self.column_names[i] for i in sorted_perf_index]
-        metrics['shap values'] = performance
+        metrics['features'] = performance
+        metrics['shap values'] = perf
         
         # if submodel_metric is not None and full_metrics:
         #     # Check for trivial solutions
