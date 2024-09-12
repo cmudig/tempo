@@ -9,11 +9,15 @@
   } from './slicedescription';
   import SliceFeatureDetails from './SliceFeatureDetails.svelte';
   import SliceDetailsColumn from './SliceDetailsColumn.svelte';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, getContext } from 'svelte';
+  import type { Writable } from 'svelte/store';
+
+  let { currentDataset }: { currentDataset: Writable<string | null> } =
+    getContext('dataset');
 
   const dispatch = createEventDispatcher();
 
-  export let modelNames: string[] = [];
+  export let modelName: string | null = null;
   export let sliceSpec: string | null = 'default';
   export let slice: SliceFeatureBase | null = null;
 
@@ -32,17 +36,21 @@
 
       console.log('Loading slice description', slice);
       let result = await (
-        await fetch(import.meta.env.BASE_URL + `/slices/${modelNames.join(',')}/compare`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            slice: slice,
-            sliceSpec: sliceSpec ?? 'default',
-            ...(offset != 0 ? { offset: offset } : {}),
-          }),
-        })
+        await fetch(
+          import.meta.env.BASE_URL +
+            `/datasets/${$currentDataset}/slices/${modelName}/compare`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              slice: slice,
+              variable_spec_name: sliceSpec ?? 'default',
+              ...(offset != 0 ? { offset: offset } : {}),
+            }),
+          }
+        )
       ).json();
       loadingSliceDescription = false;
       if (offset != 0) {
@@ -86,7 +94,7 @@
 {#if !!slice}
   {#if loadingSliceDescription}
     <div class="w-full h-full flex flex-col items-center justify-center">
-      <div>Loading slice details...</div>
+      <div>Loading subgroup details...</div>
       <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-2">
         <svg
           aria-hidden="true"
@@ -116,13 +124,13 @@
     <div class="w-full h-full flex flex-col gap-2 p-2">
       <div class="w-full h-8 flex">
         <div class="w-1/3 font-bold text-sm text-slate-600 py-1.5 px-2">
-          Correlated features
+          Distinguishing Features
         </div>
         <div
           class="flex-auto grow-1 shrink-0 font-bold text-sm text-slate-600 px-2"
         >
           {#if offset != 0}
-            Correlated features at <select
+            Distinguishing Features at <select
               class="ml-2 flat-select font-normal text-xs"
               bind:value={offset}
             >

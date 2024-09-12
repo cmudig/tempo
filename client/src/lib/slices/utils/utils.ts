@@ -97,40 +97,53 @@ export function cumulativeSum(arr: Array<number>): Array<number> {
 export function withToggledFeature(
   featureToCopy: SliceFeatureBase,
   referenceFeature: SliceFeatureBase,
-  searchFeature: SliceFeatureBase
+  searchFeature: SliceFeatureBase,
+  replaceFeature: SliceFeatureBase | null = null
 ): SliceFeatureBase {
-  if (areObjectsEqual(searchFeature, referenceFeature)) {
-    if (areObjectsEqual(searchFeature, featureToCopy)) return { type: 'base' };
-    return Object.assign({}, referenceFeature);
+  if (
+    searchFeature.type == 'feature' &&
+    featuresHaveSameTree(searchFeature, referenceFeature, true)
+  ) {
+    if (replaceFeature == null) {
+      if (areObjectsEqual(searchFeature, featureToCopy))
+        return { type: 'base' };
+      return Object.assign({}, referenceFeature);
+    }
+    return replaceFeature;
   }
   let copied = Object.assign({}, featureToCopy);
   if (referenceFeature.type == 'negation') {
     (copied as SliceFeatureNegation).feature = withToggledFeature(
       (copied as SliceFeatureNegation).feature,
       (referenceFeature as SliceFeatureNegation).feature,
-      searchFeature
+      searchFeature,
+      replaceFeature
     );
   } else if (referenceFeature.type == 'and') {
     (copied as SliceFeatureAnd).lhs = withToggledFeature(
       (copied as SliceFeatureAnd).lhs,
       (referenceFeature as SliceFeatureAnd).lhs,
-      searchFeature
+      searchFeature,
+      replaceFeature
     );
     (copied as SliceFeatureAnd).rhs = withToggledFeature(
       (copied as SliceFeatureAnd).rhs,
       (referenceFeature as SliceFeatureAnd).rhs,
-      searchFeature
+      searchFeature,
+      replaceFeature
     );
   } else if (referenceFeature.type == 'or') {
     (copied as SliceFeatureOr).lhs = withToggledFeature(
       (copied as SliceFeatureOr).lhs,
       (referenceFeature as SliceFeatureOr).lhs,
-      searchFeature
+      searchFeature,
+      replaceFeature
     );
     (copied as SliceFeatureOr).rhs = withToggledFeature(
       (copied as SliceFeatureOr).rhs,
       (referenceFeature as SliceFeatureOr).rhs,
-      searchFeature
+      searchFeature,
+      replaceFeature
     );
   }
   return copied;
@@ -153,29 +166,38 @@ export function featureNeedsParentheses(
 // features being substituted by an empty SliceFeatureBase
 export function featuresHaveSameTree(
   feature: SliceFeatureBase,
-  otherFeature: SliceFeatureBase
+  otherFeature: SliceFeatureBase,
+  allowValueDifferences: boolean = false
 ): boolean {
   if (feature.type != otherFeature.type) {
     return feature.type == 'base' || otherFeature.type == 'base';
   }
   if (feature.type == 'feature') {
+    if (allowValueDifferences)
+      return (
+        otherFeature.type == 'feature' &&
+        (feature as SliceFeature).col == (otherFeature as SliceFeature).col
+      );
     return areObjectsEqual(feature, otherFeature);
   }
   if (feature.type == 'negation') {
     return featuresHaveSameTree(
       (feature as SliceFeatureNegation).feature,
-      (otherFeature as SliceFeatureNegation).feature
+      (otherFeature as SliceFeatureNegation).feature,
+      allowValueDifferences
     );
   }
   if (feature.type == 'and' || feature.type == 'or') {
     return (
       featuresHaveSameTree(
         (feature as SliceFeatureAnd).lhs,
-        (otherFeature as SliceFeatureAnd).lhs
+        (otherFeature as SliceFeatureAnd).lhs,
+        allowValueDifferences
       ) &&
       featuresHaveSameTree(
         (feature as SliceFeatureAnd).rhs,
-        (otherFeature as SliceFeatureAnd).rhs
+        (otherFeature as SliceFeatureAnd).rhs,
+        allowValueDifferences
       )
     );
   }
@@ -183,6 +205,7 @@ export function featuresHaveSameTree(
 }
 
 const prefixMetrics = ['count', 'timesteps', 'trajectories'];
+const suffixMetrics = ['labels', 'predictions'];
 
 export function sortMetrics(a: string, b: string): number {
   if (prefixMetrics.includes(a.toLocaleLowerCase())) {
@@ -190,6 +213,11 @@ export function sortMetrics(a: string, b: string): number {
       return a.localeCompare(b);
     else return -1;
   } else if (prefixMetrics.includes(b.toLocaleLowerCase())) return 1;
+  if (suffixMetrics.includes(a.toLocaleLowerCase())) {
+    if (suffixMetrics.includes(b.toLocaleLowerCase()))
+      return a.localeCompare(b);
+    else return 1;
+  } else if (suffixMetrics.includes(b.toLocaleLowerCase())) return -1;
   return a.localeCompare(b);
 }
 
@@ -244,4 +272,11 @@ export function base64ToBlob(
 
   const blob = new Blob(byteArrays, { type: contentType });
   return blob;
+}
+
+export function randomStringRep(): string {
+  return `custom-${new Array(20)
+    .fill(0)
+    .map((_) => Math.floor(Math.random() * 10))
+    .join('')}`;
 }

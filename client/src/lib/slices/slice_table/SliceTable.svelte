@@ -44,6 +44,7 @@
   export let allowShowScores = true;
   export let showScores = false;
   export let positiveOnly = false;
+  export let custom = false;
 
   export let valueNames: any = {};
   export let allowedValues: any = {};
@@ -129,22 +130,21 @@
     return false;
   }
 
-  function toggleSliceFeature(slice: Slice, feature: SliceFeature) {
+  function setSliceFeatureValues(
+    slice: Slice,
+    feature: SliceFeature,
+    newFeature: SliceFeature
+  ) {
     let allRequests = Object.assign({}, sliceRequests);
     let r;
     if (!!allRequests[slice.stringRep]) r = allRequests[slice.stringRep];
     else r = slice.feature;
-    let selectionIdx = selectedSlices.findIndex((s) => areObjectsEqual(s, r!));
-    r = withToggledFeature(r, slice.feature, feature);
+    console.log('original request:', r, slice, feature, newFeature);
+    r = withToggledFeature(r, slice.feature, feature, newFeature);
+    console.log('updated:', r);
     allRequests[slice.stringRep] = r;
     sliceRequests = allRequests;
     console.log('slice requests:', sliceRequests);
-    if (selectionIdx >= 0)
-      selectedSlices = [
-        ...selectedSlices.slice(0, selectionIdx),
-        r,
-        ...selectedSlices.slice(selectionIdx + 1),
-      ];
   }
 
   function resetSlice(slice: Slice) {
@@ -222,7 +222,7 @@
         class="flex-auto"
         style="min-width: {TableWidths.FeatureList}px; max-width: 800px;"
       >
-        <div class="p-2">Slice</div>
+        <div class="p-2">Subgroup Definition</div>
       </div>
       {#if !!metricGroups}
         {#each metricGroups as groupName}
@@ -310,9 +310,9 @@
       {metricGetter}
       {searchCriteriaName}
       {allowedValues}
-      {allowEdit}
-      {allowFavorite}
-      {allowSearch}
+      allowEdit={false}
+      allowFavorite={false}
+      allowSearch={false}
       allowSelect={false}
       isSaved={!!savedSlices[baseSlice.stringRep]}
       isSelected={!!selectedSlices.find((s) =>
@@ -362,6 +362,7 @@
       {allowEdit}
       {allowFavorite}
       {allowSearch}
+      {custom}
       allowSelect={!allowMultiselect}
       {fixedFeatureOrder}
       isSaved={!!Object.values(savedSlices).find((s) =>
@@ -376,13 +377,18 @@
       isEditing={slice.stringRep == editingSlice}
       on:beginedit={(e) => (editingSlice = slice.stringRep)}
       on:endedit={(e) => (editingSlice = null)}
-      on:edit={(e) => editSliceFeature(slice, e.detail)}
-      on:toggle={(e) => toggleSliceFeature(slice, e.detail)}
+      on:edit={(e) => {
+        if (!custom) editSliceFeature(slice, e.detail);
+        else dispatch('edit', { ...slice, feature: e.detail });
+      }}
+      on:toggle={(e) =>
+        setSliceFeatureValues(slice, e.detail.old, e.detail.new)}
       on:reset={(e) => resetSlice(slice)}
       on:temprevert={(e) =>
         (tempRevertedSlice = e.detail ? slice.stringRep : null)}
       on:newsearch
       on:saveslice
+      on:delete={() => dispatch('delete', slice.stringRep)}
       on:select={(e) => selectSlice(sliceToShow, e.detail)}
     />
   {/each}

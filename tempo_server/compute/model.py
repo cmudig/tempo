@@ -3,7 +3,6 @@ import re
 import tempfile
 from tempo_server.query_language.data_types import *
 from .utils import make_series_summary, make_query
-import fresh_clone.tempo.tempo_server.compute.xgb as xgb
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve, f1_score
 from divisi.utils import convert_to_native_types
@@ -12,6 +11,7 @@ import shap
 from .raytuner import RayTuner
 from .xgb import XGBoost
 import torch
+import logging
 
 class Model:
     def __init__(self, model_fs, result_fs=None):
@@ -70,6 +70,10 @@ class Model:
     def get_optimal_threshold(self):
         metrics = self.get_metrics()
         return metrics["threshold"]
+    
+    @property
+    def is_trained(self):
+        return "model_type" in self.get_spec() and self.result_fs.exists("metrics.json")
         
     @classmethod
     def blank_spec(cls):
@@ -110,7 +114,7 @@ class Model:
     def make_modeling_variables(self, query_engine, spec, update_fn=None, dummies=True):
         """Creates the variables dataframe."""
         query = make_query(spec["variables"], spec["timestep_definition"])
-        print(query)
+        logging.info(query)
         if update_fn is not None:
             def prog(num_completed, num_total):
                 update_fn({'message': f'Loading variables ({num_completed} / {num_total})', 'progress': num_completed / num_total})
@@ -120,13 +124,13 @@ class Model:
         modeling_df = modeling_variables.values
 
         if dummies:
-            print("Before:", modeling_df.shape)
+            logging.info(f"Before: {modeling_df.shape}")
             modeling_df = pd.get_dummies(modeling_df, 
                                         columns=[c for c in modeling_df.columns 
                                                 if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
                                                 or pd.api.types.is_string_dtype(modeling_df[c].dtype) 
                                                 or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)])
-            print("After:", modeling_df.shape)
+            logging.info(f"After: {modeling_df.shape}")
 
         del modeling_variables
         return modeling_df
@@ -141,7 +145,7 @@ class Model:
         outcome = query_engine.query("(" + spec['outcome'] + 
                                     (f" where ({spec['cohort']})" if spec.get('cohort', '') else '') + ") " + 
                                     spec["timestep_definition"])
-        print((~pd.isna(outcome.get_values())).sum())
+        logging.info(f"Outcome missingness: {(~pd.isna(outcome.get_values())).sum()}")
         
         if update_fn is not None: update_fn({'message': 'Training model'})
         if "model_type" not in spec:
@@ -231,14 +235,13 @@ class Model:
         if row_mask is None: row_mask = np.ones(len(variables), dtype=bool)
 
         train_X = variables[train_mask & row_mask].values
-        train_x = variables[train_mask & row_mask]
         train_y = outcomes[train_mask & row_mask]
         train_ids = ids[train_mask & row_mask]
-
+        logging.info(f"Training samples and missingness: {train_X}, {train_y}, {pd.isna(train_X).sum(axis=0)}, {pd.isna(train_y).sum()}")
         val_X = variables[val_mask & row_mask].values
-        val_x = variables[val_mask & row_mask]
         val_y = outcomes[val_mask & row_mask]
         val_ids = ids[val_mask & row_mask]
+        logging.info(f"Val samples and missingness: {val_X}, {val_y}, {pd.isna(val_X).sum(axis=0)}, {pd.isna(val_y).sum()}")
 
         test_X = variables[test_mask & row_mask].values
         test_x = variables[test_mask & row_mask]
@@ -253,7 +256,7 @@ class Model:
             config['num_epochs'] = {'type': 'fix', 'value': 1}
             config['input_size'] = {'type': 'fix', 'value': train_X.shape[1]}
             config['num_classes'] = {'type': 'fix', 'value': 1}
-            model = NeuralNetwork(model_type,train_x,train_y,train_ids,test_x,test_y,test_ids,val_x,val_y,val_ids,spec['tuning_config'])
+            model = NeuralNetwork(model_type,train_X,train_y,train_ids,test_x,test_y,test_ids,val_X,val_y,val_ids,spec['tuning_config'])
             model_archi = 'pytorch'
         else: 
             model_archi = 'xgboost'
@@ -261,17 +264,37 @@ class Model:
                 train_y = train_y.astype(int)
                 val_y = val_y.astype(int)
                 test_y = test_y.astype(int)
-            model = XGBoost(model_type, train_x,train_y,train_ids,val_X,val_y,val_ids,val_sample,test_X,test_y,test_ids,**model_params)
+            model = XGBoost(model_type, train_X,train_y,train_ids,val_X,val_y,val_ids,val_sample,test_X,test_y,test_ids,**model_params)
 
-        print("Training")
+        logging.info("Training")
         model.train()
        
-        print("Evaluating")
+        logging.info("Evaluating")
+
+        # logging.info("Training")
+        # model_cls = xgboost.XGBRegressor if model_type == "regression" else xgboost.XGBClassifier
+        # # Don't do class weights - instead, we can simply choose a better operating point
+        # # if not regressor:
+        # #     model_params['scale_pos_weight'] = (len(train_y) - train_y.sum()) / train_y.sum()
+        # if model_type == "multiclass_classification":
+        #     weights = compute_sample_weight(
+        #         class_weight='balanced',
+        #         y=train_y
+        #     )
+        #     params = {'sample_weight': weights}
+        # else:
+        #     params = {}
+            
+        # model = model_cls(**model_params)
+        # model.fit(train_X, train_y, eval_set=[(val_X[val_sample], val_y[val_sample])], **params)
+        
+        # logging.info("Evaluating")
+
         if update_fn is not None: update_fn({'message': 'Evaluating model'})
         metrics = model.evaluate(spec,full_metrics,variables,outcomes,train_mask,val_mask,test_mask,row_mask,**model_params)
         predict = model.predict()
-        print(f'predict type{type(predict)}, size {predict.shape}')
-        print(f'metrics {metrics}')
+        logging.info(f'predict type{type(predict)}, size {predict.shape}')
+        logging.info(f'metrics {metrics}')
         
         # Return preds and true values in the validation and test sets, putting
         # nans whenever the row shouldn't be considered part of the

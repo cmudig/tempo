@@ -190,6 +190,9 @@ class Dataset:
         self.macros = macros
         self.split_ids = (train_ids, val_ids, test_ids)
 
+    def get_variable_cache_fs(self):
+        return self.split_cache_dir.subdirectory("variables")
+    
     def make_query_engine(self, cache_fs=None):
         """If cache_fs is None, uses the default variable cache."""
         if self.attributes is None:
@@ -197,7 +200,7 @@ class Dataset:
         return QueryEngine(self.attributes, 
                            self.events, 
                            self.intervals, 
-                           cache_fs=self.split_cache_dir.subdirectory("variables") if cache_fs is None else cache_fs, 
+                           cache_fs=self.get_variable_cache_fs() if cache_fs is None else cache_fs, 
                            eventtype_macros=self.macros)
 
     def get_summary(self):

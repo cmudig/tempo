@@ -85,10 +85,10 @@
         evaluationTimer = setTimeout(liveEvaluateQuery, mounted ? 2000 : 500);
     } else if (q.length > 0) {
       summaryIsStale = true;
-      liveEvaluateQuery(q);
+      liveEvaluateQuery();
     }
   }
-  async function liveEvaluateQuery(q: string) {
+  async function liveEvaluateQuery() {
     if (!visible) {
       oldQuery = '';
       return;
@@ -106,7 +106,8 @@
       try {
         result = await (
           await fetch(
-            import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/query?q=${encodedQuery}`
+            import.meta.env.BASE_URL +
+              `/datasets/${$currentDataset}/data/query?q=${encodedQuery}`
           )
         ).json();
         $queryResultCache = { ...$queryResultCache, [query]: result };
@@ -143,7 +144,9 @@
   async function pollDownload() {
     if (!downloadTaskID) return;
     try {
-      let result = await (await fetch(import.meta.env.BASE_URL + `/tasks/${downloadTaskID}`)).json();
+      let result = await (
+        await fetch(import.meta.env.BASE_URL + `/tasks/${downloadTaskID}`)
+      ).json();
       if (result.status == 'complete') {
         evaluationError = null;
         downloadProgress = null;
@@ -171,7 +174,8 @@
     try {
       let result = await (
         await fetch(
-          import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/query?q=${encodeURIComponent(query)}&dl=1`
+          import.meta.env.BASE_URL +
+            `/datasets/${$currentDataset}/data/query?q=${encodeURIComponent(query)}&dl=1`
         )
       ).json();
       if (result.blob) {
@@ -245,7 +249,7 @@
         {#if values.type == 'binary' && !!values.mean}
           <SliceMetricBar
             value={values.mean}
-            width={metricWidth}
+            width={null}
             color="#d97706"
             showFullBar
           >
@@ -259,7 +263,7 @@
           <SliceMetricHistogram
             mean={values.mean ?? 0}
             histValues={values.hist}
-            width={metricWidth}
+            width={null}
           />
         {:else if values.type == 'categorical' && !!values.counts}
           <SliceMetricCategoryBar
@@ -267,7 +271,7 @@
               (a, b) => values.counts[b] - values.counts[a]
             )}
             counts={values.counts}
-            width={metricWidth}
+            width={null}
           />
         {/if}
       </div>
@@ -281,7 +285,7 @@
         {#if values.type == 'binary' && !!values.mean}
           <SliceMetricBar
             value={values.mean}
-            width={metricWidth}
+            width={null}
             color="#d97706"
             showFullBar
           >
@@ -295,7 +299,7 @@
           <SliceMetricHistogram
             mean={values.mean ?? 0}
             histValues={values.hist}
-            width={metricWidth}
+            width={null}
           />
         {:else if values.type == 'categorical' && !!values.counts}
           <SliceMetricCategoryBar
@@ -303,7 +307,7 @@
               (a, b) => values.counts[b] - values.counts[a]
             )}
             counts={values.counts}
-            width={metricWidth}
+            width={null}
           />
         {/if}
       </div>
@@ -317,7 +321,7 @@
         {#if values.type == 'binary' && !!values.mean}
           <SliceMetricBar
             value={values.mean}
-            width={metricWidth}
+            width={null}
             color="#d97706"
             showFullBar
           >
@@ -331,7 +335,7 @@
           <SliceMetricHistogram
             mean={values.mean ?? 0}
             histValues={values.hist}
-            width={metricWidth}
+            width={null}
           />
         {:else if values.type == 'categorical' && !!values.counts}
           <SliceMetricCategoryBar
@@ -339,7 +343,7 @@
               (a, b) => values.counts[b] - values.counts[a]
             )}
             counts={values.counts}
-            width={metricWidth}
+            width={null}
           />
         {/if}
       </div>

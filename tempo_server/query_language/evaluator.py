@@ -5,6 +5,7 @@ import datetime
 from .data_types import *
 import json
 import os
+import logging
 import random
 import tqdm
 from divisi.utils import convert_to_native_types
@@ -724,6 +725,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
             var_exp = self.cache.lookup((tree_desc, options_desc), time_index_tree=time_index_tree, transform_info=self.variable_transform_desc)
             if self.variable_transform_desc is not None and var_exp is not None:
                 var_exp, transform_data = var_exp
+                logging.info(f"Loaded {var_name} from cache, evaluates to {var_exp}")
                 if self.variable_restore is not None:
                     if transform_data is None: var_exp = None
                     else: var_exp = self.variable_restore(var_exp, transform_data)
@@ -742,6 +744,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
                 
             if var_name is not None:
                 var_exp = var_exp.rename(var_name)
+            logging.info(f"Variable {var_name} evaluates to {var_exp}")
         except Exception as e:
             raise ValueError(f"Exception occurred when processing variable '{var_name}': {e}")
         else:
@@ -795,6 +798,10 @@ class EvaluateQuery(lark.visitors.Interpreter):
                     (var_exp.get_ids().values == evaluator.time_index.get_ids().values).all()):
                 # This is an Events but is perfectly aligned to the time index
                 var_exp = TimeSeries(TimeIndex.from_events(var_exp), var_exp.get_values())
+            elif isinstance(var_exp, (int, float, str, np.generic)):
+                # constant value at timesteps
+                val = var_exp.item() if isinstance(var_exp, np.generic) else var_exp
+                var_exp = TimeSeries(evaluator.time_index, pd.Series([val] * len(evaluator.time_index)))
         return var_exp
 
     def _parse_time_series(self, tree, evaluator):
@@ -836,12 +843,13 @@ class EvaluateQuery(lark.visitors.Interpreter):
                 
         
     def _parse_where_clause(self, tree, evaluator):
+        logging.info("Parsing where clause", tree)
         base = evaluator.transform(tree.children[0])
         evaluator.value_placeholder = base
         where = evaluator.transform(tree.children[1])
         evaluator.value_placeholder = None
         if isinstance(where, Compilable):
-            return Compilable(base).filter(where)
+            return Compilable(base).where(where)
         elif isinstance(base, (Events, Intervals, EventSet, IntervalSet, Compilable)):
             return base.filter(where)
         else:

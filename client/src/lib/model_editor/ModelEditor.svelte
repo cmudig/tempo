@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { type ModelSummary, type VariableDefinition } from '../model';
+  import {
+    type ModelSummary,
+    type QueryEvaluationResult,
+    type VariableDefinition,
+  } from '../model';
   import {
     createEventDispatcher,
     getContext,
@@ -24,6 +28,13 @@
   } from '../utils/query_autocomplete';
   import type { Writable } from 'svelte/store';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
+  import highlight from 'custom-syntax-highlighter';
+  import { highlightPatterns } from './syntaxhighlight';
+  import {
+    QueryTemplatesNoTimestepDefs,
+    QueryTemplatesTimestepDefsOnly,
+  } from './querytemplates';
+  import QueryEditorTextarea from './QueryEditorTextarea.svelte';
 
   let {
     currentDataset,
@@ -485,6 +496,52 @@
       console.error('Error downloading model data:', e);
     }
   }
+
+  let oldTimestepDefinition: string | null = null;
+  $: if (oldTimestepDefinition != timestepDefinition) {
+    evaluateTSDefIfNeeded(timestepDefinition);
+    oldTimestepDefinition = timestepDefinition;
+  }
+  let timestepDefinitionError: string | null = null;
+  let tsDefEvaluationTimer: number | null = null;
+
+  function evaluateTSDefIfNeeded(q: string | null) {
+    if (q == null || q.length == 0) {
+      timestepDefinitionError = null;
+      return;
+    }
+
+    if (!!tsDefEvaluationTimer) clearTimeout(tsDefEvaluationTimer);
+    tsDefEvaluationTimer = setTimeout(evaluateTimestepDefinition, 2000);
+  }
+
+  async function evaluateTimestepDefinition() {
+    let q = `1 ${timestepDefinition}`;
+    if ($currentDataset == null) {
+      console.warn(
+        'cannot evaluate timestep definition without a currentDataset prop'
+      );
+      return;
+    }
+    let result: QueryEvaluationResult;
+    let encodedQuery = encodeURIComponent(q);
+    try {
+      result = await (
+        await fetch(
+          import.meta.env.BASE_URL +
+            `/datasets/${$currentDataset}/data/query?q=${encodedQuery}`
+        )
+      ).json();
+    } catch (e) {
+      timestepDefinitionError = `${e}`;
+      return;
+    }
+    if (result.error) {
+      timestepDefinitionError = result.error;
+    } else if (result.query == q && !!result.result) {
+      timestepDefinitionError = null;
+    }
+  }
 </script>
 
 {#if isLoadingSpecs}
@@ -612,24 +669,22 @@
       Run the model at these time points in each trajectory:
     </div>
     {#if timestepDefinition !== null}
-      <textarea
-        spellcheck={false}
-        class="w-full font-mono flat-text-input"
-        bind:value={timestepDefinition}
-        bind:this={timestepEditor}
-      />
-      <TextareaAutocomplete
-        ref={timestepEditor}
-        resolveFn={(query, prefix) =>
-          getAutocompleteOptions($dataFields, query, prefix)}
-        replaceFn={performAutocomplete}
-        triggers={['{', '#']}
-        delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
-        menuItemTextFn={(v) => v.value}
-        maxItems={3}
-        menuItemClass="p-2"
-        on:replace={(e) => (timestepDefinition = e.detail)}
-      />
+      <div class="flex flex-auto w-full relative">
+        <div class="flex-auto">
+          <QueryEditorTextarea
+            class="flat-text-input w-full h-20"
+            bind:value={timestepDefinition}
+            templates={QueryTemplatesTimestepDefsOnly}
+          />
+        </div>
+        {#if !!timestepDefinitionError}
+          <div class="text-red-600 text-sm w-48 ml-4">
+            {@html '<p>' +
+              timestepDefinitionError.replace('\n', '</p><p>') +
+              '</p>'}
+          </div>
+        {/if}
+      </div>
     {:else}
       <div class="text-sm text-slate-600 mb-1">
         The selected models have multiple values. To modify all models, choose a
@@ -666,6 +721,7 @@
         varName="cohort"
         varInfo={{ query: patientCohort, category: '', enabled: true }}
         {timestepDefinition}
+        templates={QueryTemplatesNoTimestepDefs}
         showTableControls={false}
         showButtons={false}
         autosave

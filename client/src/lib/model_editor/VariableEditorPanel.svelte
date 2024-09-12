@@ -39,9 +39,8 @@
     .filter((c) => !!c)
     .sort();
 
-  let visibleInputVariableCategory: string | null = null;
-  $: if (allCategories.length > 0 && visibleInputVariableCategory == null)
-    visibleInputVariableCategory = allCategories[0];
+  const AllVariablesCategory = '###all###';
+  let visibleInputVariableCategory: string | null = AllVariablesCategory;
 
   let currentEditingVariableName: string | null = null;
 
@@ -112,12 +111,31 @@
   }
 
   $: visibleInputVariableCategory,
-    (() => (currentEditingVariableName = null))();
+    (() => {
+      currentEditingVariableName = null;
+      selectedVariables = [];
+    })();
+
+  let assignCategory: string | null = null;
+  $: if (selectedVariables.length > 0) {
+    let cat = inputVariables[selectedVariables[0]].category;
+    if (
+      !!cat &&
+      selectedVariables.every((v) => inputVariables[v].category == cat)
+    )
+      assignCategory = cat;
+    else assignCategory = '--';
+  } else assignCategory = '--';
 
   let categoryVariables: [string, VariableDefinition][] = [];
-  $: categoryVariables = Object.entries(inputVariables)
-    .filter((c) => c[1].category == visibleInputVariableCategory)
-    .sort((a, b) => a[0].localeCompare(b[0]));
+  $: if (visibleInputVariableCategory != AllVariablesCategory)
+    categoryVariables = Object.entries(inputVariables)
+      .filter((c) => c[1].category == visibleInputVariableCategory)
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  else
+    categoryVariables = Object.entries(inputVariables).sort((a, b) =>
+      a[0].localeCompare(b[0])
+    );
 
   let searchText: string = '';
 
@@ -167,13 +185,17 @@
     try {
       let query = `(${rawRepresentation}) ${timestepDefinition}`;
       let result = await (
-        await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/validate_syntax`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ query }),
-        })
+        await fetch(
+          import.meta.env.BASE_URL +
+            `/datasets/${$currentDataset}/data/validate_syntax`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ query }),
+          }
+        )
       ).json();
       if (result.success) {
         rawParseError = null;
@@ -250,6 +272,37 @@
 
     if (newNames.length == 1) currentEditingVariableName = newNames[0];
   }
+
+  function createAndAssignCategory() {
+    let categoryName = prompt('Choose a category name:');
+    if (!categoryName) {
+      return;
+    }
+    if (allCategories.includes(categoryName)) {
+      alert('The category already exists.');
+      return;
+    }
+
+    assignVariablesToCategory(selectedVariables, categoryName);
+  }
+
+  function assignVariablesToCategory(
+    variableNames: string[],
+    category: string | undefined
+  ) {
+    inputVariables = Object.fromEntries([
+      ...Object.entries(inputVariables).filter(
+        (item) => !variableNames.includes(item[0])
+      ),
+      ...variableNames.map((name) => [
+        name,
+        { ...inputVariables[name], category },
+      ]),
+    ]);
+    currentEditingVariableName = null;
+    if (!category) visibleInputVariableCategory = AllVariablesCategory;
+    else visibleInputVariableCategory = category;
+  }
 </script>
 
 <div
@@ -258,15 +311,14 @@
   class:h-full={fillHeight}
 >
   <div class="w-full py-3 px-3 flex items-center bg-slate-100">
-    {#if allCategories.length > 0}
-      <select bind:value={visibleInputVariableCategory} class="flat-select">
-        {#each allCategories as cat}
-          <option value={cat}>
-            {cat}
-          </option>
-        {/each}
-      </select>
-    {/if}
+    <select bind:value={visibleInputVariableCategory} class="flat-select mr-2">
+      <option value={AllVariablesCategory}>All</option>
+      {#each allCategories as cat}
+        <option value={cat}>
+          {cat}
+        </option>
+      {/each}
+    </select>
 
     <div class="flex justify-center gap-2">
       <button
@@ -292,6 +344,12 @@
         class="w-48 shrink-1 flat-text-input"
         placeholder="Find variable..."
       />
+      <button
+        class="ml-2 btn btn-blue self-stretch"
+        on:click={defineNewVariable}
+      >
+        <Fa class="inline mr-2" icon={faPlus} /> New Variable
+      </button>
     {/if}
   </div>
   {#if showRaw && rawRepresentation != null}
@@ -361,12 +419,32 @@
             : ''}
         </div>
         <div class="flex items-center gap-2">
-          <button
-            class="mr-1 my-1 py-1 text-sm px-3 rounded text-slate-800 bg-slate-200 hover:bg-slate-300 font-bold"
-            on:click={defineNewVariable}
-          >
-            <Fa class="inline mr-2" icon={faPlus} /> New Variable
-          </button>
+          <div class="text-xs text-slate-500">
+            Assign category:&nbsp;
+            <select
+              disabled={selectedVariables.length == 0}
+              value={assignCategory}
+              class="flat-select-sm mr-2"
+              on:change={(e) => {
+                if (e.target.value == '###addnew###') createAndAssignCategory();
+                else if (e.target.value == '###remove###')
+                  assignVariablesToCategory(selectedVariables, undefined);
+                else
+                  assignVariablesToCategory(selectedVariables, e.target.value);
+              }}
+            >
+              {#if assignCategory == '--'}
+                <option value="--">--</option>
+              {/if}
+              <option value="###remove###">No category</option>
+              {#each allCategories as cat}
+                <option value={cat}>
+                  {cat}
+                </option>
+              {/each}
+              <option value="###addnew###">Add new category</option>
+            </select>
+          </div>
           <label
             class="relative inline-flex items-center cursor-pointer {selectedVariables.length ==
             0

@@ -82,12 +82,10 @@ def get_slice_finding_results(dataset_name, model_name):
             body['variable_spec_name'],
             body['score_function_spec']
         )
-
-        if not results: return jsonify({})
         
         timestep_def = dataset.get_model(model_name).get_spec()['timestep_definition']
         evaluation_results = slice_evaluator.evaluate_slices(
-            results, 
+            results if results else [], 
             timestep_def, 
             body['variable_spec_name'],
             body.get('model_names', [model_name]),
@@ -97,7 +95,7 @@ def get_slice_finding_results(dataset_name, model_name):
         return jsonify(convert_to_native_types(evaluation_results))
     except Exception as e:
         traceback.print_exc()
-        return f"Error occurred while retrieving slices: {str(e)}", 500
+        return f"Error occurred while retrieving subgroups: {str(e)}", 500
     
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/find")
 def start_slice_finding(dataset_name, model_name):
@@ -188,7 +186,7 @@ def validate_score_function_spec(dataset_name, model_name):
         slice_evaluator = slice_evaluators[dataset_name]
         
         eval_data = slice_evaluator.parse_score_expression(body['score_function'], 'test')
-        uniques = np.unique(eval_data).astype(int)
+        uniques = np.unique(eval_data[~np.isnan(eval_data)]).astype(int)
         assert len(uniques) <= 2 and not (set(uniques) - set([0, 1])), "Score functions must result in a binary value"
         return jsonify(convert_to_native_types({"result": {"values": make_series_summary(eval_data)}}))
     except Exception as e:
@@ -238,14 +236,110 @@ def score_slice(dataset_name, model_name):
     )
     return jsonify({ "slices": convert_to_native_types(evaluation_results) })
 
+@slices_blueprint.route("/datasets/<dataset_name>/slices/<model_name>/compare", methods=["POST"])
+def get_slice_comparisons(dataset_name, model_name):
+    """
+    Parameters:
+    * dataset_name: name of the dataset in which to score the slice
+    * model_name: name of the model used as the base model (for timestep definition)
+    
+    Request body: JSON of the format {
+        "slice": <slice feature to compare>,
+        "offset" (optional): number of timesteps forward (positive) or backward
+            (negative) to compare against
+        "variable_spec_name": name of the variable spec to use
+    }
+    
+    Returns: if offset is provided, a JSON of the format {
+        "top_changes": [
+            { "variable": var name, "enrichments": [
+                {
+                    "source_value": any,
+                    "destination_value": any 
+                    "base_prob": number,
+                    "slice_prob": number,
+                    "ratio": number
+                }, ..
+            ] },
+            ...
+        ], 
+        "source": {
+            "top_variables": [
+                { 
+                    "variable": var name, "enrichments": [
+                        { "value": any, "ratio": number },
+                        ...
+                    ] 
+                }, ...
+            ],
+            "all_variables": {
+                <var name>: {
+                    "values": string[],
+                    "base": number[] (counts in overall dataset),
+                    "slice": number[] (counts in slice),
+                }
+            }
+        },
+        "destination": same as source
+    }. If offset is not provided, returns a JSON of the format {
+        "top_variables": [
+            { 
+                "variable": var name, "enrichments": [
+                    { "value": any, "ratio": number },
+                    ...
+                ] 
+            }, ...
+        ],
+        "all_variables": {
+            <var name>: {
+                "values": string[],
+                "base": number[] (counts in overall dataset),
+                "slice": number[] (counts in slice),
+            }
+        }
+    }
+    """
+        
+    global slice_evaluators
+    
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name), "test")
+    if not dataset.fs.exists():
+        return "Dataset does not exist", 404
 
-@slices_blueprint.route("/datasets/<dataset_name>/slices/score", methods=["POST"])
-def score_slice_all_models():
-    pass
+    body = request.json
+    if 'variable_spec_name' not in body:
+        return "Request body must include 'variable_spec_name' key", 400
+    if "slice" not in body:
+        return "'slice' body argument required", 400
+    
+    offset = body.get("offset", None)
+    variable_spec_name = body.get("variable_spec_name")
+    
+    if dataset_name not in slice_evaluators:
+        slice_evaluators[dataset_name] = SliceFinder(dataset)
+    slice_evaluator = slice_evaluators[dataset_name]
 
-@slices_blueprint.route("/datasets/<dataset_name>/slices/<model_names>/compare", methods=["POST"])
-def get_slice_comparisons(model_names):
-    pass
+    if offset is not None:
+        try:
+            if int(offset) != offset:
+                return "Offset must be an integer", 400
+        except ValueError:
+            return "Offset must be an integer", 400
+        
+        # Return a comparison of the slice at the given number of steps
+        # offset from the current time compared to the current time
+        comparison = slice_evaluator.describe_slice_change_differences(offset, 
+                                                                       body.get('slice'), 
+                                                                       model_name, 
+                                                                       variable_spec_name)
+        return jsonify(convert_to_native_types(comparison))
+    else:
+        differences = slice_evaluator.describe_slice_differences(
+            body.get('slice'),
+            model_name,
+            variable_spec_name
+        )
+        return jsonify(convert_to_native_types(differences))
     
 @slices_blueprint.route("/datasets/<dataset_name>/slices/specs", methods=["GET"])
 def get_slice_specs(dataset_name):

@@ -7,7 +7,7 @@
   import { areSetsEqual, sortMetrics } from './utils/utils';
   import SliceTable from './slice_table/SliceTable.svelte';
   import { createEventDispatcher, getContext } from 'svelte';
-  import { MetricColors } from '../colors';
+  import { makeCategoricalColorScale, MetricColors } from '../colors';
   import type { Writable } from 'svelte/store';
   import { type ScoreFunction, scoreFunctionToString } from './scorefunctions';
 
@@ -35,16 +35,21 @@
   let savedSliceResults: { [key: string]: Slice } = {};
   let savedSliceRequests: { [key: string]: SliceFeatureBase } = {};
   let savedSliceRequestResults: { [key: string]: Slice } = {};
+  let customSliceResults: { [key: string]: Slice } = {};
+  let customSliceRequests: { [key: string]: SliceFeatureBase } = {};
+  let customSliceRequestResults: { [key: string]: Slice } = {};
 
   export let fixedFeatureOrder: Array<any> = [];
 
   export let showScores = false;
   export let positiveOnly = false;
+  export let showSavedSlices = false;
 
   export let valueNames: {
     [key: string]: [any, { [key: string]: any }];
   } | null = {};
 
+  export let customSlices: { [key: string]: SliceFeatureBase } = {};
   export let selectedSlices: SliceFeatureBase[] = [];
   export let savedSlices: { [key: string]: SliceFeatureBase } = {};
 
@@ -81,6 +86,12 @@
   $: requestSliceScores(savedSliceRequests, modelName, modelsToShow).then(
     (r) => (savedSliceRequestResults = r)
   );
+  $: requestSliceScores(customSlices, modelName, modelsToShow).then(
+    (r) => (customSliceResults = r)
+  );
+  $: requestSliceScores(customSliceRequests, modelName, modelsToShow).then(
+    (r) => (customSliceRequestResults = r)
+  );
 
   let oldSliceSpec = sliceSpec;
   $: if (sliceSpec !== oldSliceSpec) {
@@ -93,10 +104,10 @@
     requests: {
       [key: string]: SliceFeatureBase;
     },
-    baseModel: string,
+    baseModel: string | null,
     models: string[]
   ): Promise<{ [key: string]: Slice }> {
-    if (Object.keys(requests).length == 0) {
+    if (Object.keys(requests).length == 0 || baseModel == null) {
       return {};
     }
     try {
@@ -222,7 +233,7 @@
               Math.max(curr, getMetric(next.metrics!, n)?.value ?? -1e9),
             -1e9
           ) + 0.01;
-        newInfo.scale = (v: number) => v / maxScore;
+        newInfo.scale = (v: number) => v / Math.max(1, maxScore);
       } else if (met.type == 'categorical') {
         let uniqueKeys: Set<string> = new Set();
         allSlices.forEach((s) =>
@@ -233,6 +244,9 @@
         let order = Array.from(uniqueKeys).sort();
         // order.sort((a, b) => met.counts![b] - met.counts![a]);
         newInfo.order = order;
+        newInfo.colorScale = makeCategoricalColorScale(
+          MetricColors[groupedMetrics ? n[1] : n]
+        );
       }
       newInfo.visible = (
         getMetric<SliceMetricInfo>(oldMetricInfo, n) || { visible: true }
@@ -269,60 +283,27 @@
   } else showDetailLoadingMessage = false;
 </script>
 
-<div class="flex-auto min-h-0 overflow-auto relative">
-  {#if !!baseSlice}
-    <div class="bg-white sticky top-0 z-10 px-4" bind:this={searchViewHeader}>
-      <SliceTable
-        slices={[]}
-        {savedSlices}
-        bind:selectedSlices
-        {baseSlice}
-        bind:sliceRequests
-        bind:sliceRequestResults
-        {positiveOnly}
-        {valueNames}
-        {allowedValues}
-        bind:metricGroups
-        searchCriteriaName={scoreFunctionSpec.length > 0
-          ? scoreFunctionToString(scoreFunctionSpec[0])
-          : null}
-        allowFavorite={true}
-        allowMultiselect={false}
-        metricInfo={(n) => getMetric(metricInfo, n)}
-        metricGetter={(s, name) => getMetric(s.metrics, name)}
-        bind:metricNames
-        allowShowScores={false}
-        showCheckboxes={false}
-        allowSearch={false}
-        on:saveslice
-      />
-    </div>
-    {#if Object.keys(savedSlices).length > 0}
-      <div class="bg-white px-4">
+<div
+  class="flex-auto min-h-0 overflow-auto relative"
+  style="min-height: 400px;"
+>
+  <div class="inline-block min-w-full">
+    {#if !!baseSlice}
+      <div class="bg-white sticky top-0 z-10 px-4" bind:this={searchViewHeader}>
         <SliceTable
-          slices={Object.keys(savedSlices).map((sr) =>
-            Object.assign(
-              savedSliceResults[sr] ?? {
-                feature: savedSlices[sr],
-                scoreValues: {},
-                metrics: {},
-                stringRep: sr,
-              },
-              { stringRep: 'saved_' + sr }
-            )
-          )}
+          slices={[]}
           {savedSlices}
           bind:selectedSlices
-          showHeader={false}
-          bind:sliceRequests={savedSliceRequests}
-          bind:sliceRequestResults={savedSliceRequestResults}
-          searchCriteriaName={scoreFunctionSpec.length > 0
-            ? scoreFunctionToString(scoreFunctionSpec[0])
-            : null}
+          {baseSlice}
+          bind:sliceRequests
+          bind:sliceRequestResults
           {positiveOnly}
           {valueNames}
           {allowedValues}
           bind:metricGroups
+          searchCriteriaName={scoreFunctionSpec.length > 0
+            ? scoreFunctionToString(scoreFunctionSpec[0])
+            : null}
           allowFavorite={true}
           allowMultiselect={false}
           metricInfo={(n) => getMetric(metricInfo, n)}
@@ -331,33 +312,34 @@
           allowShowScores={false}
           showCheckboxes={false}
           allowSearch={false}
-          on:saveslice={(e) => {
-            dispatch(
-              'saveslice',
-              Object.assign(e.detail, {
-                stringRep: e.detail.stringRep.replace('saved_', ''),
-              })
-            );
-          }}
+          on:saveslice
         />
       </div>
-    {/if}
-    <div class="flex-auto relative w-full px-4">
-      {#if !!slices && slices.length > 0}
-        <div class="w-full min-h-0" class:disable-div={runningSampler}>
+      {#if showSavedSlices}
+        <div class="bg-white px-4">
           <SliceTable
-            {slices}
+            slices={Object.keys(savedSlices).map((sr) =>
+              Object.assign(
+                savedSliceResults[sr] ?? {
+                  feature: savedSlices[sr],
+                  scoreValues: {},
+                  metrics: {},
+                  stringRep: sr,
+                },
+                { stringRep: 'saved_' + sr }
+              )
+            )}
             {savedSlices}
             bind:selectedSlices
-            bind:sliceRequests
-            bind:sliceRequestResults
+            showHeader={false}
+            bind:sliceRequests={savedSliceRequests}
+            bind:sliceRequestResults={savedSliceRequestResults}
             searchCriteriaName={scoreFunctionSpec.length > 0
               ? scoreFunctionToString(scoreFunctionSpec[0])
               : null}
             {positiveOnly}
             {valueNames}
             {allowedValues}
-            showHeader={false}
             bind:metricGroups
             allowFavorite={true}
             allowMultiselect={false}
@@ -367,60 +349,164 @@
             allowShowScores={false}
             showCheckboxes={false}
             allowSearch={false}
-            on:saveslice
+            on:saveslice={(e) => {
+              dispatch(
+                'saveslice',
+                Object.assign(e.detail, {
+                  stringRep: e.detail.stringRep.replace('saved_', ''),
+                })
+              );
+            }}
           />
         </div>
       {:else}
-        <div
-          class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
-        >
-          <div>No slices yet!</div>
+        {#if Object.keys(customSlices).length > 0}
+          <div class="bg-white px-4">
+            <SliceTable
+              slices={Object.keys(customSlices).map(
+                (sr) =>
+                  customSliceResults[sr] ?? {
+                    feature: customSlices[sr],
+                    scoreValues: {},
+                    metrics: {},
+                    stringRep: sr,
+                  }
+              )}
+              {savedSlices}
+              bind:selectedSlices
+              showHeader={false}
+              bind:sliceRequests={customSliceRequests}
+              bind:sliceRequestResults={customSliceRequestResults}
+              searchCriteriaName={scoreFunctionSpec.length > 0
+                ? scoreFunctionToString(scoreFunctionSpec[0])
+                : null}
+              {positiveOnly}
+              {valueNames}
+              {allowedValues}
+              custom
+              bind:metricGroups
+              allowFavorite={true}
+              allowMultiselect={false}
+              metricInfo={(n) => getMetric(metricInfo, n)}
+              metricGetter={(s, name) => getMetric(s.metrics, name)}
+              bind:metricNames
+              allowShowScores={false}
+              showCheckboxes={false}
+              allowSearch={false}
+              on:edit={(e) => {
+                customSlices = {
+                  ...customSlices,
+                  [e.detail.stringRep]: e.detail.feature,
+                };
+                console.log('custom slices:', customSlices);
+              }}
+              on:saveslice={(e) => {
+                dispatch(
+                  'saveslice',
+                  Object.assign(e.detail, {
+                    stringRep: e.detail.stringRep.replace('saved_', ''),
+                  })
+                );
+              }}
+              on:delete={(e) => {
+                customSlices = Object.fromEntries(
+                  Object.entries(customSlices).filter(([k, v]) => k != e.detail)
+                );
+                console.log('custom slices', customSlices, e.detail);
+              }}
+            />
+          </div>
+        {/if}
+        {#if !!slices && slices.length > 0}
+          <div class="px-4 mb-2 w-full">
+            <div
+              class="w-full px-4 py-2 bg-slate-100 text-slate-700 text-sm rounded z-10"
+            >
+              Search Results
+            </div>
+          </div>
+        {/if}
+        <div class="flex-auto relative w-full px-4">
+          {#if !!slices && slices.length > 0}
+            <div class="w-full min-h-0" class:disable-div={runningSampler}>
+              <SliceTable
+                {slices}
+                {savedSlices}
+                bind:selectedSlices
+                bind:sliceRequests
+                bind:sliceRequestResults
+                searchCriteriaName={scoreFunctionSpec.length > 0
+                  ? scoreFunctionToString(scoreFunctionSpec[0])
+                  : null}
+                {positiveOnly}
+                {valueNames}
+                {allowedValues}
+                showHeader={false}
+                bind:metricGroups
+                allowFavorite={true}
+                allowMultiselect={false}
+                metricInfo={(n) => getMetric(metricInfo, n)}
+                metricGetter={(s, name) => getMetric(s.metrics, name)}
+                bind:metricNames
+                allowShowScores={false}
+                showCheckboxes={false}
+                allowSearch={false}
+                on:saveslice
+              />
+            </div>
+          {:else}
+            <div
+              class="w-full mt-6 flex-auto min-h-0 flex flex-col items-center justify-center text-slate-500"
+            >
+              <div>No subgroups yet!</div>
+            </div>
+          {/if}
         </div>
       {/if}
-    </div>
-  {:else if !retrievingSlices}
-    <div
-      class="w-full flex-auto min-h-0 mt-6 flex flex-col items-center justify-center text-slate-500"
-    >
-      <div>No slices yet!</div>
-    </div>
-  {/if}
-  {#if retrievingSlices}
-    <div
-      class="absolute top-0 left-0 bg-white/80 w-full h-full flex flex-col items-center justify-center z-20"
-    >
-      <div>Retrieving slices...</div>
-      {#if showDetailLoadingMessage}
-        <div class="mt-2 text-sm text-slate-500">
-          It may take up to a minute to rank slices on your first visit.
-        </div>
-      {/if}
-      <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-4">
-        <svg
-          aria-hidden="true"
-          class="text-gray-200 animate-spin stroke-gray-600 w-8 h-8 align-middle"
-          viewBox="-0.5 -0.5 99.5 99.5"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <ellipse
-            cx="50"
-            cy="50"
-            rx="45"
-            ry="45"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="10"
-          />
-          <path
-            d="M 50 5 A 45 45 0 0 1 95 50"
-            stroke-width="10"
-            stroke-linecap="round"
-            fill="none"
-          />
-        </svg>
+    {:else if !retrievingSlices}
+      <div
+        class="w-full flex-auto min-h-0 mt-6 flex flex-col items-center justify-center text-slate-500"
+      >
+        <div>No subgroups yet!</div>
       </div>
-    </div>
-  {/if}
+    {/if}
+    {#if retrievingSlices}
+      <div
+        class="absolute top-0 left-0 bg-white/80 w-full h-full flex flex-col items-center justify-center z-20"
+      >
+        <div>Retrieving subgroups...</div>
+        {#if showDetailLoadingMessage}
+          <div class="mt-2 text-sm text-slate-500">
+            It may take up to a minute to rank subgroups on your first visit.
+          </div>
+        {/if}
+        <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-4">
+          <svg
+            aria-hidden="true"
+            class="text-gray-200 animate-spin stroke-gray-600 w-8 h-8 align-middle"
+            viewBox="-0.5 -0.5 99.5 99.5"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <ellipse
+              cx="50"
+              cy="50"
+              rx="45"
+              ry="45"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="10"
+            />
+            <path
+              d="M 50 5 A 45 45 0 0 1 95 50"
+              stroke-width="10"
+              stroke-linecap="round"
+              fill="none"
+            />
+          </svg>
+        </div>
+      </div>
+    {/if}
+  </div>
 </div>
 
 <style>

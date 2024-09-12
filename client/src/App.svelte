@@ -50,7 +50,7 @@
   enum View {
     editor = 'Specification',
     results = 'Metrics',
-    slices = 'Slices',
+    slices = 'Subgroups',
   }
   let currentView: View = View.results;
   let showingDatasetInfo: boolean = false;
@@ -329,12 +329,7 @@
             class="rounded my-2 py-1 text-center w-36 {currentView == view
               ? 'bg-blue-600 text-white font-bold hover:bg-blue-700'
               : 'text-slate-700 hover:bg-slate-300'}"
-            on:click={() => (currentView = view)}
-            >{#if view == View.results && !!$currentModel && !!$models && !!$models[$currentModel]?.metrics && metricsHaveWarnings($models[$currentModel].metrics)}<Fa
-                icon={faWarning}
-                class="inline mr-1"
-              />{/if}
-            {view}</button
+            on:click={() => (currentView = view)}>{view}</button
           >
         {/each}
       </div>
@@ -433,6 +428,7 @@
         <DatasetView
           bind:currentDataset={$currentDataset}
           datasets={datasetOptions}
+          on:close={() => (showingDatasetManagement = false)}
         />
       </div>
     </div>
@@ -448,7 +444,7 @@
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 flex mt-24 items-start justify-center pointer-events-none"
     >
       <div
-        class="w-1/2 z-20 rounded-md bg-white pointer-events-auto shadow-lg overflow-hidden"
+        class="w-1/2 z-20 rounded-md bg-white pointer-events-auto shadow-lg"
         style="min-width: 300px; max-width: 70%;"
       >
         <DatasetQueryScratchpad bind:queryHistory />
