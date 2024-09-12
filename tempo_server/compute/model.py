@@ -1,6 +1,7 @@
 import pandas as pd
 import re
 import tempfile
+import os
 from tempo_server.query_language.data_types import *
 from .utils import make_series_summary, make_query
 from sklearn.utils.class_weight import compute_sample_weight
@@ -213,10 +214,12 @@ class Model:
         # Save out the model itself and its predictions
 
         if model_archi == 'pytorch':
-            with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
-                torch.save(model, 'model1.pth')
-                model_file.seek(0)
-                self.result_fs.write_file(model_file.read(), "model.json")
+            dest_path = os.path.join(self.result_fs.base_path, 'model.pth')
+            torch.save(model, dest_path)
+            # with tempfile.NamedTemporaryFile('w+b', suffix='.json') as model_file:
+            #     torch.save(model, model_file.name)
+            #     model_file.seek(0)
+        
         else:
             with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
                 model.save_model(model_file.name)
@@ -250,10 +253,10 @@ class Model:
 
         val_sample = np.random.uniform(size=len(val_X)) < 0.1
         
-        model_type = 'transformer'
+        # model_type = 'rnn'
         if model_type == 'rnn' or model_type == 'transformer':
             config = spec['tuning_config']
-            config['num_epochs'] = {'type': 'fix', 'value': 1}
+            config['num_epochs'] = {'type': 'fix', 'value': 10}
             config['input_size'] = {'type': 'fix', 'value': train_X.shape[1]}
             config['num_classes'] = {'type': 'fix', 'value': 1}
             model = NeuralNetwork(model_type,train_X,train_y,train_ids,test_x,test_y,test_ids,val_X,val_y,val_ids,spec['tuning_config'])

@@ -314,7 +314,6 @@ class NeuralNetwork:
 
                 if(val_loss < best_val_loss):
                     best_val_loss = val_loss
-                    torch.save(model.state_dict(),'checkpoint.pt')
                     counter = 0
                 else:
                     early_stop += 1

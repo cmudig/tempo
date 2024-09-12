@@ -123,7 +123,7 @@ class RayTuner:
 
             with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
                 checkpoint = None
-                if (i + 1) % 5 == 0:
+                if (i + 1) % 20 == 0:
                     # This saves the model to the trial directory
                     torch.save(
                         model.state_dict(),
@@ -153,7 +153,7 @@ class RayTuner:
                 )
             ),
             tune_config = tune.TuneConfig(
-                num_samples=1,
+                num_samples=4,
                 scheduler = ASHAScheduler(
                     metric = 'roc_auc', 
                     mode = 'max'
