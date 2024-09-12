@@ -31,6 +31,7 @@
     "@fortawesome/free-solid-svg-icons": "^6.4.2",
     "@tailwindcss/line-clamp": "^0.4.4",
     "carta-md": "^4.2.0",
+    "custom-syntax-highlighter": "^1.0.1",
     "d3": "^7.8.5",
     "isomorphic-dompurify": "^2.12.0",
     "layercake": "^8.0.2",

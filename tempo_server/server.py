@@ -43,6 +43,20 @@ if __name__ == '__main__':
     def base(path):
         return send_from_directory('../client/dist', path)
     
+    @app.route("/logs")
+    def logs():
+        log_dir = os.path.join(args.base_path, "logs")
+        if os.path.exists(os.path.join(log_dir, "log.txt")):
+            with open(os.path.join(log_dir, "log.txt"), "r") as file:
+                return f"""
+            <html>
+                <head><title>Tempo Logs</title></head>
+                <body>
+                <pre>{file.read()}</pre>
+                </body>
+            </html>
+            """
+                
     if args.profile:
         app.wsgi_app = ProfilerMiddleware(app.wsgi_app, sort_by=["cumtime"], restrictions=[100])
         
@@ -50,7 +64,10 @@ if __name__ == '__main__':
     
     if os.environ.get("TEMPO_PRODUCTION") == "1" or is_running_from_reloader():
         print("Starting a worker")
-        worker = setup_worker(LocalFilesystem(args.base_path), verbose=args.debug)
+        log_dir = os.path.join(args.base_path, "logs")
+        if not os.path.exists(log_dir):
+            os.mkdir(os.path.join(log_dir))
+        worker = setup_worker(LocalFilesystem(args.base_path), log_dir, verbose=args.debug)
         worker.start()
     
     def close_running_threads():

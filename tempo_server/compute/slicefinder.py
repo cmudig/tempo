@@ -7,13 +7,15 @@ import uuid
 import pickle
 import datetime
 import time
+import logging
+import traceback
 from ..query_language.data_types import *
 from sklearn.metrics import roc_auc_score, confusion_matrix, r2_score, f1_score
 from .utils import make_query
 import divisi
 from divisi.filters import ExcludeFeatureValueSet, ExcludeIfAny
 from divisi.discretization import discretize_column, discretize_data, DiscretizedData
-from divisi.slices import RankedSliceList, IntersectionSlice
+from divisi.slices import RankedSliceList, IntersectionSlice, SliceFeatureBase, Slice, SliceFeature
 from divisi.utils import convert_to_native_types, powerset
 
 class SlicingVariableSpec:
@@ -162,7 +164,9 @@ class SliceFinder:
         spec = self._variable_specs_cache[(timestep_definition, variable_spec_name)]
         if spec.discrete_df is None and load_if_needed:
             engine = self.dataset.make_query_engine(cache_fs=self.variable_cache_fs)
+            logging.info(f"Engine has {len(np.unique(engine.get_ids()))} ids")
             spec.load_slicing_variables(engine, timestep_definition, update_fn=update_fn)
+            logging.info("Loaded slicing variables with length {len(spec.discrete_df)}, {len(np.unique(spec.ids))} ids")
         return spec
         
     def filter_single_values(self, valid_df):
@@ -204,6 +208,8 @@ class SliceFinder:
                 outcome = np.abs(model.get_model_predictions(split) - model.get_true_labels(split))
             else:
                 raise ValueError(f"Unknown score expression property '{score_expression['property']}'")
+            valid_mask = ~np.isnan(model.get_true_labels(split))
+            outcome = np.where(valid_mask, outcome, np.nan)
             return outcome
         elif score_expression["type"] == "constant":
             return score_expression["value"]
@@ -213,29 +219,30 @@ class SliceFinder:
             lhs = self.parse_score_expression(score_expression["lhs"], split)
             rhs = self.parse_score_expression(score_expression["rhs"], split)
             if score_expression["relation"] == "=":
-                return lhs == rhs
+                result = lhs == rhs
             elif score_expression["relation"] == "!=":
-                return lhs != rhs
+                result = lhs != rhs
             elif score_expression["relation"] == "<":
-                return lhs < rhs
+                result = lhs < rhs
             elif score_expression["relation"] == "<=":
-                return lhs <= rhs
+                result = lhs <= rhs
             elif score_expression["relation"] == ">":
-                return lhs > rhs
+                result = lhs > rhs
             elif score_expression["relation"] == ">=":
-                return lhs >= rhs
+                result = lhs >= rhs
             elif score_expression["relation"] == "in":
                 assert isinstance(rhs, (list, np.array)), f"Right-hand side of 'in' expression must be a list, but got {rhs}"
-                return np.isin(lhs, rhs)
+                result = np.isin(lhs, rhs)
             elif score_expression["relation"] == "not-in":
                 assert isinstance(rhs, (list, np.array)), f"Right-hand side of 'in' expression must be a list, but got {rhs}"
-                return ~np.isin(lhs, rhs)
+                result = ~np.isin(lhs, rhs)
             elif score_expression["relation"] == "and":
-                return np.logical_and(lhs, rhs)
+                result = np.logical_and(lhs, rhs)
             elif score_expression["relation"] == "or":
-                return np.logical_or(lhs, rhs)
+                result = np.logical_or(lhs, rhs)
             else:
                 raise ValueError(f"Unknown score expression relation '{score_expression['relation']}'")
+            return np.where(np.logical_and(~np.isnan(lhs), ~np.isnan(rhs)), result, np.nan)
         else:
             raise ValueError(f"Unknown score expression type '{score_expression['type']}'")
         
@@ -246,8 +253,8 @@ class SliceFinder:
         for split, functions, metrics in zip(('val', 'test'), all_functions, all_metrics):
             for i, spec in enumerate(score_function_spec):
                 score_fn_data = self.parse_score_expression(spec, split)
-                print("For split", split, "score function data has", score_fn_data.mean())
-                uniques = np.unique(score_fn_data).astype(int)
+                logging.info(f"For split {split} score function data has mean {score_fn_data.mean()}")
+                uniques = np.unique(score_fn_data[~np.isnan(score_fn_data)]).astype(int)
                 assert len(uniques) <= 2 and not (set(uniques) - set([0, 1])), "Score functions must result in a binary value"
                 functions[f"{i}"] = divisi.OutcomeRateScore(score_fn_data)
                 functions[f"{i} Interaction"] = divisi.InteractionEffectScore(score_fn_data)
@@ -271,6 +278,13 @@ class SliceFinder:
         all_functions[1]["Simple Rule"] = divisi.NumFeaturesScore()
         weights["Large Slice"] = 0.5
         weights["Simple Rule"] = 0.5
+        
+        if all_masks:
+            if sampling_mask is not None:
+                sampling_mask = sampling_mask[all_masks[0]]
+            all_functions = tuple({n: fn.subslice(mask_set) for n, fn in score_fns.items()}
+                                  for score_fns, mask_set in zip(all_functions, all_masks))
+
         return (all_functions, all_metrics, weights, tuple(all_masks), sampling_mask)
     
     def get_eval_metrics(self, model_names):
@@ -281,6 +295,8 @@ class SliceFinder:
             if model_name not in self._eval_metrics_cache:
                 model = self._get_model(model_name)
                 spec = model.get_spec()
+                if not model.is_trained:
+                    raise ValueError(f"Model '{model_name}' is not trained or had an error, please retrain it.")                
                 
                 model_metrics = {}
                 outcomes = model.get_true_labels('test')
@@ -317,7 +333,7 @@ class SliceFinder:
         discovery_df = variable_spec.discrete_df.filter(variable_spec.ids.isin(discovery_ids)).filter(valid_masks[0])
         discovery_filter = self.filter_single_values(discovery_df)
         
-        if update_fn is not None: update_fn({"message": "Finding slices"})
+        if update_fn is not None: update_fn({"message": "Finding subgroups"})
         finder = divisi.sampling.SamplingSliceFinder(
             discovery_df, 
             discovery_score_fns,
@@ -333,11 +349,11 @@ class SliceFinder:
         #     finder.all_scores += list(seen_slices.keys())
         
         def progress(current, total):
-            if update_fn is not None: update_fn({ 'message': f'Finding slices {current} / {total}', 'progress': current / total})
+            if update_fn is not None: update_fn({ 'message': f'Finding subgroups {current} / {total}', 'progress': current / total})
         finder.progress_fn = progress
         results, _ = finder.sample(n_samples)
         
-        if update_fn is not None: update_fn({"message": "Evaluating slices"})
+        if update_fn is not None: update_fn({"message": "Evaluating subgroups"})
         eval_ids = self.dataset.split_ids[2]
         eval_df = variable_spec.discrete_df.filter(variable_spec.ids.isin(eval_ids)).filter(valid_masks[1]) # validation set
 
@@ -389,6 +405,7 @@ class SliceFinder:
             try:
                 results_json = self.results_fs.read_file(matching_result["path"])
             except:
+                logging.info("Slice results file was removed")
                 # file was removed
                 self._results_cache[key] = [x for x in self._results_cache[key] if x != matching_result]
                 self.write_cache()
@@ -426,6 +443,10 @@ class SliceFinder:
                                         if item["score_function_spec"] != score_function_spec]
 
         try:
+            # Check that the model was trained
+            if not self._get_model(model_name).is_trained:
+                raise ValueError(f"Model '{model_name}' is not trained or had an error, please retrain it.")
+            
             if update_fn is not None: update_fn({"message": "Loading variables"})
             timestep_definition = self._get_model(model_name).get_spec()["timestep_definition"]
             variable_spec = self.get_variable_spec(timestep_definition, variable_spec_name, load_if_needed=True, update_fn=update_fn)
@@ -439,6 +460,7 @@ class SliceFinder:
             )
             results_json = convert_to_native_types([slice_obj.to_dict() for slice_obj in results])
         except Exception as e:
+            logging.info("Error loading model variables: " + traceback.format_exc())
             results_json = {"error": str(e)}
             
             self.results_fs.write_file(results_json, path)
@@ -487,9 +509,14 @@ class SliceFinder:
             slices = {k: rank_list.encode_slice(v) for k, v in slices.items()} if encode_slices else slices
             slice_descs = {name: self.describe_slice(rank_list, metrics, ids, slice_obj, model_names, score_metrics=score_metrics)
                        for name, slice_obj in slices.items()}
+            # make sure to preserve custom string representations
+            for name, desc in slice_descs.items():
+                desc["stringRep"] = name
         elif isinstance(slices, divisi.slices.Slice) or (encode_slices and isinstance(slices, dict)):
             slices = rank_list.encode_slice(slices) if encode_slices else slices
             slice_descs = self.describe_slice(rank_list, metrics, ids, slices, model_names, score_metrics=score_metrics)
+        elif slices is None:
+            slice_descs = []
         if include_meta:
             return {
                 "slices": slice_descs,
@@ -606,144 +633,156 @@ class SliceFinder:
         if return_instance_info: return desc, (mask, instance_behaviors)
         return desc
 
-def describe_slice_differences(variables, slice_obj, slice_filter=None, valid_mask=None, topk=50):
-    """
-    Generates a JSON-formatted description of the variables that have
-    the greatest differences within the slice and on average.
-    
-    variables: A DiscretizedData object
-    slice_obj: A slice within which to compare variable values, OR an array mask
-        to apply directly to the variable matrix
-    slice_filter: If provided, a slice filter object that can be called
-        to determine if a feature value is allowed to be shown
-    valid_mask: If provided, filter variables to only these rows
-    """
-    if isinstance(slice_obj, (sf.slices.SliceFeatureBase, sf.slices.Slice)):
+    def describe_slice_differences(self, slice_dict, model_name, variable_spec_name, variables=None, slice_filter=None, topk=50):
+        """
+        Generates a JSON-formatted description of the variables that have
+        the greatest differences within the slice and on average.
+        
+        slice_obj: A slice within which to compare variable values, OR an array mask
+            to apply directly to the variable matrix
+        slice_filter: If provided, a slice filter object that can be called
+            to determine if a feature value is allowed to be shown
+        valid_mask: If provided, filter variables to only these rows
+        """
+        if variables is None:
+            # load only test set
+            timestep_definition = self._get_model(model_name).get_spec()["timestep_definition"]
+            variable_spec = self.get_variable_spec(timestep_definition, variable_spec_name, load_if_needed=True)
+            eval_ids = self.dataset.split_ids[2]
+            valid_mask = ~np.isnan(self._get_model(model_name).get_true_labels('test'))
+            variables = variable_spec.discrete_df.filter(variable_spec.ids.isin(eval_ids)).filter(valid_mask)
+        slice_obj = variables.encode_slice(slice_dict)
+            
         slice_mask = slice_obj.make_mask(variables.df).cpu().numpy()
         univariate_features = slice_obj.univariate_features()
-    else:
-        slice_mask = slice_obj
-        univariate_features = None
 
-    if valid_mask is None: valid_mask = np.ones(len(variables.df), dtype=bool)
-    base_df = variables.df[valid_mask]
-    slice_df = variables.df[slice_mask & valid_mask]
+        base_df = variables.df
+        slice_df = variables.df[slice_mask]
 
-    variable_summaries = {}
-    enrichment_scores = {}
-    try:
-        input_columns = base_df.columns
-    except AttributeError:
-        input_columns = np.arange(base_df.shape[1])
-    for col in input_columns:
-        if univariate_features is not None and any(f.feature_name == col for f in univariate_features):
-            continue
-        col_name, value_map = variables.value_names[col]
-        for val, val_name in sorted(value_map.items(), key=lambda x: x[1] if x[1] != "End of Trajectory" else "zzzzz"):
-            base_count = (base_df[:,col] == val).sum()
-            slice_count = (slice_df[:,col] == val).sum()
-            variable_summaries.setdefault(col_name, {"values": [], "base": [], "slice": []})
-            variable_summaries[col_name]["values"].append(val_name)
-            variable_summaries[col_name]["base"].append(base_count)
-            variable_summaries[col_name]["slice"].append(slice_count)
+        variable_summaries = {}
+        enrichment_scores = {}
+        try:
+            input_columns = base_df.columns
+        except AttributeError:
+            input_columns = np.arange(base_df.shape[1])
+        for col in input_columns:
+            if univariate_features is not None and any(f.feature_name == col for f in univariate_features):
+                continue
+            col_name, value_map = variables.value_names[col]
+            for val, val_name in sorted(value_map.items(), key=lambda x: x[1] if x[1] != "End of Trajectory" else "zzzzz"):
+                base_count = (base_df[:,col] == val).sum()
+                slice_count = (slice_df[:,col] == val).sum()
+                variable_summaries.setdefault(col_name, {"values": [], "base": [], "slice": []})
+                variable_summaries[col_name]["values"].append(val_name)
+                variable_summaries[col_name]["base"].append(base_count)
+                variable_summaries[col_name]["slice"].append(slice_count)
+                
+                if slice_filter is not None and not slice_filter(SliceFeature(col, [val])): continue
+                base_prob = base_count / len(base_df)
+                slice_prob = slice_count / len(slice_df)
+                if slice_prob < base_prob: continue
+                enrichment_scores[(col_name, val_name)] = (base_prob, slice_prob, (1e-3 + slice_prob) / (1e-3 + base_prob))
+
+        top_enrichments = sorted(enrichment_scores.items(), key=lambda x: x[1][-1], reverse=True)[:topk]
+        top_variables = []
+        for (col, val), scores in top_enrichments:
+            existing = next((x for x in top_variables if x["variable"] == col), None)
+            if existing is None:
+                existing = {"variable": col, "enrichments": []}
+                top_variables.append(existing)
+            existing["enrichments"].append({"value": val, "ratio": (scores[1] - scores[0]) / scores[0]})
             
-            if slice_filter is not None and not slice_filter(sf.slices.SliceFeature(col, [val])): continue
-            base_prob = base_count / len(base_df)
-            slice_prob = slice_count / len(slice_df)
-            if slice_prob < base_prob: continue
-            enrichment_scores[(col_name, val_name)] = (base_prob, slice_prob, (1e-3 + slice_prob) / (1e-3 + base_prob))
+        return {"top_variables": top_variables, "all_variables": variable_summaries}
 
-    top_enrichments = sorted(enrichment_scores.items(), key=lambda x: x[1][-1], reverse=True)[:topk]
-    top_variables = []
-    for (col, val), scores in top_enrichments:
-        existing = next((x for x in top_variables if x["variable"] == col), None)
-        if existing is None:
-            existing = {"variable": col, "enrichments": []}
-            top_variables.append(existing)
-        existing["enrichments"].append({"value": val, "ratio": (scores[1] - scores[0]) / scores[0]})
+    def describe_slice_change_differences(self, shift_steps, slice_dict, model_name, variable_spec_name, slice_filter=None, topk=50):
+        """
+        Generates a JSON-formatted description of the variables that change
+        in the most different ways between the slice and the rest of the
+        dataset.
         
-    return {"top_variables": top_variables, "all_variables": variable_summaries}
-
-def describe_slice_change_differences(variables, ids, shift_steps, slice_obj, slice_filter=None, valid_mask=None, topk=50):
-    """
-    Generates a JSON-formatted description of the variables that change
-    in the most different ways between the slice and the rest of the
-    dataset.
-    
-    variables: A DiscretizedData object
-    ids: A vector containing the IDs for each timestep in variables
-    shift_steps: Number of steps to shift data forward (positive
-        numbers compare to timesteps in the past, negative numbers
-        compare to timesteps in the future)
-    slice_obj: A slice within which to compare variable values
-    slice_filter: If provided, a slice filter object that can be called
-        to determine if a feature value is allowed to be shown
-    valid_mask: If provided, filter variables to only these rows
-    """
-    source_description = describe_slice_differences(variables,
-                                                      slice_obj,
-                                                      slice_filter=slice_filter,
-                                                      valid_mask=valid_mask,
-                                                      topk=topk)
-    
-    shifted_values = sf.discretization.DiscretizedData((pd.DataFrame(variables.df)
-                                                        .groupby(ids)
-                                                        .shift(shift_steps) + 1).fillna(0).values,
-                                                       {col: (col_name, {**{k + 1: v for k, v in value_map.items()},
-                                                                         0: "End of Trajectory"})
-                                                        for col, (col_name, value_map) in variables.value_names.items()})
-    # Make sure to use the exact same slice mask as used in the source calculation
-    slice_mask = slice_obj.make_mask(variables.df).cpu().numpy()
-    # Decode and re-encode the slice filter since the value names have changed
-    shifted_filter = shifted_values.encode_filter(variables.decode_filter(slice_filter))
-    dest_description = describe_slice_differences(shifted_values,
-                                                      slice_mask,
-                                                      slice_filter=shifted_filter,
-                                                      valid_mask=valid_mask,
-                                                      topk=topk)
-    
-    # Now compute the changes
-    univariate_features = slice_obj.univariate_features()
-
-    if valid_mask is None: valid_mask = np.ones(len(variables.df), dtype=bool)
-    base_df = variables.df[valid_mask]
-    slice_df = variables.df[slice_mask & valid_mask]
-
-    base_df_change = shifted_values.df[valid_mask]
-    slice_df_change = shifted_values.df[slice_mask & valid_mask]
-
-    change_scores = {}
-    try:
-        input_columns = base_df_change.columns
-    except AttributeError:
-        input_columns = np.arange(base_df_change.shape[1])
-
-    for col in tqdm.tqdm(input_columns):
-        if any(f.feature_name == col for f in univariate_features):
-            continue
-        col_name, value_map = variables.value_names[col]
-        for val, val_name in value_map.items():
-            if slice_filter is not None and not slice_filter(sf.slices.SliceFeature(col, [val])): continue
-            base_prob_ref = (base_df[:,col] == val)
-            slice_prob_ref = (slice_df[:,col] == val)
-            for other_val, other_val_name in shifted_values.value_names[col][1].items():
-                if slice_filter is not None and not slice_filter(sf.slices.SliceFeature(col, [other_val])): continue
-                base_prob = (base_prob_ref & (base_df_change[:,col] == other_val)).mean()
-                slice_prob = (slice_prob_ref & (slice_df_change[:,col] == other_val)).mean()
-                change_scores[(col_name, val_name, other_val_name)] = (base_prob, slice_prob, (1e-3 + slice_prob) / (1e-3 + base_prob))
-
-    top_enrichments = sorted(change_scores.items(), key=lambda x: x[1][-1], reverse=True)[:topk]
-    top_variables = []
-    for (col, val, other_val), scores in top_enrichments:
-        existing = next((x for x in top_variables if x["variable"] == col), None)
-        if existing is None:
-            existing = {"variable": col, "enrichments": []}
-            top_variables.append(existing)
-        existing["enrichments"].append({"source_value": val,
-                                        "destination_value": other_val, 
-                                        "base_prob": scores[0],
-                                        "slice_prob": scores[1],
-                                        "ratio": (scores[1] - scores[0]) / scores[0]})
+        shift_steps: Number of steps to shift data forward (positive
+            numbers compare to timesteps in the past, negative numbers
+            compare to timesteps in the future)
+        slice_obj: A slice within which to compare variable values
+        slice_filter: If provided, a slice filter object that can be called
+            to determine if a feature value is allowed to be shown
+        """
+        timestep_definition = self._get_model(model_name).get_spec()["timestep_definition"]
+        variable_spec = self.get_variable_spec(timestep_definition, variable_spec_name, load_if_needed=True)
+        eval_ids = self.dataset.split_ids[2]
+        valid_mask = ~np.isnan(self._get_model(model_name).get_true_labels('test'))
+        variables = variable_spec.discrete_df.filter(variable_spec.ids.isin(eval_ids)).filter(valid_mask)
+        ids = variable_spec.ids[variable_spec.ids.isin(eval_ids)]
+        slice_obj = variables.encode_slice(slice_dict)
         
-    
-    return {"top_changes": top_variables, "source": source_description, "destination": dest_description}
+        source_description = self.describe_slice_differences(slice_dict,
+                                                             model_name,
+                                                             variable_spec_name,
+                                                             variables=variables,
+                                                             slice_filter=slice_filter,
+                                                             topk=topk)
+        
+        shifted_values = DiscretizedData((pd.DataFrame(variables.df)
+                                                            .groupby(ids)
+                                                            .shift(shift_steps) + 1).fillna(0).values,
+                                                        {col: (col_name, {**{k + 1: v for k, v in value_map.items()},
+                                                                            0: "End of Trajectory"})
+                                                            for col, (col_name, value_map) in variables.value_names.items()})
+        # Make sure to use the exact same slice mask as used in the source calculation
+        slice_mask = slice_obj.make_mask(variables.df).cpu().numpy()
+        # Decode and re-encode the slice filter since the value names have changed
+        if slice_filter is not None:
+            shifted_filter = shifted_values.encode_filter(variables.decode_filter(slice_filter))
+        else:
+            shifted_filter = None
+        dest_description = self.describe_slice_differences(slice_dict,
+                                                           model_name,
+                                                           variable_spec_name,
+                                                        variables=shifted_values,
+                                                        slice_filter=shifted_filter,
+                                                        topk=topk)
+        
+        # Now compute the changes
+        univariate_features = slice_obj.univariate_features()
+
+        base_df = variables.df
+        slice_df = variables.df[slice_mask]
+
+        base_df_change = shifted_values.df
+        slice_df_change = shifted_values.df[slice_mask]
+
+        change_scores = {}
+        try:
+            input_columns = base_df_change.columns
+        except AttributeError:
+            input_columns = np.arange(base_df_change.shape[1])
+
+        for col in tqdm.tqdm(input_columns):
+            if any(f.feature_name == col for f in univariate_features):
+                continue
+            col_name, value_map = variables.value_names[col]
+            for val, val_name in value_map.items():
+                if slice_filter is not None and not slice_filter(SliceFeature(col, [val])): continue
+                base_prob_ref = (base_df[:,col] == val)
+                slice_prob_ref = (slice_df[:,col] == val)
+                for other_val, other_val_name in shifted_values.value_names[col][1].items():
+                    if slice_filter is not None and not slice_filter(SliceFeature(col, [other_val])): continue
+                    base_prob = (base_prob_ref & (base_df_change[:,col] == other_val)).mean()
+                    slice_prob = (slice_prob_ref & (slice_df_change[:,col] == other_val)).mean()
+                    change_scores[(col_name, val_name, other_val_name)] = (base_prob, slice_prob, (1e-3 + slice_prob) / (1e-3 + base_prob))
+
+        top_enrichments = sorted(change_scores.items(), key=lambda x: x[1][-1], reverse=True)[:topk]
+        top_variables = []
+        for (col, val, other_val), scores in top_enrichments:
+            existing = next((x for x in top_variables if x["variable"] == col), None)
+            if existing is None:
+                existing = {"variable": col, "enrichments": []}
+                top_variables.append(existing)
+            existing["enrichments"].append({"source_value": val,
+                                            "destination_value": other_val, 
+                                            "base_prob": scores[0],
+                                            "slice_prob": scores[1],
+                                            "ratio": (scores[1] - scores[0]) / scores[0]})
+            
+        
+        return {"top_changes": top_variables, "source": source_description, "destination": dest_description}

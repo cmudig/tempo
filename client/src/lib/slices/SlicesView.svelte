@@ -1,6 +1,11 @@
 <script lang="ts">
   import { type ModelMetrics, type VariableDefinition } from '../model';
-  import { createEventDispatcher, getContext, onDestroy } from 'svelte';
+  import {
+    createEventDispatcher,
+    getContext,
+    onDestroy,
+    onMount,
+  } from 'svelte';
   import * as d3 from 'd3';
   import ModelTrainingView from '../ModelTrainingView.svelte';
   import {
@@ -15,11 +20,16 @@
     type Slice,
     type SliceFeatureBase,
   } from '../slices/utils/slice.type';
-  import { areObjectsEqual } from '../slices/utils/utils';
+  import { areObjectsEqual, randomStringRep } from '../slices/utils/utils';
   import SliceDetailsView from '../slice_details/SliceDetailsView.svelte';
   import ResizablePanel from '../utils/ResizablePanel.svelte';
   import type { Writable } from 'svelte/store';
-  import { faChevronLeft, faWrench } from '@fortawesome/free-solid-svg-icons';
+  import {
+    faChevronLeft,
+    faHeart,
+    faPlus,
+    faWrench,
+  } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa';
   import SliceSpecEditor from './SliceSpecEditor.svelte';
   import { scoreFunctionToString, type ScoreFunction } from './scorefunctions';
@@ -41,6 +51,7 @@
     slices = 0,
     specEditor = 1,
     scoreFunctionEditor = 2,
+    favorites = 3,
   }
   let visibleView: View = View.slices;
 
@@ -55,6 +66,9 @@
   let selectedSlices: SliceFeatureBase[] = [];
   export let savedSlices: {
     [key: string]: { [key: string]: SliceFeatureBase };
+  } = {};
+  export let customSlices: {
+    [key: string]: SliceFeatureBase;
   } = {};
 
   let oldSelectedSlices: SliceFeatureBase[] = [];
@@ -149,6 +163,23 @@
     );
   }
 
+  onMount(loadSavedSlices);
+  let oldSavedSlices: { [key: string]: { [key: string]: SliceFeatureBase } } =
+    {};
+  $: if (oldSavedSlices !== savedSlices) {
+    saveSavedSlicesToStorage();
+    oldSavedSlices = savedSlices;
+  }
+
+  function loadSavedSlices() {
+    let savedSlicesString = window.localStorage.getItem('savedSlices');
+    if (!!savedSlicesString) savedSlices = JSON.parse(savedSlicesString);
+  }
+
+  function saveSavedSlicesToStorage() {
+    window.localStorage.setItem('savedSlices', JSON.stringify(savedSlices));
+  }
+
   function initiateSliceLookup() {
     pollTrainingStatus().then(() => {
       if (!isTraining) {
@@ -162,7 +193,9 @@
     if (!searchTaskID) return;
     try {
       loadingSliceStatus = true;
-      searchStatus = await (await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}`)).json();
+      searchStatus = await (
+        await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}`)
+      ).json();
     } catch (e) {
       console.log('error getting slice status');
       searchStatus = null;
@@ -208,7 +241,8 @@
       retrievingSlices = true;
       sliceSearchError = null;
       let response = await fetch(
-        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${modelName}`,
+        import.meta.env.BASE_URL +
+          `/datasets/${$currentDataset}/slices/${modelName}`,
         {
           method: 'POST',
           headers: {
@@ -246,12 +280,14 @@
       } else if (!!result.error) {
         baseSlice = null;
         slices = null;
+        customSlices = {};
         selectedSlice = null;
         valueNames = null;
         sliceSearchError = result.error;
       } else {
         baseSlice = null;
         slices = null;
+        customSlices = {};
         selectedSlice = null;
         valueNames = null;
         if (!!result.status) {
@@ -278,16 +314,20 @@
 
       console.log('STARTING slice finding');
       let result = await (
-        await fetch(import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${modelName}/find`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            variable_spec_name: sliceSpec,
-            score_function_spec: scoreFunctionSpec,
-          }),
-        })
+        await fetch(
+          import.meta.env.BASE_URL +
+            `/datasets/${$currentDataset}/slices/${modelName}/find`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              variable_spec_name: sliceSpec,
+              score_function_spec: scoreFunctionSpec,
+            }),
+          }
+        )
       ).json();
 
       if (!!result.id) {
@@ -307,7 +347,9 @@
   async function stopFindingSlices() {
     if (!searchTaskID) return;
     try {
-      await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}/stop`, { method: 'POST' });
+      await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}/stop`, {
+        method: 'POST',
+      });
       pollSliceStatus();
     } catch (e) {
       console.error("couldn't stop slice finding:", e);
@@ -361,13 +403,15 @@
   {#if !!sliceSearchError}
     <div class="px-4">
       <div class="rounded p-3 mb-2 text-red-500 bg-red-50">
-        Slice search error: <span class="font-mono">{sliceSearchError}</span>
+        Subgroup discovery error: <span class="font-mono"
+          >{sliceSearchError}</span
+        >
       </div>
     </div>
   {/if}
   <div class="px-4 text-lg font-bold mb-3 w-full flex items-center gap-2">
     <div>
-      Slices for <span class="font-mono">{modelName}</span
+      Subgroups for <span class="font-mono">{modelName}</span
       >{#if modelsToShow.length > 1}&nbsp; vs. <span class="font-mono"
           >{modelsToShow.filter((m) => m != modelName).join(', ')}</span
         >{/if}
@@ -383,7 +427,9 @@
                 class="btn text-slate-600 px-1 py-0.5 text-xs font-bold disabled:opacity-50"
                 on:click={visibleView == View.specEditor
                   ? dismissSpecEditor
-                  : dismissScoreFunctionEditor}
+                  : visibleView == View.scoreFunctionEditor
+                    ? dismissScoreFunctionEditor
+                    : () => (visibleView = View.slices)}
                 ><Fa icon={faChevronLeft} class="inline mr-1" /> Back</button
               >
             {:else}
@@ -391,7 +437,7 @@
                 class="btn btn-blue disabled:opacity-50"
                 on:click={loadSlices}
                 disabled={retrievingSlices || isTraining}
-                >{retrievingSlices ? 'Loading...' : 'Find Slices'}</button
+                >{retrievingSlices ? 'Loading...' : 'Find Subgroups'}</button
               >
             {/if}
           </div>
@@ -433,7 +479,7 @@
             </div>
             <div class="mx-3 flex-auto whitespace-nowrap self-center">
               <div class="text-sm">
-                {samplerProgressMessage ?? 'Waiting to load slices...'}
+                {samplerProgressMessage ?? 'Waiting to load subgroups...'}
               </div>
               {#if samplerRunProgress != null}
                 <div
@@ -452,6 +498,17 @@
                 on:click={stopFindingSlices}>Stop</button
               >
             </div>
+          {:else if visibleView == View.favorites}
+            {@const numSaved = Object.keys(savedSlices[sliceSpec] ?? {}).length}
+            <div
+              class="py-4 px-6 flex gap-4 items-center flex-auto whitespace-nowrap font-bold text-sm"
+            >
+              {#if numSaved == 0}
+                No saved subgroups yet.
+              {:else}
+                {numSaved} saved subgroup{numSaved != 1 ? 's' : ''}
+              {/if}
+            </div>
           {:else}
             <div
               class="p-3 flex gap-4 items-center flex-auto whitespace-nowrap"
@@ -460,14 +517,13 @@
                 disabled={retrievingSlices || isTraining}
                 class="btn {visibleView == View.specEditor
                   ? 'btn-dark-slate dark'
-                  : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left"
-                style="max-width: 50%;"
+                  : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left shrink"
                 on:click={visibleView == View.specEditor
                   ? dismissSpecEditor
                   : () => (visibleView = View.specEditor)}
                 ><div class="text-xs w-full">
                   <div class="text-slate-600 dark:text-slate-100 font-normal">
-                    Slicing variables
+                    Grouping variables
                   </div>
                   <div class="font-bold truncate">{sliceSpec}</div>
                 </div></button
@@ -478,8 +534,7 @@
                   disabled={retrievingSlices || isTraining}
                   class="btn {visibleView == View.scoreFunctionEditor
                     ? 'btn-dark-slate dark'
-                    : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left flex-auto w-min"
-                  style="max-width: 50%;"
+                    : 'hover:bg-slate-200'} px-0.5 py-0.5 disabled:opacity-50 text-left flex-auto w-0 shrink"
                   on:click={visibleView == View.scoreFunctionEditor
                     ? dismissScoreFunctionEditor
                     : () => (visibleView = View.scoreFunctionEditor)}
@@ -495,11 +550,44 @@
               {/if}
             </div>
           {/if}
+          {#if visibleView == View.slices || visibleView == View.favorites}
+            <div
+              class="p-3 border-l border-slate-200 flex gap-2 items-center shrink-0"
+            >
+              {#if visibleView == View.slices}
+                <button
+                  class="btn btn-slate disabled:opacity-50 shrink-0"
+                  on:click={() => {
+                    customSlices[randomStringRep()] = { type: 'base' };
+                  }}
+                  disabled={isTraining ||
+                    !!searchStatus ||
+                    loadingSliceStatus ||
+                    retrievingSlices}
+                  ><Fa icon={faPlus} class="inline mr-2" />Rule</button
+                >
+              {/if}
+              <button
+                class="btn {visibleView == View.favorites
+                  ? 'btn-dark-slate'
+                  : 'btn-slate'} disabled:opacity-50 shrink-0"
+                on:click={() => {
+                  if (visibleView == View.slices) visibleView = View.favorites;
+                  else visibleView = View.slices;
+                }}
+                disabled={isTraining ||
+                  !!searchStatus ||
+                  loadingSliceStatus ||
+                  retrievingSlices}
+                ><Fa icon={faHeart} class="inline mr-2" />Saved</button
+              >
+            </div>
+          {/if}
         </div>
       </div>
 
       {#if visibleView == View.specEditor}
-        <div class="mx-4 w-full">
+        <div class="px-4 w-full">
           <SliceSpecEditor
             bind:sliceSpec
             {timestepDefinition}
@@ -507,7 +595,7 @@
           />
         </div>
       {:else if visibleView == View.scoreFunctionEditor}
-        <div class="w-full pb-4 mx-4">
+        <div class="w-full pb-4 px-4">
           <ScoreFunctionPanel
             bind:scoreFunctionSpec
             bind:changesPending={scoreFunctionsChanged}
@@ -526,7 +614,9 @@
             'Predictions',
           ]}
           slices={slices ?? []}
+          bind:customSlices
           {baseSlice}
+          showSavedSlices={visibleView == View.favorites}
           savedSlices={savedSlices[sliceSpec] ?? []}
           bind:selectedSlices
           bind:sliceSpec
@@ -545,9 +635,8 @@
   >
     <SliceDetailsView slice={selectedSlice} modelNames={modelsToShow} />
   </div> -->
-  {#if !!selectedSlice}
+  {#if !!selectedSlice && (visibleView == View.slices || visibleView == View.favorites)}
     <ResizablePanel
-      class="bg-slate-50"
       topResizable
       height={300}
       minHeight={200}
@@ -556,7 +645,7 @@
     >
       <SliceDetailsView
         slice={selectedSlice}
-        modelNames={modelsToShow}
+        {modelName}
         {sliceSpec}
         on:close={() => (selectedSlices = [])}
       />

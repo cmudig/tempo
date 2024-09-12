@@ -1,21 +1,15 @@
 <script lang="ts">
   import { type VariableDefinition } from '../model';
   import Checkbox from '../utils/Checkbox.svelte';
-  import { createEventDispatcher, getContext } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import QueryResultView from '../QueryResultView.svelte';
   import { areObjectsEqual } from '../slices/utils/utils';
-  import TextareaAutocomplete from '../slices/utils/TextareaAutocomplete.svelte';
-  import {
-    getAutocompleteOptions,
-    performAutocomplete,
-  } from '../utils/query_autocomplete';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
-  import type { Writable } from 'svelte/store';
+  import QueryEditorTextarea from './QueryEditorTextarea.svelte';
+  import highlight from 'custom-syntax-highlighter';
+  import { highlightPatterns } from './syntaxhighlight';
 
   const dispatch = createEventDispatcher();
-
-  let { dataFields }: { dataFields: Writable<string[]> } =
-    getContext('dataset');
 
   export let varName: string = '';
   export let varInfo: VariableDefinition | null = null;
@@ -25,10 +19,12 @@
   export let showTableControls = true;
   export let autosave = false;
   export let isChecked = false;
+  export let templates: {
+    title: string;
+    children: { name: string; query: string }[];
+  }[] = [];
 
   export let timestepDefinition: string = '';
-
-  let queryInput: HTMLElement;
 
   let newVariableName: string | null = null;
   let newVariableQuery: string | null = null;
@@ -47,6 +43,22 @@
   }
 
   let evaluationError: string | null = null;
+
+  let timestepDefLabel: HTMLElement;
+  let timestepDefLabelID: string =
+    'timestepDefLabel-' +
+    new Array(20)
+      .fill(0)
+      .map(() => Math.floor(Math.random() * 10))
+      .join('');
+
+  $: if (!!timestepDefLabel) {
+    timestepDefLabel.innerText = timestepDefinition;
+    highlight({
+      selector: `#${timestepDefLabelID}`,
+      patterns: highlightPatterns,
+    });
+  }
 </script>
 
 {#if !!varInfo && !!varName}
@@ -100,9 +112,10 @@
             on:click={() => dispatch('cancel')}>Cancel</button
           >
           <button
-            class="shrink-0 py-1 btn btn-blue text-sm"
-            class:opacity-30={newVariableQuery == varInfo.query}
-            disabled={newVariableQuery == varInfo.query || !!evaluationError}
+            class="shrink-0 py-1 btn btn-blue text-sm disabled:opacity-30"
+            disabled={(newVariableQuery == varInfo.query &&
+              newVariableName == varName) ||
+              !!evaluationError}
             on:click={() =>
               dispatch('save', {
                 name: newVariableName,
@@ -165,45 +178,46 @@
     {#if editing}
       <div></div>
       <div class="flex flex-auto w-full">
-        {#if !!timestepDefinition}
-          <div class="flex-auto">
-            {#if showName}
-              <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
-            {/if}
-            <div class="relative w-full {showName ? 'h-24' : ''}">
-              <textarea
-                spellcheck={false}
-                class="flat-text-input w-full h-full font-mono"
-                style="field-sizing: content; {!showName
-                  ? 'min-height: 84px;'
-                  : ''}"
-                bind:this={queryInput}
-                bind:value={newVariableQuery}
-                on:input={() => {
-                  if (autosave) {
-                    dispatch('save', {
-                      name: newVariableName,
-                      query: newVariableQuery,
-                    });
-                  }
-                }}
-              />
-              <TextareaAutocomplete
-                ref={queryInput}
-                resolveFn={(query, prefix) =>
-                  getAutocompleteOptions($dataFields, query, prefix)}
-                replaceFn={performAutocomplete}
-                triggers={['{', '#']}
-                delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
-                menuItemTextFn={(v) => v.value}
-                maxItems={3}
-                menuItemClass="p-2"
-                on:replace={(e) => (newVariableQuery = e.detail)}
-              />
-            </div>
+        <div class="flex-auto">
+          {#if showName}
+            <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
+          {/if}
+          <div class="relative w-full {showName ? 'h-24' : ''}">
+            <QueryEditorTextarea
+              style="field-sizing: content; {!showName
+                ? 'min-height: 84px;'
+                : ''}"
+              bind:value={newVariableQuery}
+              {templates}
+              on:input={() => {
+                if (autosave) {
+                  dispatch('save', {
+                    name: newVariableName,
+                    query: newVariableQuery,
+                  });
+                }
+              }}
+            >
+              <div class="text-xs" slot="buttons">
+                {#if !!timestepDefinition}
+                  <span class="text-slate-500">Evaluated at timesteps:</span>
+                  <span
+                    class="font-mono"
+                    id={timestepDefLabelID}
+                    bind:this={timestepDefLabel}
+                  ></span>
+                {:else}
+                  <span class="text-slate-500"
+                    >Variables require a Timestep Definition to be evaluated.</span
+                  >
+                {/if}
+              </div>
+            </QueryEditorTextarea>
           </div>
+        </div>
 
-          <div class="text-sm w-48 shrink-0 grow-0 self-stretch ml-2 p-2">
+        {#if !!timestepDefinition}
+          <div class="text-sm w-48 shrink-0 grow-0 self-stretch ml-4">
             <QueryResultView
               delayEvaluation
               bind:evaluationError

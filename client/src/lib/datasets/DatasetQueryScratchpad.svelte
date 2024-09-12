@@ -12,8 +12,15 @@
     performAutocomplete,
   } from '../utils/query_autocomplete';
   import type { Writable } from 'svelte/store';
-  import { faCheck } from '@fortawesome/free-solid-svg-icons';
+  import { faCheck, faChevronDown } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa';
+  import DatasetInfoView from './DatasetInfoView.svelte';
+  import QueryLanguageReferenceView from '../QueryLanguageReferenceView.svelte';
+  import QueryEditorTextarea from '../model_editor/QueryEditorTextarea.svelte';
+  import {
+    QueryTemplatesNoTimestepDefs,
+    QueryTemplatesTimestepDefsOnly,
+  } from '../model_editor/querytemplates';
 
   let {
     dataFields,
@@ -26,9 +33,12 @@
   export let queryHistory: string[] = [];
   let query: string = '';
   let finalQuery: string = '';
-  let queryInput: HTMLElement;
+  let queryInput: QueryEditorTextarea;
 
   let autocompleteVisible: boolean = false;
+
+  let showingDatasetInfo: boolean = false;
+  let showingQueryReference: boolean = false;
 
   let hints: string[] = [
     '{field}',
@@ -59,13 +69,6 @@
     hintTimer = null;
   });
 
-  let copiedText: boolean = false;
-  function copyQuery() {
-    navigator.clipboard.writeText(queryInput.value);
-    copiedText = true;
-    setTimeout(() => (copiedText = false), 5000);
-  }
-
   function addToHistory() {
     if (queryHistory.includes(finalQuery)) {
       let idx = queryHistory.indexOf(finalQuery);
@@ -76,19 +79,22 @@
     }
     queryHistory = [finalQuery, ...queryHistory];
   }
-
-  $: if (query !== finalQuery) finalQuery = '';
 </script>
 
 <div class="w-full">
   <div class="flex items-stretch p-4 gap-4">
     <div class="flex-auto flex flex-col">
-      <div class="relative w-full flex-auto h-24 mb-2">
-        <textarea
-          class="resize-none appearance-none text-slate-700 font-mono p-2 caret-blue-600 leading-relaxed w-full h-full font-mono text-base focus:outline-none focus:border-blue-600"
-          spellcheck={false}
-          bind:value={query}
+      <div class="relative w-full flex-auto h-32 mb-2">
+        <QueryEditorTextarea
           bind:this={queryInput}
+          class="resize-none appearance-none p-2 caret-blue-600 leading-relaxed w-full h-20 focus:outline-none focus:border-blue-600"
+          textClass="font-mono text-base"
+          templates={[
+            ...QueryTemplatesNoTimestepDefs,
+            ...QueryTemplatesTimestepDefsOnly,
+          ]}
+          bind:value={query}
+          bind:autocompleteVisible
           placeholder={'Enter a query, such as: ' + hints[hintIndex]}
           on:keydown={(e) => {
             if (
@@ -102,45 +108,30 @@
             }
           }}
         />
-        {#if $dataFields.length > 0}
-          <TextareaAutocomplete
-            ref={queryInput}
-            resolveFn={(query, prefix) =>
-              getAutocompleteOptions($dataFields, query, prefix)}
-            replaceFn={performAutocomplete}
-            triggers={['{', '#', ',']}
-            delimiterPattern={/[\s\(\[\]\)](?=[\{#])/}
-            menuItemTextFn={(v) => v.value}
-            maxItems={3}
-            menuItemClass="p-2"
-            on:replace={(e) => (query = e.detail)}
-            bind:visible={autocompleteVisible}
-          />
-        {/if}
       </div>
       <div class="flex shrink-0 items-center gap-2">
         <button class="btn btn-blue" on:click={() => (finalQuery = query)}
           >Evaluate</button
         >
         <button
+          class="btn {showingQueryReference ? 'btn-dark-slate' : 'btn-slate'}"
           on:click={() => {
-            query = '';
-            queryInput.focus();
-          }}
-          class="btn btn-slate">Clear</button
+            showingQueryReference = !showingQueryReference;
+            showingDatasetInfo = false;
+          }}>Syntax <Fa icon={faChevronDown} class="inline" /></button
         >
-        <button on:click={copyQuery} class="btn btn-slate">Copy Query</button>
-        <div
-          class="transition-opacity duration-300 text-slate-500 text-sm"
-          class:opacity-0={!copiedText}
+        <button
+          class="btn {showingDatasetInfo ? 'btn-dark-slate' : 'btn-slate'}"
+          on:click={() => {
+            showingDatasetInfo = !showingDatasetInfo;
+            showingQueryReference = false;
+          }}>Dataset Info <Fa icon={faChevronDown} class="inline" /></button
         >
-          <Fa icon={faCheck} class="inline mr-1" /> Copied to clipboard.
-        </div>
       </div>
     </div>
     <div
       class="text-sm w-48 shrink-0 grow-0 self-stretch ml-2 p-2"
-      class:hidden={finalQuery.length == 0 || finalQuery != query}
+      class:hidden={finalQuery.length == 0}
     >
       <QueryResultView
         query={finalQuery}
@@ -152,7 +143,18 @@
       />
     </div>
   </div>
-  {#if queryHistory.length > 0}
+  {#if showingDatasetInfo}
+    <div
+      class="w-full border-t border-slate-400 pb-4 overflow-y-auto"
+      style="max-height: 50vh;"
+    >
+      <DatasetInfoView showHeader={false} />
+    </div>
+  {:else if showingQueryReference}
+    <div class="w-full border-t border-slate-400" style="height: 50vh;">
+      <QueryLanguageReferenceView showHeader={false} />
+    </div>
+  {:else if queryHistory.length > 0}
     <div class="overflow-y-auto w-full border-t border-slate-400">
       {#each queryHistory as historyItem (historyItem)}
         <button

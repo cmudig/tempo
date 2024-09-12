@@ -129,7 +129,8 @@
     try {
       result = await (
         await fetch(
-          import.meta.env.BASE_URL + `/datasets/${$currentDataset}/slices/${$currentModel}/validate_score_function`,
+          import.meta.env.BASE_URL +
+            `/datasets/${$currentDataset}/slices/${$currentModel}/validate_score_function`,
           {
             method: 'POST',
             body: JSON.stringify({ score_function: scoreFunction }),
@@ -199,7 +200,7 @@
           <option value="model_property">Model Property</option>
           <option value="constant">Constant</option>
         </select>
-      {:else}
+      {:else if scoreFunction.type == 'relation'}
         <div class="inline-flex items-center order-last gap-2">
           {#if allowDelete}
             <button

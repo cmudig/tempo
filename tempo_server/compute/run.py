@@ -9,6 +9,8 @@ from .model import Model
 from .slicefinder import SliceFinder
 from .utils import Commands, make_query_result_summary
 from divisi.utils import convert_to_native_types
+import logging
+import traceback
 
 # these variables are only used in the worker
 cache_dataset = None # tuple (name, Dataset)
@@ -33,12 +35,13 @@ def _get_worker_sample_dataset(filesystem, dataset_name):
     return cache_worker_sample_dataset[1]
 
 def task_runner(filesystem, task_info, update_fn):
-    print(f"My filesystem is {filesystem}, performing task {task_info}")
+    logging.info(f"My filesystem is {filesystem}, performing task {task_info}")
     cmd = task_info['cmd']
     if cmd == Commands.TRAIN_MODEL:
         update_fn({'message': 'Loading data'})
         dataset = _get_dataset(filesystem, task_info['dataset_name'])
-            
+        logging.info("Split sizes:", [len(x) for x in dataset.split_ids])
+                
         model_name = task_info['model_name']
         spec = task_info['spec']
         update_fn({'message': 'Loading variables'})
@@ -51,6 +54,7 @@ def task_runner(filesystem, task_info, update_fn):
             model.make_model(dataset, spec, update_fn=update_fn)
         except Exception as e:
             # Save model spec with an error associated with it
+            logging.info("Error training model: " + traceback.format_exc())
             error_model = Model(dest_path)
             error_model.write_spec({**spec, "error": str(e)})
             raise e
@@ -104,7 +108,7 @@ def task_runner(filesystem, task_info, update_fn):
     elif cmd == Commands.FIND_SLICES:
         update_fn({'message': 'Loading data'})
         dataset = _get_dataset(filesystem, task_info['dataset_name'])
-        print("Split sizes:", [len(x) for x in dataset.split_ids])
+        logging.info("Split sizes:", [len(x) for x in dataset.split_ids])
         
         slicefinder = SliceFinder(dataset)
         slicefinder.find_slices(task_info['model_name'], 
@@ -122,10 +126,10 @@ worker = None
 filesystem = None
 sample_dataset = None # tuple (name, Dataset)
 
-def setup_worker(fs, verbose=False):
+def setup_worker(fs, log_path, verbose=False):
     global worker
     global filesystem
-    worker = BackgroundWorker(partial(task_runner, fs), verbose=verbose)
+    worker = BackgroundWorker(partial(task_runner, fs), log_path, verbose=verbose)
     filesystem = fs
     return worker
 

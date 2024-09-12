@@ -19,6 +19,8 @@
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
 
+  export let scroll = true;
+
   const dispatch = createEventDispatcher();
   type DatasetInfo = {
     attributes: { [key: string]: QueryResult };
@@ -26,12 +28,14 @@
     intervals: { [key: string]: QueryResult };
   };
   export let datasetInfo: DatasetInfo | null = null;
+  export let showHeader: boolean = true;
   let loadingInfo: boolean = false;
   let infoLoadStatus: {
     id: string;
     status: string;
     status_info?: { message: string };
   } | null = null;
+  export let showCloseButton: boolean = true;
 
   let tabNames: (keyof DatasetInfo)[] = ['attributes', 'events', 'intervals'];
   let tabExplanatoryText: { [key in keyof DatasetInfo]: string } = {
@@ -91,20 +95,26 @@
   }
 </script>
 
-<div class="flex flex-col w-full h-full">
-  <div class="w-full py-4 px-4 flex justify-between">
-    <div class="font-bold">
-      Dataset Info for <span class="font-mono"
-        >{$currentDataset ?? '(none)'}</span
-      >
+<div class="w-full {scroll ? 'flex flex-col h-full' : ''}">
+  {#if showHeader}
+    <div class="w-full py-4 px-4 flex justify-between">
+      <div class="font-bold">
+        Dataset Info for <span class="font-mono"
+          >{$currentDataset ?? '(none)'}</span
+        >
+      </div>
+      {#if showCloseButton}
+        <button
+          class="text-slate-600 px-2 hover:opacity-50"
+          on:click={() => dispatch('close')}
+          ><Fa icon={faXmark} class="inline" /></button
+        >
+      {/if}
     </div>
-    <button
-      class="text-slate-600 px-2 hover:opacity-50"
-      on:click={() => dispatch('close')}
-      ><Fa icon={faXmark} class="inline" /></button
-    >
-  </div>
-  <div class="w-full flex-auto overflow-y-auto min-h-0 relative">
+  {/if}
+  <div
+    class="w-full {scroll ? 'flex-auto overflow-y-auto min-h-0' : ''} relative"
+  >
     {#if loadingInfo}
       <div class="w-full flex-auto flex flex-col items-center justify-center">
         <div class="text-center mb-4">
@@ -155,7 +165,7 @@
       {:else}
         <div class="flex flex-wrap px-2">
           {#each variableInfos.slice(startIndex, startIndex + pageSize) as [field, values]}
-            <div class="p-2 w-1/4">
+            <div class="p-2 w-1/4" style="min-width: 200px;">
               <div class="p-2 rounded bg-slate-100">
                 <QueryResultView
                   evaluationSummary={values}

@@ -11,7 +11,8 @@
   export let title: string | null = null;
   export let horizontalLayout = false;
   export let noParent: boolean = false;
-  export let colorScale: string[] | ((v: number) => string) = schemeTableau10;
+  export let colorScale: string[] | ((v: number) => string) =
+    Array.from(schemeTableau10);
 
   export let counts: { [key: string]: number } = null;
 
@@ -76,7 +77,7 @@
   {/if}
   <div
     style="width: {width == null ? '100%' : `${width}px`}; height: 6px;"
-    class="inline-block rounded overflow-hidden"
+    class="rounded overflow-hidden mb-1"
   >
     <LayerCake
       padding={{ top: 0, right: 0, bottom: 0, left: 0 }}
@@ -121,7 +122,7 @@
     {/if}
     <div
       style="width: {width == null ? '100%' : `${width}px`}; height: 6px;"
-      class="inline-block rounded overflow-hidden"
+      class="rounded overflow-hidden mb-1"
     >
       <LayerCake
         padding={{ top: 0, right: 0, bottom: 0, left: 0 }}
@@ -133,7 +134,9 @@
         xRange={[0, width ?? 1]}
         yScale={scaleOrdinal()}
         yDomain={range(counts.length)}
-        yRange={schemeTableau10}
+        yRange={Array.isArray(colorScale)
+          ? colorScale
+          : range(0, 1.00001, 1 / (data.length - 1)).map((v) => colorScale(v))}
         {data}
         custom={{
           hoveredGet: (d) => d.index == hoveredIndex,
