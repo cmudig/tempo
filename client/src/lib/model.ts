@@ -43,6 +43,7 @@ export type ModelMetrics = {
   data_summary?: {
     fields: ModelDataSummaryItem[];
   };
+  feature_importances?: { feature: string; mean: number; std: number }[];
 
   hist: {
     values: number[][];
@@ -71,6 +72,18 @@ export const ModelTypeStrings: { [key in ModelType]: string } = {
   [ModelType.Regression]: 'Regression',
 };
 
+export type ModelArchitectureInfo = {
+  type: string;
+  hyperparameters: { [key: string]: { type: string; value: any } };
+};
+
+export const ModelArchitectureType: { [key: string]: string } = {
+  xgboost: 'XGBoost',
+  dense: 'Dense Neural Network',
+  rnn: 'Recurrent Neural Network',
+  transformer: 'Transformer Neural Network',
+};
+
 export type ModelSummary = {
   outcome?: string;
   model_type?: ModelType;
@@ -80,6 +93,7 @@ export type ModelSummary = {
   training?: boolean;
   timestep_definition: string;
   description?: string;
+  model_architecture?: ModelArchitectureInfo;
   status?: { state: string; message: string };
   output_values?: string[];
   error?: string;
@@ -90,6 +104,7 @@ export type ModelSummary = {
     description?: string;
     variables: { [key: string]: VariableDefinition };
     timestep_definition: string;
+    model_architecture?: ModelArchitectureInfo;
   };
 };
 

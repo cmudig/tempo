@@ -1,5 +1,7 @@
 <script lang="ts">
   import {
+    ModelArchitectureType,
+    type ModelArchitectureInfo,
     type ModelSummary,
     type QueryEvaluationResult,
     type VariableDefinition,
@@ -35,6 +37,7 @@
     QueryTemplatesTimestepDefsOnly,
   } from './querytemplates';
   import QueryEditorTextarea from './QueryEditorTextarea.svelte';
+  import HyperparameterEditor from './HyperparameterEditor.svelte';
 
   let {
     currentDataset,
@@ -57,6 +60,11 @@
   export let patientCohort: string | null = null;
   export let timestepDefinition: string | null = null;
   export let description: string | undefined = undefined;
+  export let modelArchitecture: ModelArchitectureInfo | null = null;
+  const DefaultModelArchitecture: ModelArchitectureInfo = {
+    type: 'xgboost',
+    hyperparameters: {},
+  };
 
   export let modelName: string | null = null;
   export let otherModels: string[] = [];
@@ -104,7 +112,8 @@
       | 'timestep_definition'
       | 'variables'
       | 'cohort'
-      | 'description',
+      | 'description'
+      | 'model_architecture',
   >(modelSummary: ModelSummary, field: T): ModelSummary[T] {
     if (!!modelSummary.draft)
       return modelSummary.draft[field] ?? modelSummary[field];
@@ -178,6 +187,20 @@
     )
       description = getModelField(allSpecs[0], 'description') ?? '';
     else description = undefined;
+    if (
+      allSpecs.every(
+        (s) =>
+          (getModelField(s, 'model_architecture') ??
+            DefaultModelArchitecture) ==
+          (getModelField(allSpecs[0], 'model_architecture') ??
+            DefaultModelArchitecture)
+      )
+    )
+      modelArchitecture = structuredClone(
+        getModelField(allSpecs[0], 'model_architecture') ??
+          DefaultModelArchitecture
+      );
+    else modelArchitecture = null;
 
     if (allSpecs.some((s) => !!s.error))
       saveError =
@@ -194,8 +217,14 @@
       cohort: patientCohort,
       timestep_definition: timestepDefinition,
       description,
+      model_architecture: structuredClone(modelArchitecture),
     };
-    console.log(timestepDefinition, outcomeVariable, patientCohort);
+    console.log(
+      timestepDefinition,
+      outcomeVariable,
+      patientCohort,
+      modelArchitecture
+    );
   }
 
   async function loadModelSpec(model: string): Promise<ModelSummary | null> {
@@ -287,6 +316,8 @@
                 timestep_definition:
                   timestepDefinition ?? allSpecs[i].timestep_definition,
                 description: description ?? allSpecs[i].description,
+                model_architecture:
+                  modelArchitecture ?? allSpecs[i].model_architecture,
               },
             }),
           }
@@ -310,6 +341,7 @@
   $: if (
     !!baseSpec &&
     (!areObjectsEqual(baseSpec.variables, inputVariables) ||
+      !areObjectsEqual(baseSpec.model_architecture, modelArchitecture) ||
       baseSpec.outcome != outcomeVariable ||
       baseSpec.cohort != patientCohort ||
       baseSpec.timestep_definition != timestepDefinition ||
@@ -318,6 +350,8 @@
     console.log('saving draft');
     changesSaved = false;
     scheduleSaveDraft();
+  } else {
+    console.log(baseSpec, modelArchitecture);
   }
 
   function scheduleSaveDraft() {
@@ -337,6 +371,8 @@
           timestep_definition:
             timestepDefinition ?? allSpecs[i].timestep_definition,
           description: description ?? allSpecs[i].description,
+          model_architecture:
+            modelArchitecture ?? allSpecs[i].model_architecture,
         };
         if (
           Object.keys(draft).every((field) =>
@@ -377,6 +413,7 @@
       outcome: outcomeVariable,
       cohort: patientCohort,
       timestep_definition: timestepDefinition,
+      model_architecture: structuredClone(modelArchitecture),
       description,
     };
   }
@@ -541,6 +578,14 @@
     } else if (result.query == q && !!result.result) {
       timestepDefinitionError = null;
     }
+  }
+
+  export function describeModelArchitecture(
+    arch: ModelArchitectureInfo
+  ): string {
+    let numHyperparams = Object.keys(arch.hyperparameters).length;
+    if (numHyperparams == 0) return `${ModelArchitectureType[arch.type]}`;
+    return `${ModelArchitectureType[arch.type]} with ${numHyperparams} hyperparameter setting${numHyperparams != 1 ? 's' : ''}`;
   }
 </script>
 
@@ -823,6 +868,40 @@
         {/each}
       </select>
     {/if}
+
+    <h3 class="font-bold mt-3">Prototype Model Setup</h3>
+    <div class="text-slate-500 text-xs mb-2">
+      Choose how to train the prototype model to solve this predictive task:
+    </div>
+    {#if modelArchitecture !== null}
+      <HyperparameterEditor bind:modelArchitecture />
+    {:else}
+      <div class="text-sm text-slate-600 mb-1">
+        The selected models have multiple values. To modify all models, choose a
+        variant to use:
+      </div>
+      <select
+        class="flat-select font-mono mb-2"
+        on:change={(e) => {
+          if (!!e.target && e.target.value >= 0)
+            modelArchitecture = structuredClone(
+              getModelField(allSpecs[e.target.value], 'model_architecture') ??
+                DefaultModelArchitecture
+            );
+        }}
+      >
+        <option value={-1}></option>
+        {#each [modelName, ...otherModels] as model, i}
+          <option value={i}
+            >{model} | {describeModelArchitecture(
+              getModelField(allSpecs[i], 'model_architecture') ??
+                DefaultModelArchitecture
+            )}</option
+          >
+        {/each}
+      </select>
+    {/if}
+
     <!-- <textarea
     class="flat-text-input w-full font-mono"
     bind:value={outcomeVariable}
