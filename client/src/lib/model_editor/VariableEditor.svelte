@@ -90,8 +90,8 @@
           {/if}
         {:else}
           <button
-            class="font-mono hover:bg-slate-100 rounded flex-auto text-left px-2 py-1 {varInfo.enabled ??
-            true
+            class="font-mono hover:bg-slate-100 rounded flex-auto text-left px-2 py-1 {(varInfo.enabled ??
+            true)
               ? ''
               : 'line-through text-slate-400'}"
             on:click={() => dispatch('edit')}>{varName}</button
@@ -182,11 +182,8 @@
           {#if showName}
             <div class="mb-1 text-slate-500 text-xs w-32">Query</div>
           {/if}
-          <div class="relative w-full {showName ? 'h-24' : ''}">
+          <div class="relative w-full min-h-24">
             <QueryEditorTextarea
-              style="field-sizing: content; {!showName
-                ? 'min-height: 84px;'
-                : ''}"
               bind:value={newVariableQuery}
               {templates}
               on:input={() => {

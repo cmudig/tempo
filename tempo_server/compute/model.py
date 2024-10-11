@@ -77,16 +77,16 @@ class Model:
         return "model_type" in self.get_spec() and self.result_fs.exists("metrics.json")
         
     @classmethod
-    def blank_spec(cls):
+    def blank_spec(cls, **kwargs):
         return {
-            "variables": {"Untitled": {
+            "variables": kwargs.get("variables", {"Untitled": {
                 "category": "Inputs",
                 "query": ""
-            }},
-            "timestep_definition": "",
-            "cohort": "",
-            "outcome": "",
-            "description": "",
+            }}),
+            "timestep_definition": kwargs.get("timestep_definition", ""),
+            "cohort": kwargs.get("cohort", ""),
+            "outcome": kwargs.get("outcome", ""),
+            "description": kwargs.get("description", ""),
         }
         
     def copy_to(self, model_fs, result_fs=None):
@@ -188,7 +188,7 @@ class Model:
         # print(f'outcome mask {outcome_mask}')
         # print(f'row_mask {row_mask}')
         
-        model_archi, model, metrics, predictions = self._train_model(
+        architecture_class, model, metrics, predictions = self._train_model(
             spec,
             modeling_df,
             outcome_values,
@@ -213,7 +213,7 @@ class Model:
             
         # Save out the model itself and its predictions
 
-        if model_archi == 'pytorch':
+        if architecture_class == 'pytorch':
             dest_path = os.path.join(self.result_fs.base_path, 'model.pth')
             torch.save(model, dest_path)
             # with tempfile.NamedTemporaryFile('w+b', suffix='.json') as model_file:
@@ -222,6 +222,7 @@ class Model:
         
         else:
             with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
+                print(model_file.name)
                 model.save_model(model_file.name)
                 model_file.seek(0)
                 self.result_fs.write_file(model_file.read(), "model.json")
@@ -237,37 +238,58 @@ class Model:
         """
         if row_mask is None: row_mask = np.ones(len(variables), dtype=bool)
 
-        train_X = variables[train_mask & row_mask].values
+        train_X = variables[train_mask & row_mask] #.values
         train_y = outcomes[train_mask & row_mask]
         train_ids = ids[train_mask & row_mask]
         logging.info(f"Training samples and missingness: {train_X}, {train_y}, {pd.isna(train_X).sum(axis=0)}, {pd.isna(train_y).sum()}")
-        val_X = variables[val_mask & row_mask].values
+        val_X = variables[val_mask & row_mask] #.values
         val_y = outcomes[val_mask & row_mask]
         val_ids = ids[val_mask & row_mask]
         logging.info(f"Val samples and missingness: {val_X}, {val_y}, {pd.isna(val_X).sum(axis=0)}, {pd.isna(val_y).sum()}")
 
-        test_X = variables[test_mask & row_mask].values
+        test_X = variables[test_mask & row_mask] #.values
         test_x = variables[test_mask & row_mask]
         test_y = outcomes[test_mask & row_mask]
         test_ids = ids[test_mask & row_mask]
 
         val_sample = np.random.uniform(size=len(val_X)) < 0.1
         
-        # model_type = 'rnn'
-        if model_type == 'rnn' or model_type == 'transformer':
-            config = spec['tuning_config']
+        model_architecture = spec.get("model_architecture", {}).get("type", "xgboost")
+        if model_architecture == 'rnn' or model_architecture == 'transformer':
+            config = spec.get("model_architecture", {}).get("hyperparameters", {})
             config['num_epochs'] = {'type': 'fix', 'value': 10}
             config['input_size'] = {'type': 'fix', 'value': train_X.shape[1]}
             config['num_classes'] = {'type': 'fix', 'value': 1}
-            model = NeuralNetwork(model_type,train_X,train_y,train_ids,test_x,test_y,test_ids,val_X,val_y,val_ids,spec['tuning_config'])
-            model_archi = 'pytorch'
+            model = NeuralNetwork(model_architecture,
+                                  train_X,
+                                  train_y,
+                                  train_ids,
+                                  test_x,
+                                  test_y,
+                                  test_ids,
+                                  val_X,
+                                  val_y,
+                                  val_ids,
+                                  config)
+            architecture_class = 'pytorch'
         else: 
-            model_archi = 'xgboost'
+            architecture_class = 'xgboost'
             if model_type.endswith("classification"):
                 train_y = train_y.astype(int)
                 val_y = val_y.astype(int)
                 test_y = test_y.astype(int)
-            model = XGBoost(model_type, train_X,train_y,train_ids,val_X,val_y,val_ids,val_sample,test_X,test_y,test_ids,**model_params)
+            model = XGBoost(model_type, 
+                            train_X,
+                            train_y,
+                            train_ids,
+                            val_X,
+                            val_y,
+                            val_ids,
+                            val_sample,
+                            test_X,
+                            test_y,
+                            test_ids,
+                            **model_params)
 
         logging.info("Training")
         model.train()
@@ -305,7 +327,7 @@ class Model:
         
         val_pred = model.predict(data_type='val')
         test_pred = model.predict()
-        return model_archi, model.model, metrics, (
+        return architecture_class, model.model, metrics, (
             np.where(val_mask & row_mask, outcomes, np.nan)[val_mask],
             self._get_dataset_aligned_predictions(outcomes, val_pred, (val_mask & row_mask).values)[val_mask],
             np.where(test_mask & row_mask, outcomes, np.nan)[test_mask],

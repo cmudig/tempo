@@ -108,7 +108,7 @@ def make_new_model_spec(dataset_name, reference_name=""):
     dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name))
     
     if reference_name == "default":
-        base_spec = Model.blank_spec()
+        base_spec = dataset.default_model_spec()
         base_name = "Untitled"
         fs = get_filesystem().subdirectory("datasets", dataset_name)
     else:

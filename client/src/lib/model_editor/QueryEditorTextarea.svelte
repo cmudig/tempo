@@ -89,6 +89,11 @@
       editorFocused = true;
     }
   }
+
+  $: if (!!queryInput && !!value) {
+    queryInput.style.height = '1px';
+    queryInput.style.height = 12 + queryInput.scrollHeight + 'px';
+  }
 </script>
 
 <textarea
@@ -107,7 +112,7 @@
 />
 <div
   class="border-2 border-transparent {textClass ??
-    'text-slate-700 font-mono text-xs'} p-2 leading-tight pointer-events-none bg-transparent w-full h-full absolute top-0 left-0 text-wrap whitespace-pre-wrap"
+    'text-slate-700 font-mono text-xs'} p-2 leading-tight pointer-events-none bg-transparent w-full h-full absolute top-0 left-0 text-wrap whitespace-pre-wrap break-words"
   id={highlightedViewID}
   bind:this={highlightedView}
 ></div>

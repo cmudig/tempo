@@ -406,6 +406,7 @@ class NeuralNetwork:
         explainer = shap.GradientExplainer(self.model, background)
         shap_values = explainer.shap_values(test)
 
+        # TODO fix this
         perf_list = [np.sum(np.sum(i,axis=0),axis=0) for i in shap_values]
         perf = np.sum(perf_list,axis=0)
         sorted_perf_index = np.argsort(perf)

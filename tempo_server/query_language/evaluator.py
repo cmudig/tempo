@@ -843,7 +843,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
                 
         
     def _parse_where_clause(self, tree, evaluator):
-        logging.info("Parsing where clause", tree)
+        logging.info(f"Parsing where clause: {tree}")
         base = evaluator.transform(tree.children[0])
         evaluator.value_placeholder = base
         where = evaluator.transform(tree.children[1])
@@ -958,7 +958,7 @@ class QueryResultCache:
         }
         if transform_data is not None:
             self._query_cache[query_cache_name]["transform_data"] = convert_to_native_types(transform_data)
-        self.cache_dir.write_file(df, fname, format='feather')
+        self.cache_dir.write_file(df.rename(columns={c: str(c) for c in df.columns}), fname, format='feather')
         self.cache_dir.write_file(self._query_cache, "query_cache.json")
 
     

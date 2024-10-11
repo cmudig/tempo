@@ -13,7 +13,7 @@ class XGBoost:
         #     model_params['scale_pos_weight'] = (len(train_y) - train_y.sum()) / train_y.sum()
         
         self.model_type = model_type
-        self.train_X = train_X.values
+        self.train_X = train_X
         self.train_y = train_y
         self.train_ids = train_ids
         self.val_X = val_X
@@ -175,42 +175,43 @@ class XGBoost:
         metrics["n_test"] = {"instances": len(self.test_X), "trajectories": len(np.unique(self.test_ids))}
 
         explainer = shap.TreeExplainer(self.model)
-        shap_values = explainer.shap_values(self.test_X)
-        perf = np.sum(shap_values,axis=0)
-        sorted_perf_index = np.argsort(perf)
-        performance = [self.column_names[i] for i in sorted_perf_index]
-        metrics['features'] = performance
-        metrics['shap values'] = perf
+        shap_values = np.abs(explainer.shap_values(self.test_X))
+        perf = np.mean(shap_values,axis=0)
+        perf_std = np.std(shap_values,axis=0)
+        sorted_perf_index = np.flip(np.argsort(perf))
+        metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': perf_std[i]} 
+                                          for i in sorted_perf_index]
         
-        # if submodel_metric is not None and full_metrics:
-        #     # Check for trivial solutions
-        #     max_variables = 5
-        #     metric_fraction = 0.95
+        if submodel_metric is not None and full_metrics:
+            # Check for trivial solutions
+            max_variables = 5
+            metric_fraction = 0.95
             
-        #     variable_names = []
-        #     for i in reversed(np.argsort(self.model.feature_importances_)[-max_variables:]):
-        #         variable_names.append(variables.columns[i])
-        #         _, sub_metrics, _ = self._train_model(
-        #             spec,
-        #             variables[variable_names],
-        #             outcomes,
-        #             ids,
-        #             train_mask,
-        #             val_mask,
-        #             test_mask,
-        #             row_mask=row_mask, 
-        #             model_type=self.model_type,
-        #             full_metrics=False,
-        #             **model_params)
-        #         if sub_metrics["performance"][submodel_metric] >= metrics["performance"][submodel_metric] * metric_fraction:
-        #             if len(variable_names) <= len(variables.columns) * 0.5:
-        #                 metrics["trivial_solution_warning"] = {
-        #                     "metric": submodel_metric,
-        #                     "variables": variable_names,
-        #                     "metric_value": sub_metrics["performance"][submodel_metric],
-        #                     "metric_threshold": metrics["performance"][submodel_metric] * metric_fraction,
-        #                     "metric_fraction": metric_fraction
-        #                 }
-        #             break
+            variable_names = []
+            for i in reversed(np.argsort(self.model.feature_importances_)[-max_variables:]):
+                variable_names.append(variables.columns[i])
+                smaller_model = XGBoost(self.model_type,
+                                        self.train_X,
+                                        self.train_y,
+                                        self.train_ids,
+                                        self.val_X,
+                                        self.val_y,
+                                        self.val_ids,
+                                        self.val_sample,
+                                        self.test_X,
+                                        self.test_y,
+                                        self.test_ids)
+                smaller_model.train()
+                sub_metrics = smaller_model.evaluate(spec,False,variables,outcomes,train_mask,val_mask,test_mask,row_mask)
+                if sub_metrics["performance"][submodel_metric] >= metrics["performance"][submodel_metric] * metric_fraction:
+                    if len(variable_names) <= len(variables.columns) * 0.5:
+                        metrics["trivial_solution_warning"] = {
+                            "metric": submodel_metric,
+                            "variables": variable_names,
+                            "metric_value": sub_metrics["performance"][submodel_metric],
+                            "metric_threshold": metrics["performance"][submodel_metric] * metric_fraction,
+                            "metric_fraction": metric_fraction
+                        }
+                    break
         return metrics
     

@@ -40,7 +40,7 @@ def task_runner(filesystem, task_info, update_fn):
     if cmd == Commands.TRAIN_MODEL:
         update_fn({'message': 'Loading data'})
         dataset = _get_dataset(filesystem, task_info['dataset_name'])
-        logging.info("Split sizes:", [len(x) for x in dataset.split_ids])
+        logging.info(f"Split sizes: {[len(x) for x in dataset.split_ids]}")
                 
         model_name = task_info['model_name']
         spec = task_info['spec']

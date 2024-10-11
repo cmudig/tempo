@@ -48,6 +48,12 @@ class Dataset:
         self.spec = new_spec
         self.fs.write_file(new_spec, "spec.json")
         
+    def default_model_spec(self):
+        model_config = self.spec.get("models", {}).get("default", {})
+        if model_config:
+            return Model.blank_spec(**model_config)
+        return Model.blank_spec()
+        
     def get_models(self):
         """Returns a dictionary of model name to Model objects."""
         model_dir = self.fs.subdirectory("models")
