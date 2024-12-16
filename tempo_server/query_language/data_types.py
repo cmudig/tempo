@@ -467,13 +467,14 @@ class Attributes(TimeSeriesQueryable):
         
     def __getattr__(self, name):
         if hasattr(self.series, name) and name not in EXCLUDE_SERIES_METHODS:
-            pd_method = getattr(self.series, name)
+            pd_method = getattr(self.get_values(), name)
             if callable(pd_method):
                 def wrap_pandas_method(*args, **kwargs):
                     args = [a.get_values() if hasattr(a, "get_values") else a for a in args]
                     kwargs = {k: v.get_values() if hasattr(v, "get_values") else v for k, v in kwargs.items()}
                     result = pd_method(*args, **kwargs)
-                    if isinstance(result, pd.Series) and (self.series.index == result.index).all():
+                    if isinstance(result, pd.Series) and len(self) == len(result):
+                        result.index = self.get_ids()
                         return Attributes(result)
                     if isinstance(result, pd.Series):
                         raise ValueError(f"Cannot complete pandas method call '{name}' on {type(self)} because it returned a Series that isn't aligned with the original Series.")

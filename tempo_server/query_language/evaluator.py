@@ -494,11 +494,11 @@ class EvaluateExpression(lark.visitors.Transformer):
                 constant_value = self._parse_literal(args[1].value)
             return var_exp.impute(method=method, constant_value=constant_value)
         
-        nan_mask = ~pd.isna(var_exp.get_values())
+        nan_mask = ~var_exp.isna()
         if args[1].value in ("mean", "median"):
             impute_method = args[1].value.lower()
             numpy_func = {"mean": np.nanmean, "median": np.nanmedian}[impute_method]
-            return var_exp.astype(np.float64).where(nan_mask, numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float)))
+            return var_exp.replace(pd.NA, np.nan).astype(np.float64).where(nan_mask, numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float)))
         else:
             impute_method = self._parse_literal(args[1].value)
             dtype = var_exp.get_values().dtype
@@ -996,6 +996,7 @@ class QueryEngine:
                                         update_fn=update_fn,
                                         verbose=True)
         tree = self.parse(query_string)
+        print(tree)
         result = query_evaluator.visit(tree)
         return result
     
@@ -1034,14 +1035,15 @@ if __name__ == '__main__':
         'value': np.random.uniform(0, 100)
     } for _ in range(10)]))
 
-    dataset = QueryEngine(attributes, events, intervals)
+    dataset = QueryEngine([attributes], [events], [intervals])
+    print(dataset.query("{a2} impute mean"))
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
     # print(dataset.query("min {e1} from #now - 30 seconds to #now cut 3 quantiles impute 'Missing' at every {e1} from #mintime to #maxtime"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))
     # print(dataset.query("(my_age: (last {e1} from #now - 10 sec to #now) impute 'Missing') every 3 sec from #mintime to #maxtime"))
     # print(dataset.query("mean {e1} * 3 from now - 30 s to now"))
     # print(dataset.query("max(mean {e2} from now - 30 seconds to now, mean {e1} from now - 30 seconds to now) at every {e2} from {start} to {end}"))
-    print(events.get('e1'))
+    # print(events.get('e1'))
     print(dataset.query("{e1} - (last {e1} before {e1})"))
     # print(dataset.query("mean {e1} where {e1} > (last {e1} from #now - 30 sec to #now) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
     # print(dataset.query("mean (case when {e1} > (last {e2} from #now - 30 sec to #now) then {e1} else 0 end) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
