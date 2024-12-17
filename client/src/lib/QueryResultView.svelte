@@ -29,6 +29,8 @@
     queryResultCache: Writable<{ [key: string]: QueryEvaluationResult }>;
   } = getContext('dataset');
 
+  const QueryResultTimeout = 5000;
+
   let container: HTMLElement;
   export let query: string = '';
   export let evaluateQuery: boolean = true;
@@ -107,10 +109,11 @@
         result = await (
           await fetch(
             import.meta.env.BASE_URL +
-              `/datasets/${$currentDataset}/data/query?q=${encodedQuery}`
+              `/datasets/${$currentDataset}/data/query?q=${encodedQuery}&timeout=${QueryResultTimeout}`
           )
         ).json();
-        $queryResultCache = { ...$queryResultCache, [query]: result };
+        if (!result.error || result.error != 'timeout')
+          $queryResultCache = { ...$queryResultCache, [query]: result };
       } catch (e) {
         evaluationError = `${e}`;
         evaluationSummary = null;
@@ -119,6 +122,12 @@
       }
     }
     if (result.error) {
+      if (result.error == 'timeout') {
+        console.log('request timed out, visible:', visible);
+        if (visible) liveEvaluateQuery();
+        else loadingSummary = false;
+        return;
+      }
       evaluationError = result.error;
       evaluatedLength = null;
       evaluatedType = null;

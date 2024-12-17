@@ -1,12 +1,16 @@
 from flask import Blueprint, jsonify, request
 from ..compute.run import get_filesystem, get_worker, get_sample_dataset
-from ..compute.utils import Commands, QUERY_RESULT_TYPENAMES, make_query_result_summary
+from ..compute.utils import Commands, QUERY_RESULT_TYPENAMES, make_query_result_summary, acquire_lock
+from threading import Lock
 import base64
 import datetime
 import lark
 from divisi.utils import convert_to_native_types
 
 data_blueprint = Blueprint('data', __name__)
+
+# only allow one dataset query at a time
+data_query_lock = Lock()
 
 # Dataset info
 
@@ -88,6 +92,8 @@ def query_dataset(dataset_name):
     * q: Tempo query language string to query
     * dl (optional): 1 to return a downloadable ZIP file
         containing the query results on each data split, 0 otherwise 
+    * timeout (optional): number of milliseconds after which this request
+        will return a timeout error. This applies only if dl = 0
     
     Returns: If dl is 1:
         Returns a JSON of the format { "blob": base 64 encoded result } if the
@@ -103,42 +109,47 @@ def query_dataset(dataset_name):
     """
     args = request.args
     if "q" not in args: return "Query endpoint must have a 'q' query argument", 400
-    try:
-        if args.get("dl", "0") == "1":
-            dataset = get_sample_dataset(dataset_name)
-            if (result_path := dataset.get_downloadable_query(args["q"])) is not None:
-                contents = dataset.read_downloadable_query_result(result_path)
-                return { 
-                    "blob": base64.b64encode(contents).decode('ascii'), 
-                    "filename": f"query_result_{str(datetime.datetime.now().replace(microsecond=0))}.zip" 
+    timeout = int(args.get("timeout", "-1000")) / 1000 if args.get("dl", "0") == "0" else -1
+    with acquire_lock(data_query_lock, min(timeout, 60)) as acquired:
+        if not acquired:
+            return jsonify({ "error": "timeout" })
+    
+        try:
+            if args.get("dl", "0") == "1":
+                dataset = get_sample_dataset(dataset_name)
+                if (result_path := dataset.get_downloadable_query(args["q"])) is not None:
+                    contents = dataset.read_downloadable_query_result(result_path)
+                    return jsonify({ 
+                        "blob": base64.b64encode(contents).decode('ascii'), 
+                        "filename": f"query_result_{str(datetime.datetime.now().replace(microsecond=0))}.zip" 
+                    })
+                
+                worker = get_worker()
+                running_task = next((task for task in worker.current_jobs()
+                                    if task['cmd'] == Commands.GENERATE_QUERY_DOWNLOAD
+                                    and task['query'] == args["q"]), None)
+                if running_task is not None:
+                    return jsonify(running_task)
+                task_id = worker.submit_task({
+                    'cmd': Commands.GENERATE_QUERY_DOWNLOAD,
+                    'query': args['q'],
+                    'dataset_name': dataset_name
+                })
+                return jsonify(worker.task_info(task_id))
+            else:
+                engine = get_sample_dataset(dataset_name).make_query_engine()
+                result = engine.query(args.get("q"), use_cache=False)
+                summary = {
+                    "n_values": len(result.get_values()),
+                    "n_trajectories": len(set(result.get_ids().values.tolist())),
+                    "result_type": QUERY_RESULT_TYPENAMES.get(type(result), "Other"),
+                    "query": args.get("q")
                 }
-            
-            worker = get_worker()
-            running_task = next((task for task in worker.current_jobs()
-                                 if task['cmd'] == Commands.GENERATE_QUERY_DOWNLOAD
-                                 and task['query'] == args["q"]), None)
-            if running_task is not None:
-                return jsonify(running_task)
-            task_id = worker.submit_task({
-                'cmd': Commands.GENERATE_QUERY_DOWNLOAD,
-                'query': args['q'],
-                'dataset_name': dataset_name
-            })
-            return jsonify(worker.task_info(task_id))
-        else:
-            engine = get_sample_dataset(dataset_name).make_query_engine()
-            result = engine.query(args.get("q"), use_cache=False)
-            summary = {
-                "n_values": len(result.get_values()),
-                "n_trajectories": len(set(result.get_ids().values.tolist())),
-                "result_type": QUERY_RESULT_TYPENAMES.get(type(result), "Other"),
-                "query": args.get("q")
-            }
-            return jsonify({**summary, "result": make_query_result_summary(engine, result)})
-    except Exception as e:
-        import traceback
-        print(traceback.format_exc())
-        return jsonify({"error": str(e)})
+                return jsonify({**summary, "result": make_query_result_summary(engine, result)})
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            return jsonify({"error": str(e)})
 
     
 @data_blueprint.post("/datasets/<dataset_name>/data/download")

@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from tempo_server.query_language.data_types import *
+from contextlib import contextmanager
 
 class Commands:
     BUILD_DATASET = "build_dataset"
@@ -97,3 +98,11 @@ def make_query(variable_definitions, timestep_definition):
     {timestep_definition}
     """
     
+@contextmanager
+def acquire_lock(lock, timeout):
+    result = lock.acquire(timeout=timeout)
+    try:
+        yield result
+    finally:
+        if result:
+            lock.release()

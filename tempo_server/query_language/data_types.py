@@ -1576,7 +1576,7 @@ class TimeSeries(TimeSeriesQueryable):
                     if isinstance(result, pd.Series):
                         raise ValueError(f"Cannot complete pandas method call '{name}' on {type(self)} because it returned a Series that isn't aligned with the original Series.")
                     return result
-            return wrap_pandas_method
+                return wrap_pandas_method
         raise AttributeError(name)
     
     def __abs__(self): return self.with_values(self.series.__abs__(), preserve_nans=True)

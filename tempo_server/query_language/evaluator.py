@@ -996,7 +996,6 @@ class QueryEngine:
                                         update_fn=update_fn,
                                         verbose=True)
         tree = self.parse(query_string)
-        print(tree)
         result = query_evaluator.visit(tree)
         return result
     
