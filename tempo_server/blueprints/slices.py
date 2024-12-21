@@ -106,8 +106,9 @@ def start_slice_finding(dataset_name, model_name):
     
     Request body: JSON of the format {
         "variable_spec_name": name of a slice spec,
-        "score_function_spec": list of score function objects (see below),
+        "score_function_spec": list of score function objects (see below), 
         "options"?: {
+            "rule_filter"?: a rule filter, specified in the format below.
             "num_samples"?: number of samples to draw (default 100),
             "num_slices"?: number of slices to return (default 20),
             "min_items_fraction"?: fraction of dataset to allow as minimum slice size (default 0.05),
@@ -127,6 +128,19 @@ def start_slice_finding(dataset_name, model_name):
         "relation": "and" | "or",
         "lhs": ScoreExpression,
         "rhs": ScoreExpression
+    }
+    
+    The rule filter should be in the following format: {
+        "type": "combination",
+        "combination": "and" | "or",
+        "logic": "exclude" | "include",
+        "lhs": RuleFilter,
+        "rhs": RuleFilter
+    } | {
+        "type": "constraint",
+        "logic": "exclude" | "include",
+        "features": [<array of user-readable feature names>],
+        "values": [<array of user-readable values>]
     }
     
     Returns: A JSON task info object representing the status of the slice

@@ -7,7 +7,7 @@
   } from '../model';
   import * as d3 from 'd3';
   import { SidebarTableWidths } from '../utils/sidebarwidths';
-  import Checkbox from '../utils/Checkbox.svelte';
+  import Checkbox from '../slices/utils/Checkbox.svelte';
   import SliceMetricBar from '../slices/metric_charts/SliceMetricBar.svelte';
   import type { SliceMetric } from '../slices/utils/slice.type';
   import {

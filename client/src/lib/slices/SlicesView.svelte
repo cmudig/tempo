@@ -34,6 +34,8 @@
   import SliceSpecEditor from './SliceSpecEditor.svelte';
   import { scoreFunctionToString, type ScoreFunction } from './scorefunctions';
   import ScoreFunctionPanel from './ScoreFunctionPanel.svelte';
+  import RuleFilterPanel from './RuleFilterPanel.svelte';
+  import { RuleFilterType, type RuleFilter } from './rulefilters';
 
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
@@ -56,6 +58,7 @@
   let visibleView: View = View.slices;
 
   let scoreFunctionSpec: ScoreFunction[] = [];
+  let ruleFilter: RuleFilter | null = null;
 
   let isTraining: boolean = false;
   let searchTaskID: string | null = null;
@@ -102,6 +105,7 @@
 
   let oldScoreSpec: any[] = [];
   let oldSliceSpec: string = 'default';
+  let oldRuleFilter: RuleFilter | null = null;
   let oldModels: string[] = [];
   $: if (
     !areObjectsEqual(oldScoreSpec, scoreFunctionSpec) ||
@@ -119,14 +123,24 @@
     if (modelsToShow.length > 0) initiateSliceLookup();
   }
 
+  $: if (!areObjectsEqual(oldRuleFilter, ruleFilter)) {
+    oldRuleFilter = ruleFilter;
+    saveSliceSearchSettings();
+  }
+
   function loadSliceSearchSettings() {
     let slicingSettingsString = window.localStorage.getItem('slicingSettings');
     let slicingSettings: {
-      [key: string]: { scoreFns: ScoreFunction[]; spec: string };
+      [key: string]: {
+        scoreFns: ScoreFunction[];
+        spec: string;
+        ruleFilter: RuleFilter | null;
+      };
     } = !!slicingSettingsString ? JSON.parse(slicingSettingsString) : {};
     if (!!modelName && !!slicingSettings[modelName]) {
       scoreFunctionSpec = slicingSettings[modelName].scoreFns;
       sliceSpec = slicingSettings[modelName].spec;
+      ruleFilter = slicingSettings[modelName].ruleFilter ?? null;
     } else {
       scoreFunctionSpec = [
         {
@@ -144,18 +158,24 @@
         },
       ];
       sliceSpec = `${modelName} (Default)`;
+      ruleFilter = null;
     }
   }
 
   function saveSliceSearchSettings() {
     let slicingSettingsString = window.localStorage.getItem('slicingSettings');
     let slicingSettings: {
-      [key: string]: { scoreFns: ScoreFunction[]; spec: string };
+      [key: string]: {
+        scoreFns: ScoreFunction[];
+        spec: string;
+        ruleFilter: RuleFilter | null;
+      };
     } = !!slicingSettingsString ? JSON.parse(slicingSettingsString) : {};
     if (!!modelName)
       slicingSettings[modelName] = {
         scoreFns: scoreFunctionSpec,
         spec: sliceSpec,
+        ruleFilter,
       };
     window.localStorage.setItem(
       'slicingSettings',
@@ -325,6 +345,7 @@
             body: JSON.stringify({
               variable_spec_name: sliceSpec,
               score_function_spec: scoreFunctionSpec,
+              ...(!!ruleFilter ? { options: { rule_filter: ruleFilter } } : {}),
             }),
           }
         )
@@ -448,7 +469,7 @@
                 : 'Loading'}
             {@const samplerRunProgress =
               !!searchStatus && !!searchStatus.status
-                ? searchStatus.status_info?.progress ?? null
+                ? (searchStatus.status_info?.progress ?? null)
                 : null}
             <div
               role="status"
@@ -599,6 +620,11 @@
           <ScoreFunctionPanel
             bind:scoreFunctionSpec
             bind:changesPending={scoreFunctionsChanged}
+          />
+          <RuleFilterPanel
+            bind:ruleFilterSpec={ruleFilter}
+            bind:changesPending={scoreFunctionsChanged}
+            {valueNames}
           />
         </div>
       {:else}

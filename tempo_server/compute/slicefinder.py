@@ -13,7 +13,7 @@ from ..query_language.data_types import *
 from sklearn.metrics import roc_auc_score, confusion_matrix, r2_score, f1_score
 from .utils import make_query
 import divisi
-from divisi.filters import ExcludeFeatureValueSet, ExcludeIfAny
+from divisi.filters import ExcludeFeatureValueSet, IncludeOnlyFeatureValueSet, ExcludeIfAny, ExcludeIfAll, SliceFilterBase
 from divisi.discretization import discretize_column, discretize_data, DiscretizedData
 from divisi.slices import RankedSliceList, IntersectionSlice, SliceFeatureBase, Slice, SliceFeature
 from divisi.utils import convert_to_native_types, powerset
@@ -325,13 +325,47 @@ class SliceFinder:
                         
         return metrics
 
+    def encode_rule_filter(self, df, rule_filter):
+        """Turns the given rule filter dictionary into a Divisi filter."""
+        def make_rule_object(json_obj):
+            assert "type" in json_obj, "Rule filter object must have 'type' field"
+            if json_obj["type"].lower() == "combination":
+                assert "combination" in json_obj, "Combination rule filter must have 'combination' field"
+                if json_obj['combination'].lower() == 'and':
+                    return ExcludeIfAll([make_rule_object(json_obj["lhs"]),
+                                         make_rule_object(json_obj["rhs"])])
+                elif json_obj['combination'].lower() == 'or':
+                    return ExcludeIfAny([make_rule_object(json_obj["lhs"]),
+                                         make_rule_object(json_obj["rhs"])])
+                raise ValueError(f"Unexpected value for 'combination': '{json_obj['combination']}'")
+            elif json_obj["type"].lower() == "constraint":
+                assert "logic" in json_obj, "Rule filter object must have 'logic' field"
+                features = json_obj.get("features", [])
+                if not features: return SliceFilterBase()
+                values = json_obj.get("values", [])
+                if not values: values = list(set(k for f in features
+                                                 for k in df.inverse_value_mapping.get(f, [None, {}])[1].keys()))
+                if json_obj["logic"].lower() == "exclude":
+                    return ExcludeFeatureValueSet(features, values)
+                elif json_obj["logic"].lower() == "include":
+                    return IncludeOnlyFeatureValueSet(features, values)
+                raise ValueError(f"Unknown rule filter logic '{json_obj['logic']}'")
+            raise ValueError(f"Unknown rule filter type '{json_obj['type']}'")
+        
+        return df.encode_filter(make_rule_object(rule_filter))
     
-    def _find_slices(self, model_name, variable_spec, score_function_spec, update_fn=None, n_samples=100, n_slices=20, similarity_threshold=0.5, min_items_fraction=0.02, **kwargs):
+    def _find_slices(self, model_name, variable_spec, score_function_spec, update_fn=None, rule_filter=None, n_samples=100, n_slices=20, similarity_threshold=0.5, min_items_fraction=0.02, **kwargs):
         (discovery_score_fns, eval_score_fns), _, weights, valid_masks, sampling_mask = self.make_score_functions(score_function_spec, model_name)
         
         discovery_ids = self.dataset.split_ids[1]  # validation set
         discovery_df = variable_spec.discrete_df.filter(variable_spec.ids.isin(discovery_ids)).filter(valid_masks[0])
         discovery_filter = self.filter_single_values(discovery_df)
+        
+        if rule_filter is not None:
+            # Encode the rule filter with the appropriate value names
+            discovery_filter = ExcludeIfAny([discovery_filter, self.encode_rule_filter(discovery_df, rule_filter)])
+        
+        print("Discovery filter:", discovery_filter)
         
         if update_fn is not None: update_fn({"message": "Finding subgroups"})
         finder = divisi.sampling.SamplingSliceFinder(

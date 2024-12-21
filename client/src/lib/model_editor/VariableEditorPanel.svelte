@@ -7,7 +7,7 @@
   import Fa from 'svelte-fa/src/fa.svelte';
   import VariableEditor from './VariableEditor.svelte';
   import { type VariableDefinition } from '../model';
-  import Checkbox from '../utils/Checkbox.svelte';
+  import Checkbox from '../slices/utils/Checkbox.svelte';
   import TextareaAutocomplete from '../slices/utils/TextareaAutocomplete.svelte';
   import {
     getAutocompleteOptions,

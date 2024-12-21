@@ -1,6 +1,6 @@
 <script lang="ts">
   import { type VariableDefinition } from '../model';
-  import Checkbox from '../utils/Checkbox.svelte';
+  import Checkbox from '../slices/utils/Checkbox.svelte';
   import { createEventDispatcher } from 'svelte';
   import QueryResultView from '../QueryResultView.svelte';
   import { areObjectsEqual } from '../slices/utils/utils';
