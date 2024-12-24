@@ -108,7 +108,7 @@ def task_runner(filesystem, task_info, update_fn):
     elif cmd == Commands.FIND_SLICES:
         update_fn({'message': 'Loading data'})
         dataset = _get_dataset(filesystem, task_info['dataset_name'])
-        logging.info("Split sizes:", [len(x) for x in dataset.split_ids])
+        logging.info(f"Split sizes: {[len(x) for x in dataset.split_ids]}")
         
         slicefinder = SliceFinder(dataset)
         slicefinder.find_slices(task_info['model_name'], 

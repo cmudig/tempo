@@ -158,6 +158,9 @@ class SliceFinder:
         if model_name not in self._model_cache: self._model_cache[model_name] = self.dataset.get_model(model_name)
         return self._model_cache[model_name]
     
+    def _get_sampling_options(self):
+        return self.dataset.get_slice_options().get("sampler", {})
+    
     def get_variable_spec(self, timestep_definition, variable_spec_name, load_if_needed=False, update_fn=None):
         if (timestep_definition, variable_spec_name) not in self._variable_specs_cache:
             self._variable_specs_cache[(timestep_definition, variable_spec_name)] = self.dataset.get_slicing_variable_spec(variable_spec_name)
@@ -354,7 +357,7 @@ class SliceFinder:
         
         return df.encode_filter(make_rule_object(rule_filter))
     
-    def _find_slices(self, model_name, variable_spec, score_function_spec, update_fn=None, rule_filter=None, n_samples=100, n_slices=20, similarity_threshold=0.5, min_items_fraction=0.02, **kwargs):
+    def _find_slices(self, model_name, variable_spec, score_function_spec, update_fn=None, rule_filter=None, n_samples=100, n_slices=20, similarity_threshold=0.5, min_items_fraction=0.02, final_num_candidates=1000, **kwargs):
         (discovery_score_fns, eval_score_fns), _, weights, valid_masks, sampling_mask = self.make_score_functions(score_function_spec, model_name)
         
         discovery_ids = self.dataset.split_ids[1]  # validation set
@@ -365,7 +368,8 @@ class SliceFinder:
             # Encode the rule filter with the appropriate value names
             discovery_filter = ExcludeIfAny([discovery_filter, self.encode_rule_filter(discovery_df, rule_filter)])
         
-        print("Discovery filter:", discovery_filter)
+        logging.info(f"Discovery filter: {discovery_filter}")
+        logging.info(f"Parameters: n_samples = {n_samples}, n_slices = {n_slices}, similarity_threshold = {similarity_threshold}, min_items_fraction = {min_items_fraction}, final_num_candidates = {final_num_candidates}, {kwargs}")
         
         if update_fn is not None: update_fn({"message": "Finding subgroups"})
         finder = divisi.sampling.SamplingSliceFinder(
@@ -375,7 +379,11 @@ class SliceFinder:
             source_mask=sampling_mask,
             group_filter=discovery_filter,
             min_items=min_items_fraction * len(discovery_df),
-            **kwargs
+            **{
+                "similarity_threshold": similarity_threshold,
+                "final_num_candidates": final_num_candidates,
+                **kwargs
+            }
         )
         
         # if seen_slices is not None:
@@ -391,20 +399,7 @@ class SliceFinder:
         eval_ids = self.dataset.split_ids[2]
         eval_df = variable_spec.discrete_df.filter(variable_spec.ids.isin(eval_ids)).filter(valid_masks[1]) # validation set
 
-        # Add superslices for each found slice
-        slices_to_score = set(results.results)
-        print("Before adding superslices:", len(slices_to_score))
-        for slice_obj in results.results:
-            univariate = slice_obj.univariate_features()
-            for superslice_features in powerset(univariate):
-                if len(superslice_features) == 0 or len(superslice_features) == len(univariate):
-                    continue
-                superslice = IntersectionSlice(superslice_features)
-                if superslice in slices_to_score: continue
-                slices_to_score.add(superslice)
-        print("After adding superslices:", len(slices_to_score))
-        
-        scored_slices = divisi.slices.score_slices_batch(slices_to_score,
+        scored_slices = divisi.slices.score_slices_batch(results.results,
                                                          eval_df.df,
                                                          eval_score_fns,
                                                          finder.max_features,
@@ -485,12 +480,13 @@ class SliceFinder:
             timestep_definition = self._get_model(model_name).get_spec()["timestep_definition"]
             variable_spec = self.get_variable_spec(timestep_definition, variable_spec_name, load_if_needed=True, update_fn=update_fn)
             
+            base_options = self._get_sampling_options()
             results = self._find_slices(
                 model_name,
                 variable_spec,
                 score_function_spec,
                 update_fn=update_fn,
-                **options
+                **{**base_options, **options}
             )
             results_json = convert_to_native_types([slice_obj.to_dict() for slice_obj in results])
         except Exception as e:

@@ -7,6 +7,6 @@ scipy>=1.11.3
 tqdm>=4.66.1
 xgboost>=2.0.1
 lark>=1.1.8
-divisi-toolkit>=0.1.3
+divisi-toolkit>=0.2.0
 torch>=2.0.0
 pyarrow>=13.0.0

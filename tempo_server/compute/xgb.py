@@ -4,6 +4,8 @@ from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve
 from tempo_server.query_language.data_types import *
 from .utils import make_series_summary
 import shap
+import traceback
+import logging
 
 class XGBoost:
     def __init__(self,model_type,train_X,train_y,train_ids,val_X,val_y,val_ids,val_sample,test_X,test_y,test_ids,**model_params):
@@ -174,14 +176,18 @@ class XGBoost:
         metrics["n_val"] = {"instances": len(self.val_X), "trajectories": len(np.unique(self.val_ids))}
         metrics["n_test"] = {"instances": len(self.test_X), "trajectories": len(np.unique(self.test_ids))}
 
-        explainer = shap.TreeExplainer(self.model)
-        shap_values = np.abs(explainer.shap_values(self.test_X))
-        perf = np.mean(shap_values,axis=0)
-        perf_std = np.std(shap_values,axis=0)
-        sorted_perf_index = np.flip(np.argsort(perf))
-        metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': perf_std[i]} 
-                                          for i in sorted_perf_index]
-        
+        try:
+            explainer = shap.TreeExplainer(self.model)
+            shap_values = np.abs(explainer.shap_values(self.test_X))
+            perf = np.mean(shap_values,axis=0)
+            perf_std = np.std(shap_values,axis=0)
+            sorted_perf_index = np.flip(np.argsort(perf))
+            metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': perf_std[i]} 
+                                             for i in sorted_perf_index]
+        except:
+            logging.error(traceback.format_exc())
+            print("Error calculating shap values")
+                    
         if submodel_metric is not None and full_metrics:
             # Check for trivial solutions
             max_variables = 5

@@ -204,18 +204,32 @@
     pollTrainingStatus().then(() => {
       if (!isTraining) {
         if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
+        pollSliceStatus();
         getSlicesIfAvailable(modelsToShow);
       }
     });
   }
 
   async function pollSliceStatus() {
-    if (!searchTaskID) return;
+    if (!$currentDataset || !modelName) return;
     try {
       loadingSliceStatus = true;
-      searchStatus = await (
-        await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}`)
-      ).json();
+      if (!searchTaskID) {
+        let result = await (
+          await fetch(
+            import.meta.env.BASE_URL +
+              `/tasks?cmd=find_slices&dataset_name=${$currentDataset}&model_name=${modelName}`
+          )
+        ).json();
+        if (result.length > 0) {
+          searchStatus = result[0];
+          searchTaskID = searchStatus?.id ?? null;
+        } else searchStatus = null;
+      } else {
+        searchStatus = await (
+          await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}`)
+        ).json();
+      }
     } catch (e) {
       console.log('error getting slice status');
       searchStatus = null;
@@ -230,7 +244,7 @@
       getSlicesIfAvailable(modelsToShow);
     } else {
       if (!!slicesStatusTimer) clearTimeout(slicesStatusTimer);
-      slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
+      if (!!searchTaskID) slicesStatusTimer = setTimeout(pollSliceStatus, 1000);
     }
   }
 
@@ -616,7 +630,7 @@
           />
         </div>
       {:else if visibleView == View.scoreFunctionEditor}
-        <div class="w-full pb-4 px-4">
+        <div class="w-full pb-12 px-4">
           <ScoreFunctionPanel
             bind:scoreFunctionSpec
             bind:changesPending={scoreFunctionsChanged}

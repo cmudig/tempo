@@ -725,7 +725,7 @@ class EvaluateQuery(lark.visitors.Interpreter):
             var_exp = self.cache.lookup((tree_desc, options_desc), time_index_tree=time_index_tree, transform_info=self.variable_transform_desc)
             if self.variable_transform_desc is not None and var_exp is not None:
                 var_exp, transform_data = var_exp
-                logging.info(f"Loaded {var_name} from cache, evaluates to {var_exp}")
+                logging.info(f"Loaded {var_name} from cache")
                 if self.variable_restore is not None:
                     if transform_data is None: var_exp = None
                     else: var_exp = self.variable_restore(var_exp, transform_data)

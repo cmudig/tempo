@@ -44,6 +44,9 @@ class Dataset:
     def get_spec(self):
         return self.spec
     
+    def get_slice_options(self):
+        return self.get_spec().get("slices", {})
+    
     def write_spec(self, new_spec):
         self.spec = new_spec
         self.fs.write_file(new_spec, "spec.json")
