@@ -2,7 +2,11 @@
   import { createEventDispatcher, getContext, onMount } from 'svelte';
   import type { SliceFilter, SliceSpec, VariableDefinition } from '../model';
   import VariableEditorPanel from '../model_editor/VariableEditorPanel.svelte';
-  import { areObjectsEqual, deepCopy } from '../slices/utils/utils';
+  import {
+    areObjectsEqual,
+    base64ToBlob,
+    deepCopy,
+  } from '../slices/utils/utils';
   import {
     faChevronLeft,
     faRotateRight,
@@ -101,6 +105,84 @@
       specVariables = null;
     }
   }
+
+  let downloadProgress: string | null = null;
+  let downloadTaskID: string | null = null;
+  async function pollDownload() {
+    if (!downloadTaskID) return;
+    try {
+      let result = await (
+        await fetch(import.meta.env.BASE_URL + `/tasks/${downloadTaskID}`)
+      ).json();
+      if (result.status == 'complete') {
+        saveError = null;
+        downloadProgress = null;
+        downloadTaskID = null;
+        downloadSpecVariables();
+      } else if (result.status == 'error') {
+        downloadProgress = null;
+        saveError = result.status_info;
+        downloadTaskID = null;
+      } else {
+        saveError = null;
+        downloadProgress =
+          result.status_info?.message ?? result.status_info ?? result.status;
+        setTimeout(pollDownload, 1000);
+      }
+    } catch (e) {
+      console.error('error checking task status:', e);
+      saveError = `${e}`;
+      downloadProgress = null;
+      downloadTaskID = null;
+    }
+  }
+
+  async function downloadSpecVariables() {
+    if (!specVariables) return;
+    try {
+      let inputVariableString = Object.entries(specVariables)
+        .filter((v) => v[1].enabled ?? true)
+        .map(([varName, varObj]) => `${varName}: ${varObj.query}`)
+        .join(',\n\t');
+      let response = await fetch(
+        import.meta.env.BASE_URL + `/datasets/${$currentDataset}/data/download`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            queries: {
+              variables: `(\n\t${inputVariableString}\n)\n${timestepDefinition}`,
+            },
+          }),
+        }
+      );
+      if (response.status != 200) {
+        saveError = await response.text();
+        return;
+      }
+      saveError = null;
+      let result = await response.json();
+      if (!!result.blob) {
+        let blob = base64ToBlob(result.blob, 'application/zip');
+        let url = window.URL.createObjectURL(blob);
+        let a = document.createElement('a');
+        document.body.appendChild(a);
+        a.style.display = 'none';
+        a.href = url;
+        a.download = result.filename;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } else {
+        downloadTaskID = result.id;
+        downloadProgress = 'Preparing download';
+        setTimeout(pollDownload, 1000);
+      }
+    } catch (e) {
+      console.error('Error downloading model data:', e);
+    }
+  }
 </script>
 
 {#if loadingSpecs || savingSpecs}
@@ -165,6 +247,18 @@
         fillHeight={false}
         bind:inputVariables={specVariables}
       />
+      <div class="flex gap-2 items-center justify-end mt-2">
+        {#if !!downloadProgress}
+          <div class="text-slate-500 text-sm">{downloadProgress}</div>
+        {/if}
+        <button
+          class="btn btn-slate"
+          disabled={!!downloadProgress}
+          on:click={() => downloadSpecVariables()}
+        >
+          Download Variables
+        </button>
+      </div>
     {/if}
   </div>
 {/if}
