@@ -30,7 +30,9 @@ def make_series_summary(values, value_type=None):
         except:
             is_quantitative = False
         if is_binary: value_type = "binary"
-        elif not is_quantitative or ((values.astype(int) == values).all() and num_unique <= 10): value_type = "categorical"
+        elif not is_quantitative or (isinstance(values.dtype, pd.CategoricalDtype) or 
+                pd.api.types.is_object_dtype(values.dtype) or 
+                pd.api.types.is_string_dtype(values.dtype)) or ((values.astype(int) == values).all() and num_unique <= 10): value_type = "categorical"
         else: value_type = "continuous"
     
     summary["type"] = value_type
