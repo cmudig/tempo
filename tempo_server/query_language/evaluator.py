@@ -460,7 +460,7 @@ class EvaluateExpression(lark.visitors.Transformer):
             elif isinstance(result, (Events, Attributes, Intervals, TimeSeries)):
                 if len(result.get_values()) != len(condition.get_values()):
                     raise ValueError(f"Case expression operands must be same length")
-                result = result.where(~condition.fillna(0).astype(bool), value)
+                result = result.where(~condition.fillna(False).astype(bool), value)
             elif isinstance(condition, (Attributes, Events, Intervals, TimeSeries)):
                 # We need to broadcast both value and result to condition's type
                 result = condition.apply(lambda x: pd.NA if pd.isna(x) else (value if x else result))
@@ -958,7 +958,7 @@ class QueryResultCache:
         }
         if transform_data is not None:
             self._query_cache[query_cache_name]["transform_data"] = convert_to_native_types(transform_data)
-        self.cache_dir.write_file(df.rename(columns={c: str(c) for c in df.columns}), fname, format='feather')
+        self.cache_dir.write_file(df.rename(columns={c: str(c) for c in df.columns}).reset_index(drop=True), fname, format='feather')
         self.cache_dir.write_file(self._query_cache, "query_cache.json")
 
     
