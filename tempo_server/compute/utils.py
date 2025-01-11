@@ -9,6 +9,7 @@ class Commands:
     FIND_SLICES = "find_slices"
     SUMMARIZE_DATASET = "summarize_dataset"
     GENERATE_QUERY_DOWNLOAD = "generate_query_download"
+    RUN_MODEL_INFERENCE = "run_model_inference"
     
 def make_series_summary(values, value_type=None):
     summary = {}

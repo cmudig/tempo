@@ -4,8 +4,9 @@ import pickle
 import tempfile
 import shutil
 import pandas as pd
+import torch
 
-BINARY_FILE_TYPES = ('pickle', 'feather', 'bytes')
+BINARY_FILE_TYPES = ('pickle', 'feather', 'bytes', 'pytorch')
 
 FILE_TYPE_EXTENSIONS = {
     "txt": "str",
@@ -16,7 +17,8 @@ FILE_TYPE_EXTENSIONS = {
     "p": "pickle",
     "arrow": "feather",
     "feather": "feather",
-    "zip": "bytes"
+    "zip": "bytes",
+    "pth": "pytorch"
 }
 
 class LocalFilesystem:
@@ -65,6 +67,8 @@ class LocalFilesystem:
                 return pickle.load(file, **kwargs)
             elif format.lower() == 'feather':
                 return pd.read_feather(file, **kwargs)
+            elif format.lower() == 'pytorch':
+                return torch.load(file, **kwargs)
             raise ValueError(f"Unsupported format {format}")
         
     def write_file(self, content, *path, format=None, **kwargs):
@@ -89,6 +93,8 @@ class LocalFilesystem:
                 pickle.dump(content, file, **kwargs)
             elif format.lower() == 'feather':
                 content.to_feather(file, **kwargs)
+            elif format.lower() == 'pytorch':
+                torch.save(content, file)
             else:
                 raise ValueError(f"Unsupported format {format}")
     

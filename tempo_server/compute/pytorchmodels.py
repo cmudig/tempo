@@ -23,7 +23,7 @@ class LSTM(nn.Module):
         return out
 
 class TimeSeriesTransformer(nn.Module):
-    def __init__(self, num_features, num_heads, num_layers, hidden_dim, dropout=0.1):
+    def __init__(self, num_classes, num_features, num_heads, num_layers, hidden_dim, dropout=0.1):
         super(TimeSeriesTransformer, self).__init__()
         
         self.num_features = num_features
@@ -46,7 +46,7 @@ class TimeSeriesTransformer(nn.Module):
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers)
         
         # Fully connected layer for binary classification at each time step
-        self.fc = nn.Linear(hidden_dim, 1)
+        self.fc = nn.Linear(hidden_dim, num_classes)
         
     def forward(self, x):
         # x: (batch_size, sequence_length, num_features)
@@ -63,7 +63,7 @@ class TimeSeriesTransformer(nn.Module):
         # Apply the classification layer at each time step
         x = self.fc(x)  # (batch_size, sequence_length, 1)
         
-        return torch.sigmoid(x)
+        return x
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):

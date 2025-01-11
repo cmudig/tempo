@@ -6,60 +6,63 @@ from .utils import make_series_summary
 import shap
 import traceback
 import logging
+import tempfile
 
 class XGBoost:
-    def __init__(self,model_type,train_X,train_y,train_ids,val_X,val_y,val_ids,val_sample,test_X,test_y,test_ids,**model_params):
+    def __init__(self,model_type,**model_params):
         self.model_cls = xgb.XGBRegressor if model_type == "regression" else xgb.XGBClassifier
         # Don't do class weights - instead, we can simply choose a better operating point
         # if not regressor:
         #     model_params['scale_pos_weight'] = (len(train_y) - train_y.sum()) / train_y.sum()
         
         self.model_type = model_type
-        self.train_X = train_X
-        self.train_y = train_y
-        self.train_ids = train_ids
-        self.val_X = val_X
-        self.val_y = val_y
-        self.val_ids = val_ids
-        self.val_sample = val_sample
-        self.test_X = test_X
-        self.test_y = test_y
-        self.test_ids = test_ids
-
-        self.column_names = list(train_X.columns)
-
+        
         self.model = self.model_cls(**model_params)
+        self.model_params = self.model.get_xgb_params()
     
-    def train(self):
+    def load(self, hyperparameter_info, model_fs):
+        with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
+            contents = model_fs.read_file(model_file.read(), "model.json")
+            model_file.write(contents)
+            model_file.seek(0)
+            self.model.load_model(model_file.name)
+            
+    def save(self, model_fs):
+        with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
+            print(model_file.name)
+            self.model.save_model(model_file.name)
+            model_file.seek(0)
+            model_fs.write_file(model_file.read(), "model.json")
+     
+    def get_hyperparameters(self):
+        """Create a dictionary of hyperparameters that can be used to reinstantiate the model."""
+        return self.model_params
+               
+    def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None):
         if self.model_type == "multiclass_classification":
             weights = compute_sample_weight(
                 class_weight='balanced',
-                y=self.train_y
+                y=train_y
             )
             params = {'sample_weight': weights}
         else:
             params = {}
         
-        self.model.fit(self.train_X, self.train_y, eval_set=[(self.val_X[self.val_sample], self.val_y[self.val_sample])], **params)
+        self.model.fit(train_X, train_y, eval_set=[(val_X, val_y)], **params)
+        self.model_params = self.model.get_xgb_params()
 
-    def predict(self,data_type=None):
-        if data_type == 'test' or data_type is None:
-            X = self.test_X
-        elif data_type == 'val':
-            X = self.val_X
-        elif data_type == 'train':
-            X = self.train_X
-        
+    def predict(self, test_X, test_ids):
         if self.model_type == "regression":
-            return self.model.predict(X)
+            return self.model.predict(test_X)
         elif self.model_type == "multiclass_classification":
-            return self.model.predict_proba(X)
+            return self.model.predict_proba(test_X)
         else:
-            return self.model.predict_proba(X)[:,1]
+            return self.model.predict_proba(test_X)[:,1]
     
-    def evaluate(self,spec,full_metrics,variables,outcomes,train_mask,val_mask,test_mask,row_mask,**model_params):
-        test_pred = self.predict('test')
-        test_y = self.test_y
+    def evaluate(self, spec, full_metrics, variables, outcomes, ids, train_mask, val_mask, test_mask):
+        test_X = variables[test_mask]
+        test_pred = self.predict(test_X, ids[test_mask])
+        test_y = outcomes[test_mask]
         metrics = {}
         metrics["labels"] = make_series_summary(test_y 
                                                      if self.model_type != 'multiclass_classification' 
@@ -172,17 +175,17 @@ class XGBoost:
             else:
                 submodel_metric = None
                 
-        metrics["n_train"] = {"instances": len(self.train_X), "trajectories": len(np.unique(self.train_ids))}
-        metrics["n_val"] = {"instances": len(self.val_X), "trajectories": len(np.unique(self.val_ids))}
-        metrics["n_test"] = {"instances": len(self.test_X), "trajectories": len(np.unique(self.test_ids))}
+        metrics["n_train"] = {"instances": train_mask.sum(), "trajectories": len(np.unique(ids[train_mask]))}
+        metrics["n_val"] = {"instances": val_mask.sum(), "trajectories": len(np.unique(ids[val_mask]))}
+        metrics["n_test"] = {"instances": test_mask.sum(), "trajectories": len(np.unique(ids[test_mask]))}
 
         try:
             explainer = shap.TreeExplainer(self.model)
-            shap_values = np.abs(explainer.shap_values(self.test_X))
+            shap_values = np.abs(explainer.shap_values(test_X))
             perf = np.mean(shap_values,axis=0)
             perf_std = np.std(shap_values,axis=0)
             sorted_perf_index = np.flip(np.argsort(perf))
-            metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': perf_std[i]} 
+            metrics['feature_importances'] = [{'feature': variables.columns[i], 'mean': perf[i], 'std': perf_std[i]} 
                                              for i in sorted_perf_index]
         except:
             logging.error(traceback.format_exc())
@@ -196,19 +199,14 @@ class XGBoost:
             variable_names = []
             for i in reversed(np.argsort(self.model.feature_importances_)[-max_variables:]):
                 variable_names.append(variables.columns[i])
-                smaller_model = XGBoost(self.model_type,
-                                        self.train_X,
-                                        self.train_y,
-                                        self.train_ids,
-                                        self.val_X,
-                                        self.val_y,
-                                        self.val_ids,
-                                        self.val_sample,
-                                        self.test_X,
-                                        self.test_y,
-                                        self.test_ids)
-                smaller_model.train()
-                sub_metrics = smaller_model.evaluate(spec,False,variables,outcomes,train_mask,val_mask,test_mask,row_mask)
+                smaller_model = XGBoost(self.model_type, **self.model_params)
+                smaller_model.train(variables[train_mask],
+                                        outcomes[train_mask],
+                                        ids[train_mask],
+                                        variables[val_mask],
+                                        outcomes[val_mask],
+                                        ids[val_mask])
+                sub_metrics = smaller_model.evaluate(spec,False,variables,outcomes,ids,train_mask,val_mask,test_mask)
                 if sub_metrics["performance"][submodel_metric] >= metrics["performance"][submodel_metric] * metric_fraction:
                     if len(variable_names) <= len(variables.columns) * 0.5:
                         metrics["trivial_solution_warning"] = {

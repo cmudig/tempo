@@ -25,9 +25,7 @@ class Dataset:
             self.split_cache_dir = self.global_cache_dir.subdirectory(f"_{split}")
         else:
             self.split_cache_dir = self.global_cache_dir.subdirectory(f"_all")
-            
-        self.dataset = None
-        
+                    
         self.id_uniques = None
         self.attributes = None
         self.events = None
@@ -95,6 +93,20 @@ class Dataset:
             new_vals = categorical_rep.cat.categories[~categorical_rep.cat.categories.isin(self.id_uniques)]
             self.id_uniques = self.id_uniques.union(new_vals, sort=False)
             return pd.Categorical(ids, self.id_uniques).codes
+        
+    def get_numerical_ids(self, ids):
+        """
+        Converts ids to numerical ids without adding new categories.
+        """
+        if self.id_uniques is None: return ids
+        return pd.Categorical(ids, self.id_uniques).codes
+    
+    def get_original_ids(self, numerical_ids):
+        """
+        Converts numerical ids to their original versions if applicable.
+        """
+        if self.id_uniques is None: return numerical_ids
+        return pd.Categorical.from_codes(numerical_ids, self.id_uniques).astype(self.id_uniques.dtype)
         
     def load_if_needed(self):
         if self.attributes is None: self.load_data()
@@ -200,7 +212,8 @@ class Dataset:
         self.split_ids = (train_ids, val_ids, test_ids)
 
     def get_variable_cache_fs(self):
-        return self.split_cache_dir.subdirectory("variables")
+        if self.split_cache_dir is not None:
+            return self.split_cache_dir.subdirectory("variables")
     
     def make_query_engine(self, cache_fs=None):
         """If cache_fs is None, uses the default variable cache."""
@@ -212,6 +225,23 @@ class Dataset:
                            cache_fs=self.get_variable_cache_fs() if cache_fs is None else cache_fs, 
                            eventtype_macros=self.macros)
 
+    def get_subdataset(self, ids):
+        """
+        Create a new dataset object only containing the given IDs.
+        """
+        sub_ds = Dataset(self.fs, split=self.split)
+        
+        numerical_ids = self.get_numerical_ids(ids)
+        sub_ds.attributes = [attr_set.filter(attr_set.get_ids().isin(numerical_ids))
+                      for attr_set in self.attributes]
+        sub_ds.events = [event_set.filter(event_set.get_ids().isin(numerical_ids))
+                      for event_set in self.events]
+        sub_ds.intervals = [interval_set.filter(interval_set.get_ids().isin(numerical_ids))
+                      for interval_set in self.intervals]
+        sub_ds.macros = self.macros
+        sub_ds.split_cache_dir = None # disable saving to cache
+        return sub_ds
+        
     def get_summary(self):
         if not self.split_cache_dir.exists("summary.json"): return None
         return self.split_cache_dir.read_file("summary.json")

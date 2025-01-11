@@ -117,7 +117,14 @@ def task_runner(filesystem, task_info, update_fn):
                                 update_fn=update_fn,
                                 ignore_cache=True,
                                 **task_info['options'])
-        
+    elif cmd == Commands.RUN_MODEL_INFERENCE:
+        update_fn({'message': 'Loading data'})
+        dataset = _get_dataset(filesystem, task_info['dataset_name'])
+                
+        model_name = task_info['model_name']
+        model = dataset.get_model(model_name)
+        model.compute_model_predictions(dataset, ids=task_info.get('ids'), inputs=task_info.get('inputs'), update_fn=update_fn)
+
         
     return "Success"
     

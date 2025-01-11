@@ -11,7 +11,7 @@ from .nn import NeuralNetwork
 import shap
 from .raytuner import RayTuner
 from .xgb import XGBoost
-import torch
+import uuid
 import logging
 
 class Model:
@@ -22,6 +22,8 @@ class Model:
         self.predictions = None
         self.metrics = None
         self.spec = None
+        self._prediction_cache_fs = self.result_fs.subdirectory("predictions")
+        self._prediction_cache = {'ids': {}, 'inputs': []}
         
     def get_spec(self):
         if self.spec is None:
@@ -112,8 +114,10 @@ class Model:
         result[apply_mask] = preds
         return result
     
-    def make_modeling_variables(self, query_engine, spec, update_fn=None, dummies=True):
-        """Creates the variables dataframe."""
+    def make_modeling_variables(self, query_engine, spec, update_fn=None, dummies=True, dummy_col_values=None):
+        """
+        Creates the variables dataframe.
+        """
         query = make_query(spec["variables"], spec["timestep_definition"])
         logging.info(query)
         if update_fn is not None:
@@ -125,22 +129,46 @@ class Model:
         modeling_df = modeling_variables.values
 
         if dummies:
-            logging.info(f"Before: {modeling_df.shape}")
-            modeling_df = pd.get_dummies(modeling_df, 
-                                        columns=[c for c in modeling_df.columns 
-                                                if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
-                                                or pd.api.types.is_string_dtype(modeling_df[c].dtype) 
-                                                or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)])
-            logging.info(f"After: {modeling_df.shape}")
-
-        del modeling_variables
+            return self.convert_dummy_variables(modeling_df, dummy_col_values=dummy_col_values)
+        
         return modeling_df
+    
+    def convert_dummy_variables(self, modeling_df, dummy_col_values=None):
+        """
+        If dummy_col_values is provided, it should be a dictionary of one-hot
+        encoded column names to lists of values used for each column.
+        """
+        logging.info(f"Before: {modeling_df.shape}")
+        if dummy_col_values is None:
+            dummy_columns = [c for c in modeling_df.columns 
+                            if pd.api.types.is_object_dtype(modeling_df[c].dtype) 
+                            or pd.api.types.is_string_dtype(modeling_df[c].dtype) 
+                            or isinstance(modeling_df[c].dtype, pd.CategoricalDtype)]
+            modeling_df[dummy_columns] = modeling_df[dummy_columns].astype('category')
+        else:
+            dummy_columns = list(dummy_col_values.keys())
+            for c, values in dummy_col_values.items():
+                if (~pd.isna(modeling_df[c]) & ~modeling_df[c].isin(values)).any():
+                    unknown_vals = modeling_df[c][~modeling_df[c].isin(values)]
+                    raise ValueError(f"Unknown values {', '.join((str(x) for x in unknown_vals.unique()))} for feature {c}")
+                modeling_df[c] = modeling_df[c].astype(pd.CategoricalDtype(values))
+            
+        new_modeling_df = pd.get_dummies(modeling_df, 
+                                    columns=dummy_columns)
+        if dummy_col_values is None:
+            # keep track of which columns were added so we can create them later if needed
+            dummy_col_values = {c: modeling_df[c].cat.categories.tolist()
+                                for c in dummy_columns}
+        modeling_df = new_modeling_df
+        
+        logging.info(f"After: {modeling_df.shape}")
+        return modeling_df, dummy_col_values
 
-    def make_model(self, dataset, spec, modeling_df=None, update_fn=None):
+    def make_model(self, dataset, spec, modeling_df=None, dummy_variables=None, update_fn=None):
         query_engine = dataset.make_query_engine()
         if modeling_df is None:
             if update_fn is not None: update_fn({'message': 'Loading variables'})
-            modeling_df = self.make_modeling_variables(query_engine, spec, update_fn=update_fn)
+            modeling_df, dummy_variables = self.make_modeling_variables(query_engine, spec, update_fn=update_fn)
             
         if update_fn is not None: update_fn({'message': 'Loading target variable'})
         outcome = query_engine.query("(" + spec['outcome'] + 
@@ -181,14 +209,9 @@ class Model:
         df_mask = ~df_mask
         df_mask = df_mask.all(axis=1)
         outcome_mask = ~pd.isna(outcome_values)
-        row_mask = df_mask&outcome_mask
+        row_mask = df_mask & outcome_mask
         
-        # print(f'raw df mask {df_mask}')
-        # print(f'df mask {df_mask}')
-        # print(f'outcome mask {outcome_mask}')
-        # print(f'row_mask {row_mask}')
-        
-        architecture_class, model, metrics, predictions = self._train_model(
+        model, metrics, predictions = self._train_model(
             spec,
             modeling_df,
             outcome_values,
@@ -196,10 +219,8 @@ class Model:
             train_mask,
             val_mask,
             test_mask,
-            # row_mask=~pd.isna(outcome_values),
             row_mask=row_mask,
             update_fn=update_fn,
-            model_type=spec["model_type"],
             early_stopping_rounds=3)
     
         # Save out the metadata
@@ -208,31 +229,41 @@ class Model:
                            indent=2)
         
         # Save out the metrics    
-        self.result_fs.write_file(convert_to_native_types(metrics),
+        self.result_fs.write_file({**convert_to_native_types(metrics), 
+                                   'hyperparameters': model.get_hyperparameters(),
+                                   **({'dummy_variables': dummy_variables} if dummy_variables else {})},
                            "metrics.json")
             
         # Save out the model itself and its predictions
 
-        if architecture_class == 'pytorch':
-            dest_path = os.path.join(self.result_fs.base_path, 'model.pth')
-            torch.save(model, dest_path)
-            # with tempfile.NamedTemporaryFile('w+b', suffix='.json') as model_file:
-            #     torch.save(model, model_file.name)
-            #     model_file.seek(0)
-        
-        else:
-            with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
-                print(model_file.name)
-                model.save_model(model_file.name)
-                model_file.seek(0)
-                self.result_fs.write_file(model_file.read(), "model.json")
+        model.save(self.result_fs)
+        # if isinstance(model, NeuralNetwork):
+        #     self.result_fs.write_file(model.state_dict(), 'model.pth')
+        # else:
+        #     with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
+        #         print(model_file.name)
+        #         model.save_model(model_file.name)
+        #         model_file.seek(0)
+        #         self.result_fs.write_file(model_file.read(), "model.json")
 
         # Save out the true values and prediction (probabilities)
         self.result_fs.write_file(predictions, "preds.pkl")
         
         return model, metrics, predictions
     
-    def _train_model(self, spec, variables, outcomes, ids, train_mask, val_mask, test_mask, model_type="binary_classification", row_mask=None, full_metrics=True, update_fn=None, **model_params):
+    def _make_model_trainer(self, spec, input_size, output_size):
+        model_architecture = spec.get("model_architecture", {}).get("type", "xgboost")
+        config = spec.get("model_architecture", {}).get("hyperparameters", {})
+        if model_architecture == 'rnn' or model_architecture == 'transformer':
+            return NeuralNetwork(spec["model_type"], 
+                                  model_architecture,
+                                  config,
+                                  input_size, 
+                                  output_size)
+        else: 
+            return XGBoost(spec["model_type"], **config)
+
+    def _train_model(self, spec, variables, outcomes, ids, train_mask, val_mask, test_mask, row_mask=None, full_metrics=True, update_fn=None, **model_params):
         """
         variables: a dataframe containing variables for all patients
         """
@@ -248,88 +279,182 @@ class Model:
         logging.info(f"Val samples and missingness: {val_X}, {val_y}, {pd.isna(val_X).sum(axis=0)}, {pd.isna(val_y).sum()}")
 
         test_X = variables[test_mask & row_mask] #.values
-        test_x = variables[test_mask & row_mask]
         test_y = outcomes[test_mask & row_mask]
         test_ids = ids[test_mask & row_mask]
-
-        val_sample = np.random.uniform(size=len(val_X)) < 0.1
         
-        model_architecture = spec.get("model_architecture", {}).get("type", "xgboost")
-        if model_architecture == 'rnn' or model_architecture == 'transformer':
-            config = spec.get("model_architecture", {}).get("hyperparameters", {})
-            config['num_epochs'] = {'type': 'fix', 'value': 10}
-            config['input_size'] = {'type': 'fix', 'value': train_X.shape[1]}
-            config['num_classes'] = {'type': 'fix', 'value': 1}
-            model = NeuralNetwork(model_architecture,
-                                  train_X,
-                                  train_y,
-                                  train_ids,
-                                  test_x,
-                                  test_y,
-                                  test_ids,
-                                  val_X,
-                                  val_y,
-                                  val_ids,
-                                  config)
-            architecture_class = 'pytorch'
-        else: 
-            architecture_class = 'xgboost'
-            if model_type.endswith("classification"):
-                train_y = train_y.astype(int)
-                val_y = val_y.astype(int)
-                test_y = test_y.astype(int)
-            model = XGBoost(model_type, 
-                            train_X,
-                            train_y,
-                            train_ids,
-                            val_X,
-                            val_y,
-                            val_ids,
-                            val_sample,
-                            test_X,
-                            test_y,
-                            test_ids,
-                            **model_params)
+        if spec["model_type"].endswith("classification"):
+            train_y = train_y.astype(int)
+            val_y = val_y.astype(int)
+            test_y = test_y.astype(int)
 
+        model = self._make_model_trainer(spec, train_X.shape[1], train_y.max() if spec["model_type"] == 'multiclass_classification' else 1)
         logging.info("Training")
-        model.train()
+        model.train(
+            train_X,
+            train_y,
+            train_ids,
+            val_X,
+            val_y,
+            val_ids,
+            update_fn=lambda info: update_fn({'message': f"Training ({info.get('message', '...')})"})
+        )
        
         logging.info("Evaluating")
 
-        # logging.info("Training")
-        # model_cls = xgboost.XGBRegressor if model_type == "regression" else xgboost.XGBClassifier
-        # # Don't do class weights - instead, we can simply choose a better operating point
-        # # if not regressor:
-        # #     model_params['scale_pos_weight'] = (len(train_y) - train_y.sum()) / train_y.sum()
-        # if model_type == "multiclass_classification":
-        #     weights = compute_sample_weight(
-        #         class_weight='balanced',
-        #         y=train_y
-        #     )
-        #     params = {'sample_weight': weights}
-        # else:
-        #     params = {}
-            
-        # model = model_cls(**model_params)
-        # model.fit(train_X, train_y, eval_set=[(val_X[val_sample], val_y[val_sample])], **params)
-        
-        # logging.info("Evaluating")
-
         if update_fn is not None: update_fn({'message': 'Evaluating model'})
-        metrics = model.evaluate(spec,full_metrics,variables,outcomes,train_mask,val_mask,test_mask,row_mask,**model_params)
-        predict = model.predict()
-        logging.info(f'predict type{type(predict)}, size {predict.shape}')
+        metrics = model.evaluate(spec,full_metrics,variables,outcomes,ids,train_mask,val_mask,test_mask)
         logging.info(f'metrics {metrics}')
         
+        val_pred = model.predict(val_X, val_ids)
+        test_pred = model.predict(test_X, test_ids)
+        logging.info(f'predict type{type(test_pred)}, size {test_pred.shape}')
+
         # Return preds and true values in the validation and test sets, putting
         # nans whenever the row shouldn't be considered part of the
         # cohort for this model
-        
-        val_pred = model.predict(data_type='val')
-        test_pred = model.predict()
-        return architecture_class, model.model, metrics, (
+        return model, metrics, (
             np.where(val_mask & row_mask, outcomes, np.nan)[val_mask],
             self._get_dataset_aligned_predictions(outcomes, val_pred, (val_mask & row_mask).values)[val_mask],
             np.where(test_mask & row_mask, outcomes, np.nan)[test_mask],
             self._get_dataset_aligned_predictions(outcomes, test_pred, (test_mask & row_mask).values)[test_mask],
         )
+
+    def load_cache_if_needed(self):
+        try:    
+            self._prediction_cache = self._prediction_cache_fs.read_file("cache.json")
+        except:
+            self._prediction_cache = {'ids': {}, 'inputs': []}
+                
+    def lookup_prediction_results(self, ids=None, inputs=None):
+        """
+        Returns the results of the model prediction operation (as a list of
+        records) if they have already been computed. If the operation resulted in an error,
+        raises that error as a ValueError."""
+        self.load_cache_if_needed()
+        
+        if (ids is None) == (inputs is None):
+            raise ValueError("Exactly one of ids or inputs must be provided")
+        
+        if ids is not None:
+            result_key = 'ids'
+            result_idx = ",".join(str(x) for x in ids)
+            matching_result = self._prediction_cache['ids'].get(result_idx, None)
+        elif inputs is not None:
+            result_key = 'inputs'
+            result_idx, matching_result = next(((i, result) for i, result in enumerate(self._prediction_cache['inputs'])
+                                                if result['inputs'] == inputs), (None, None))
+        
+        if matching_result:
+            try:
+                results_json = self._prediction_cache_fs.read_file(matching_result["path"])
+            except:
+                logging.info("Prediction results file was removed")
+                # file was removed
+                del self._prediction_cache[result_key][result_idx]
+                self.write_cache()
+            else:
+                if isinstance(results_json, dict) and "error" in results_json:
+                    raise ValueError(results_json["error"])
+                
+                return results_json
+        return None
+
+    def compute_model_predictions(self, dataset, ids=None, inputs=None, update_fn=None):
+        """
+        Compute model predictions for instances corresponding to the given 
+        trajectory IDs or inputs.
+        """
+        if (ids is None) == (inputs is None):
+            raise ValueError("Exactly one of ids or inputs must be provided")
+        
+        try:
+            results = self.lookup_prediction_results(ids=ids, inputs=inputs)
+            if results:
+                return results
+        except Exception as e:
+            logging.info(f"Error loading cached prediction results: {e}")
+            
+        spec = self.get_spec()
+        metrics = self.get_metrics()
+        if "dummy_variables" not in metrics:
+            raise ValueError("Model was not trained with dummy variables saved, please re-train")
+        dv = metrics["dummy_variables"]
+        
+        if ids is not None:
+            # First get modeling variables, then filter down to requested IDs
+            query_engine = dataset.make_query_engine()
+            if update_fn is not None: update_fn({'message': 'Loading variables'})
+            modeling_df, _ = self.make_modeling_variables(query_engine, spec, update_fn=update_fn, dummy_col_values=dv)
+                
+            if update_fn is not None: update_fn({'message': 'Loading target variable'})
+            outcome = query_engine.query("(" + spec['outcome'] + 
+                                        (f" where ({spec['cohort']})" if spec.get('cohort', '') else '') + ") " + 
+                                        spec["timestep_definition"])
+            matching_ids = outcome.get_ids().isin(dataset.get_numerical_ids(ids))
+            modeling_df = modeling_df[matching_ids].reset_index(drop=True)
+            outcome = outcome.filter(matching_ids)
+            if set(outcome.get_ids().tolist()) != set(dataset.get_numerical_ids(ids)):
+                missing_ids = dataset.get_original_ids(np.array(list(set(dataset.get_numerical_ids(ids)) - set(outcome.get_ids().tolist()))))
+                raise ValueError(f"Some IDs are not present in dataset: {', '.join(str(s) for s in missing_ids)}")
+            
+            # if outcome is present, exclude rows where outcome is NA
+            modeling_df = modeling_df[~pd.isna(outcome.get_values())]
+            ids = outcome.get_ids()
+            return_ids = pd.DataFrame({'id': outcome.get_ids(), 'time': outcome.get_times()}).to_dict(orient='records')
+            outcome = outcome.get_values()
+            logging.info(f"{modeling_df.shape}, {outcome.shape}")
+            
+        elif inputs is not None:
+            # use the order of the modeling spec variables
+            if update_fn is not None: update_fn({'message': "Preprocessing data"})
+            modeling_df = pd.DataFrame.from_records(inputs)
+            if "id" in inputs.columns:
+                # remove the special ID column
+                ids = modeling_df["id"]
+                modeling_df = modeling_df.drop(columns=["id"])
+            else:
+                ids = np.arange(len(modeling_df))
+            if any(v not in modeling_df.columns for v in spec["variables"].keys()):
+                raise ValueError(f"Required input features {', '.join(v for v in spec['variables'] if v not in modeling_df.columns)} not present in inputs")
+            modeling_df, _ = self.convert_dummy_variables(modeling_df, dummy_col_values=dv)
+            
+            outcome = None
+            return_ids = inputs
+
+        # load the model
+        if update_fn is not None: update_fn({'message': "Loading model"})
+        model = self._make_model_trainer(spec, 
+                                         sum(v.get("enabled", True) for v in spec["variables"].values()),
+                                         len(spec["output_values"]) if "output_values" in spec else 1)
+        model.load(metrics["hyperparameters"], self.result_fs)
+        logging.info("Loaded model")
+        
+        if update_fn is not None: update_fn({'message': "Running model"})
+        preds = model.predict(modeling_df, ids).tolist()
+        results = convert_to_native_types([
+            {'input': return_ids[i],
+             'prediction': preds[i],
+             **({'ground_truth': outcome[i]} if outcome is not None else {})
+             }
+            for i in range(len(return_ids))
+        ])
+        
+        path = uuid.uuid4().hex + ".json"
+        self._prediction_cache_fs.write_file(results, path)
+        self.load_cache_if_needed()
+        if ids is not None:
+            self._prediction_cache['ids'][",".join(str(x) for x in ids)] = {
+                "path": path
+            }
+        elif inputs is not None:
+            self._prediction_cache['inputs'].append({
+                "inputs": inputs,
+                "path": path
+            })
+        self.write_cache()
+        
+        return results
+        
+    def write_cache(self):
+        self._prediction_cache_fs.write_file(self._prediction_cache, "cache.json")
+        

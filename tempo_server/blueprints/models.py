@@ -285,3 +285,59 @@ def generate_model(dataset_name):
     #         # Mark that the model's metrics have changed
     #         evaluator.rescore_model(model_name, meta["timestep_definition"])
     return jsonify(model_training_job_info(dataset_name, model_name))
+
+@models_blueprint.post("/datasets/<dataset_name>/models/<model_name>/predict")
+def get_model_predictions(dataset_name, model_name):
+    """
+    Parameters:
+    * dataset_name: Name of the dataset in which to find the model
+    * model_name: The name of the model to return metrics for
+    
+    Request body: JSON containing either a field 'ids' or a field 'inputs'.
+        If including 'ids', should be a list of numerical IDs of trajectories
+        in the data. If 'inputs' is provided, should be a list of dictionaries
+        where each key is an input feature in the model. (Use /datasets/<dataset_name>/models/<model_name>
+        to get the spec, which contains the variable names in the "variables"
+        field.)
+    Returns: JSON with an "outputs" key whose value is a list of predictions
+        for each input id or record. The predictions contain the following fields:
+            "input": the original input corresponding to this prediction (id or record)
+            "prediction": a float if the model is binary classification or
+                regression, or a list of floats if multiclass.
+            "ground_truth": the true label for the model if the instance was
+                created by an ID.
+            "feature_importances": a list of dictionaries with two keys: 'feature'
+                and 'value'. This contains only the top 10 features.
+        Returns a 400 error code if the model is being trained.
+    """
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name))
+    if not dataset.fs.exists():
+        return "Dataset does not exist", 404
+
+    body = request.json
+    
+    if ("ids" in body) == ("inputs" in body):
+        return "Exactly one of 'ids' and 'inputs' required", 400
+    
+    model = dataset.get_model(model_name)
+    if not model.fs.exists():
+        return "Model does not exist", 404
+    result = model.lookup_prediction_results(ids=body.get("ids", None), inputs=body.get("inputs", None))
+    if result:
+        return jsonify({"result": result})
+        
+    worker = get_worker()
+
+    task_info = {
+        'cmd': Commands.RUN_MODEL_INFERENCE,
+        'dataset_name': dataset_name,
+        'model_name': model_name,
+        **({'ids': body["ids"]} if 'ids' in body else {'inputs': body["inputs"]})
+    }  
+    matching_job = next((j for j in worker.current_jobs() if j['info'] == task_info), None)  
+    if matching_job:
+        return jsonify(matching_job)
+    
+    task_id = worker.submit_task(task_info)
+
+    return jsonify(worker.task_info(task_id))
