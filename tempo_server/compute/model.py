@@ -325,6 +325,37 @@ class Model:
         except:
             self._prediction_cache = {'ids': {}, 'inputs': []}
                 
+    def get_modeling_inputs(self, dataset, ids, update_fn=None):
+        spec = self.get_spec()
+        metrics = self.get_metrics()
+        if "dummy_variables" not in metrics:
+            raise ValueError("Model was not trained with dummy variables saved, please re-train")
+        dv = metrics["dummy_variables"]
+        
+        # First get modeling variables, then filter down to requested IDs
+        query_engine = dataset.make_query_engine()
+        if update_fn is not None: update_fn({'message': 'Loading variables'})
+        modeling_df, _ = self.make_modeling_variables(query_engine, spec, update_fn=update_fn, dummy_col_values=dv)
+            
+        if update_fn is not None: update_fn({'message': 'Loading target variable'})
+        outcome = query_engine.query("(" + spec['outcome'] + 
+                                    (f" where ({spec['cohort']})" if spec.get('cohort', '') else '') + ") " + 
+                                    spec["timestep_definition"])
+        matching_ids = outcome.get_ids().isin(dataset.get_numerical_ids(ids))
+        modeling_df = modeling_df[matching_ids].reset_index(drop=True)
+        outcome = outcome.filter(matching_ids)
+        if set(outcome.get_ids().tolist()) != set(dataset.get_numerical_ids(ids)):
+            missing_ids = dataset.get_original_ids(np.array(list(set(dataset.get_numerical_ids(ids)) - set(outcome.get_ids().tolist()))))
+            raise ValueError(f"Some IDs are not present in dataset: {', '.join(str(s) for s in missing_ids)}")
+        
+        # if outcome is present, exclude rows where outcome is NA
+        modeling_df = modeling_df[~pd.isna(outcome.get_values())]
+        return_ids = pd.DataFrame({'id': outcome.get_ids(), 'time': outcome.get_times()}).to_dict(orient='records')
+        outcome = outcome.get_values()
+        logging.info(f"{modeling_df.shape}, {outcome.shape}")
+            
+        return modeling_df, outcome, return_ids
+
     def lookup_prediction_results(self, ids=None, inputs=None):
         """
         Returns the results of the model prediction operation (as a list of
@@ -381,27 +412,8 @@ class Model:
         dv = metrics["dummy_variables"]
         
         if ids is not None:
-            # First get modeling variables, then filter down to requested IDs
-            query_engine = dataset.make_query_engine()
-            if update_fn is not None: update_fn({'message': 'Loading variables'})
-            modeling_df, _ = self.make_modeling_variables(query_engine, spec, update_fn=update_fn, dummy_col_values=dv)
-                
-            if update_fn is not None: update_fn({'message': 'Loading target variable'})
-            outcome = query_engine.query("(" + spec['outcome'] + 
-                                        (f" where ({spec['cohort']})" if spec.get('cohort', '') else '') + ") " + 
-                                        spec["timestep_definition"])
-            matching_ids = outcome.get_ids().isin(dataset.get_numerical_ids(ids))
-            modeling_df = modeling_df[matching_ids].reset_index(drop=True)
-            outcome = outcome.filter(matching_ids)
-            if set(outcome.get_ids().tolist()) != set(dataset.get_numerical_ids(ids)):
-                missing_ids = dataset.get_original_ids(np.array(list(set(dataset.get_numerical_ids(ids)) - set(outcome.get_ids().tolist()))))
-                raise ValueError(f"Some IDs are not present in dataset: {', '.join(str(s) for s in missing_ids)}")
-            
-            # if outcome is present, exclude rows where outcome is NA
-            modeling_df = modeling_df[~pd.isna(outcome.get_values())]
-            ids = outcome.get_ids()
-            return_ids = pd.DataFrame({'id': outcome.get_ids(), 'time': outcome.get_times()}).to_dict(orient='records')
-            outcome = outcome.get_values()
+            modeling_df, outcome, return_ids = self.get_modeling_inputs(dataset, ids, update_fn=update_fn)
+            modeling_ids = np.array([x["id"] for x in return_ids])
             logging.info(f"{modeling_df.shape}, {outcome.shape}")
             
         elif inputs is not None:
@@ -410,10 +422,10 @@ class Model:
             modeling_df = pd.DataFrame.from_records(inputs)
             if "id" in inputs.columns:
                 # remove the special ID column
-                ids = modeling_df["id"]
+                modeling_ids = modeling_df["id"]
                 modeling_df = modeling_df.drop(columns=["id"])
             else:
-                ids = np.arange(len(modeling_df))
+                modeling_ids = np.arange(len(modeling_df))
             if any(v not in modeling_df.columns for v in spec["variables"].keys()):
                 raise ValueError(f"Required input features {', '.join(v for v in spec['variables'] if v not in modeling_df.columns)} not present in inputs")
             modeling_df, _ = self.convert_dummy_variables(modeling_df, dummy_col_values=dv)
@@ -430,11 +442,19 @@ class Model:
         logging.info("Loaded model")
         
         if update_fn is not None: update_fn({'message': "Running model"})
-        preds = model.predict(modeling_df, ids).tolist()
+        preds = model.predict(modeling_df, modeling_ids).tolist()
+        
+        shap_values = model.explain(modeling_df, modeling_ids)
+        k_features = 5
+        
         results = convert_to_native_types([
             {'input': return_ids[i],
              'prediction': preds[i],
-             **({'ground_truth': outcome[i]} if outcome is not None else {})
+             **({'ground_truth': outcome[i]} if outcome is not None else {}),
+             'feature_importances': [
+                 {'feature': modeling_df.columns[f], 'importance': shap_values[i, f]}
+                 for f in np.flip(np.argsort(np.abs(shap_values[i])))[:k_features]
+             ]
              }
             for i in range(len(return_ids))
         ])

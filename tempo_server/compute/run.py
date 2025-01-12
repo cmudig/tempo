@@ -125,6 +125,19 @@ def task_runner(filesystem, task_info, update_fn):
         model = dataset.get_model(model_name)
         model.compute_model_predictions(dataset, ids=task_info.get('ids'), inputs=task_info.get('inputs'), update_fn=update_fn)
 
+    elif cmd == Commands.GET_MODEL_INSTANCES:
+        update_fn({'message': 'Loading data'})
+        dataset = _get_dataset(filesystem, task_info['dataset_name'])
+                
+        model_name = task_info['model_name']
+        model = dataset.get_model(model_name)
+        modeling_df, outcome, index = model.get_modeling_inputs(dataset, task_info['ids'], update_fn=update_fn)
+        return convert_to_native_types([
+            {"index": index[i],
+             "inputs": modeling_df.iloc[i].to_dict(),
+             "ground_truth": outcome[i]
+             } for i in range(len(index))
+        ])
         
     return "Success"
     

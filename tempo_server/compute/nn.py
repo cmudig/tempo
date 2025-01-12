@@ -238,7 +238,7 @@ class NeuralNetwork:
     def predict(self, test_X, test_ids):
         test_dataset = self.create_dataset(test_X, np.zeros(len(test_X)), test_ids)
         dataloader = DataLoader(test_dataset, 
-                                batch_size=self.best_config['batch_size'] if self.best_config else self.batch_size.get('value', 32),
+                                batch_size=self.best_config['batch_size'] if self.best_config else 32,
                                 collate_fn=self.pad_collate)
         predict = []
         for i, (features, targets ,lengths) in enumerate(dataloader):
@@ -255,6 +255,25 @@ class NeuralNetwork:
                 x_array = flat_x.detach().numpy()
                 predict.append(x_array)
         return np.concatenate(predict)
+    
+    def explain(self, test_X, test_ids):
+        test_dataset = self.create_dataset(test_X, np.zeros(len(test_X)), test_ids)
+        dataloader = DataLoader(test_dataset, 
+                                batch_size=self.best_config['batch_size'] if self.best_config else 32,
+                                collate_fn=self.pad_collate)
+        background = next(iter(dataloader))[0]
+        explainer = shap.GradientExplainer(self.model, background)
+        shap_values = []
+        for batch in dataloader:
+            target, _, lengths = batch
+            shaps = explainer.shap_values(target)
+            for x, l in zip(shaps, lengths):
+                size = l.item()
+                trunc_x = x[:size, :]
+                flat_x = trunc_x.flatten()
+                x_array = flat_x.detach().numpy()
+                shap_values.append(x_array)
+        return np.concatenate(shap_values)
     
     def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None):
         needs_tune = any(x["type"] != "fix" for x in self.config.values())

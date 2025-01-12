@@ -59,6 +59,13 @@ class XGBoost:
         else:
             return self.model.predict_proba(test_X)[:,1]
     
+    def explain(self, test_X, test_ids):
+        """Returns the SHAP values for the given set of instances as a matrix,
+        one row per input and one column per feature."""
+        explainer = shap.TreeExplainer(self.model)
+        shap_values = explainer.shap_values(test_X)
+        return shap_values
+        
     def evaluate(self, spec, full_metrics, variables, outcomes, ids, train_mask, val_mask, test_mask):
         test_X = variables[test_mask]
         test_pred = self.predict(test_X, ids[test_mask])
@@ -180,8 +187,7 @@ class XGBoost:
         metrics["n_test"] = {"instances": test_mask.sum(), "trajectories": len(np.unique(ids[test_mask]))}
 
         try:
-            explainer = shap.TreeExplainer(self.model)
-            shap_values = np.abs(explainer.shap_values(test_X))
+            shap_values = self.explain(test_X, ids[test_mask])
             perf = np.mean(shap_values,axis=0)
             perf_std = np.std(shap_values,axis=0)
             sorted_perf_index = np.flip(np.argsort(perf))

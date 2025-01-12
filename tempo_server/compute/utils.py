@@ -10,6 +10,7 @@ class Commands:
     SUMMARIZE_DATASET = "summarize_dataset"
     GENERATE_QUERY_DOWNLOAD = "generate_query_download"
     RUN_MODEL_INFERENCE = "run_model_inference"
+    GET_MODEL_INSTANCES = "get_model_instances"
     
 def make_series_summary(values, value_type=None):
     summary = {}

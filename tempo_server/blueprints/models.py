@@ -3,6 +3,7 @@ from ..compute.run import get_worker, get_filesystem
 from ..compute.dataset import Dataset
 from ..compute.utils import Commands
 from ..compute.model import Model
+from ..compute.worker import TaskStatus
 from .slices import slice_evaluators
 
 models_blueprint = Blueprint('models', __name__)
@@ -286,6 +287,53 @@ def generate_model(dataset_name):
     #         evaluator.rescore_model(model_name, meta["timestep_definition"])
     return jsonify(model_training_job_info(dataset_name, model_name))
 
+@models_blueprint.post("/datasets/<dataset_name>/models/<model_name>/instances")
+def get_model_instances(dataset_name, model_name):
+    """
+    Parameters:
+    * dataset_name: Name of the dataset in which to find the model
+    * model_name: The name of the model to return metrics for
+    
+    Request body: JSON containing a field 'ids', containing numerical IDs of trajectories
+        in the data.
+    Returns: JSON with a "inputs" key whose value is a list of records
+        for each input id and timestep. The predictions contain the following fields:
+            "index": a dictionary of id and time for the record
+            "inputs": a dictionary of input feature names to values
+            "ground_truth": the true label for the model
+        This request queues a background task if the data is not cached, in which
+        case the response is a JSON object representing the task status.
+    """
+    dataset = Dataset(get_filesystem().subdirectory("datasets", dataset_name))
+    if not dataset.fs.exists():
+        return "Dataset does not exist", 404
+
+    body = request.json
+    
+    if "ids" not in body:
+        return "'ids' body field required", 400
+    
+    model = dataset.get_model(model_name)
+    if not model.fs.exists():
+        return "Model does not exist", 404    
+    worker = get_worker()
+
+    task_info = {
+        'cmd': Commands.GET_MODEL_INSTANCES,
+        'dataset_name': dataset_name,
+        'model_name': model_name,
+        'ids': body["ids"]
+    }  
+    matching_job = next((j for j in worker.all_jobs() if j['info'] == task_info), None)  
+    if matching_job:
+        if matching_job['status'] == TaskStatus.COMPLETE:
+            return jsonify(matching_job['status_info'])
+        return jsonify(matching_job)
+    
+    task_id = worker.submit_task(task_info)
+
+    return jsonify(worker.task_info(task_id))
+
 @models_blueprint.post("/datasets/<dataset_name>/models/<model_name>/predict")
 def get_model_predictions(dataset_name, model_name):
     """
@@ -301,7 +349,8 @@ def get_model_predictions(dataset_name, model_name):
         field.)
     Returns: JSON with an "outputs" key whose value is a list of predictions
         for each input id or record. The predictions contain the following fields:
-            "input": the original input corresponding to this prediction (id or record)
+            "index": a dictionary of id and time for the record if using ids, or the
+                original input dictionary if using inputs.
             "prediction": a float if the model is binary classification or
                 regression, or a list of floats if multiclass.
             "ground_truth": the true label for the model if the instance was
