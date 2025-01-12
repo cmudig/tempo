@@ -17,7 +17,7 @@ import sys
 
 import shap
 from .raytuner import RayTuner
-from .pytorchmodels import LSTM,TimeSeriesTransformer
+from .pytorchmodels import LSTM,TimeSeriesTransformer, DenseModel
 
 from sklearn.metrics import f1_score, roc_curve, roc_auc_score, auc, precision_score, recall_score, precision_recall_curve, confusion_matrix, average_precision_score
 
@@ -125,9 +125,6 @@ class NeuralNetwork:
         self.config = tmp_config
 
         self.model_type = model_type
-        self.batch_size = self.config['batch_size']
-        self.input_size = self.config['input_size']
-        self.num_layers = self.config['num_layers']
 
         self.train_instances = len(train_X)
         self.train_trajectories = len(np.unique(train_ids))
@@ -152,26 +149,24 @@ class NeuralNetwork:
             'val': val_data.dataset
         }
 
-        self.train_dataloader = DataLoader(self.data['train'],batch_size = self.batch_size,collate_fn=self.pad_collate)
-        self.test_dataloader = DataLoader(self.data['test'],batch_size = self.batch_size,collate_fn=self.pad_collate)
-        self.val_dataloader = DataLoader(self.data['val'],batch_size = self.batch_size,collate_fn=self.pad_collate)
+        self.model_initialization(self.config['batch_size'])
+
+    def model_initialization(self,bs):
+        self.train_dataloader = DataLoader(self.data['train'],batch_size = bs,collate_fn=self.pad_collate)
+        self.test_dataloader = DataLoader(self.data['test'],batch_size = bs,collate_fn=self.pad_collate)
+        self.val_dataloader = DataLoader(self.data['val'],batch_size = bs,collate_fn=self.pad_collate)
 
         if(self.model_type == 'rnn'):
-
-            self.num_classes = self.config['num_classes']
-            self.hidden_size = self.config['hidden_size']
-
-            self.model = LSTM(self.num_classes,self.input_size,self.hidden_size,self.num_layers)
+            self.model = LSTM(self.config['num_classes'],self.config['input_size'],self.config['hidden_size'],self.config['num_layers'])
         
         elif(self.model_type == 'transformer'):
+            self.model = TimeSeriesTransformer(self.config['input_size'], self.config['num_heads'], self.config['num_layers'], self.config['hidden_dim'])
 
-            self.num_heads = self.config['num_heads']
-            self.hidden_dim = self.config['hidden_dim']
-
-            self.model = TimeSeriesTransformer(self.input_size, self.num_heads, self.num_layers, self.hidden_dim)
-
+        elif (self.model_type == 'dense'):
+            self.model = DenseModel(self.config['input_size'],self.config['hidden_size'],self.config['num_classes'])
+        
         self.optimizer = torch.optim.Adam(self.model.parameters(),lr=self.config['lr'])
-    
+
     def pad_collate(self,batch):
         arrays_to_pad = list(zip(*batch))
         x_lens = [len(x) for x in arrays_to_pad[0]]
@@ -192,13 +187,19 @@ class NeuralNetwork:
 
     def train_func(self,model,optimizer,train_dataloader,val_dataloader):
         model.train()
+        train_total_loss = 0
         for i, (features, targets, lengths) in enumerate(train_dataloader):
             outputs = model(features)  # Forward pass
             optimizer.zero_grad()  # Calculate the gradient, manually setting to 0
-            
+        
+            # print("Gradient:", model.fc.weight.grad)
             loss = self.loss_fn(outputs,targets,lengths)
+            train_total_loss += loss
             loss.backward()
             optimizer.step()
+
+            # if i % 100 == 0:
+            #     print(f"epochs {i} loss: ",loss)
 
         model.eval()
         val_total_loss = 0
@@ -206,8 +207,12 @@ class NeuralNetwork:
             for _ ,(val_features, val_targets,val_len) in enumerate(val_dataloader):
                 val_outputs = model(val_features)
                 val_total_loss += self.loss_fn(val_outputs,val_targets,val_len)
+        
         val_loss = val_total_loss / len(val_dataloader)
-        print(f'training loss: {loss}, val loss: {val_loss}')
+        train_loss = train_total_loss/len(train_dataloader)
+
+        print(f'training loss: {train_loss}, val loss: {val_loss}')
+        
         return loss,val_loss
     
     def predict(self,data_type=None,model=None):
@@ -271,16 +276,20 @@ class NeuralNetwork:
         if(config is None):
             config = self.config
         
+        epochs = config['num_epochs']
+
         if(tuning_mode):
             tuner = RayTuner(self.model_type,self.tuning_config)
             best_result = tuner.fit(self.data)
             best_config = best_result.config
+            self.config = best_config
             print('best config',best_config)
             print('best result',best_result)
-            self.train_dataloader = DataLoader(self.data['train'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
-            self.test_dataloader = DataLoader(self.data['test'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
-            self.val_dataloader = DataLoader(self.data['val'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
-            self.optimizer = torch.optim.Adam(self.model.parameters(),lr=best_config['lr'])
+            logging.info(f'Ray Tuner Config {best_config}')
+            # self.train_dataloader = DataLoader(self.data['train'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
+            # self.test_dataloader = DataLoader(self.data['test'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
+            # self.val_dataloader = DataLoader(self.data['val'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
+            # self.optimizer = torch.optim.Adam(self.model.parameters(),lr=best_config['lr'])
 
             if not hasattr(best_result, 'checkpiont'):
                 self.train(best_config,False)
@@ -288,43 +297,39 @@ class NeuralNetwork:
                 with best_result.checkpoint.as_directory() as checkpoint_dir:
                     state_dict = torch.load(os.path.join(checkpoint_dir, 'model.pth'))
                 
-                    if(self.model_type == 'rnn'):
-                        model = LSTM(self.num_classes,self.input_size,best_config['hidden_size'],best_config['num_layers'])
-                    elif(self.model_type == 'transformer'):
-                        model = TimeSeriesTransformer(self.input_size, self.num_heads, self.num_layers, self.hidden_dim)
+                    self.model_initialization(best_config['batch_size'])
+                    # if(self.model_type == 'rnn'):
+                    #     model = LSTM(self.config['num_classes'],self.config['input_size'],best_config['hidden_size'],best_config['num_layers'])
+                    # elif(self.model_type == 'transformer'):
+                    #     model = TimeSeriesTransformer(self.config['input_size'], self.config['num_heads'], self.config['num_layers'], self.config['hidden_dim'])
                     
-                    model.load_state_dict(state_dict)
-                    
-                self.model = model
-        
+                    self.model.load_state_dict(state_dict)
+                    # self.model = model
+
         else:
             print('no checkpoint training')
-            epochs = config['num_epochs']
-                
-            if(self.model_type == 'transformer'):
-                model = TimeSeriesTransformer(self.input_size, config['num_heads'], config['num_layers'], config['hidden_dim'])
-            else:
-                model = LSTM(self.num_classes,self.input_size,config['hidden_size'],config['num_layers'])
-            
+
             early_stop = 3
             counter = 0
             best_val_loss = float('inf')
             for i in range(epochs):
-                train_loss,val_loss = self.train_func(model,self.optimizer,self.train_dataloader,self.val_dataloader)
+                train_loss,val_loss = self.train_func(self.model,self.optimizer,self.train_dataloader,self.val_dataloader)
+                logging.info(f"Epoch {i}: training loss {train_loss}, validation loss {val_loss}")
 
                 if(val_loss < best_val_loss):
                     best_val_loss = val_loss
                     counter = 0
                 else:
-                    early_stop += 1
+                    counter += 1
                     if counter >= early_stop:
                         print('Early Stopping')
                         break
                 
-                roc_auc,fpr,tpr,thresholds = self.test_func(model,'test')
+                roc_auc,fpr,tpr,thresholds = self.test_func(self.model,'test')
                 print(f'roc_auc {roc_auc}')
+                logging.info(f"Epoch {i} AUROC {roc_auc}")
                 
-            self.model = model
+            # self.model = model
     
     def evaluate(self,spec,full_metrics,variables,outcomes,train_mask,val_mask,test_mask,row_mask,**model_params):
         test_pred = self.predict(data_type='test')
@@ -401,19 +406,25 @@ class NeuralNetwork:
         print('shap values')
         batch = next(iter(self.test_dataloader))
         target,label,l = batch
-        background = target[:int(self.batch_size/2)]
-        test = target[int(self.batch_size/2):int(self.batch_size/2)+1]
+        background = target[:int(self.config['batch_size']/2)]
+        test = target[int(self.config['batch_size']/2):int(self.config['batch_size']/2)+1]
         explainer = shap.GradientExplainer(self.model, background)
-        shap_values = explainer.shap_values(test)
+        shap_values = np.abs(explainer.shap_values(test))
 
+        # perf = np.mean(shap_values,axis=0)
+        # perf_std = np.std(shap_values,axis=0)
+        # sorted_perf_index = np.flip(np.argsort(perf))
+        # metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': perf_std[i]} 
+        #                                   for i in sorted_perf_index]
+        
         # TODO fix this
         perf_list = [np.sum(np.sum(i,axis=0),axis=0) for i in shap_values]
         perf = np.sum(perf_list,axis=0)
         sorted_perf_index = np.argsort(perf)
         performance = [self.column_names[i] for i in sorted_perf_index]
 
-        metrics['features'] = performance
-        metrics['shap values'] = perf
+        metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': 0} 
+                                          for i in sorted_perf_index]
 
         return metrics
     

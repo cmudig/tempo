@@ -74,6 +74,7 @@ export const ModelTypeStrings: { [key in ModelType]: string } = {
 
 export type ModelArchitectureInfo = {
   type: string;
+  tuner: boolean;
   hyperparameters: { [key: string]: { type: string; value: any } };
 };
 

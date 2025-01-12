@@ -255,9 +255,9 @@ class Model:
         val_sample = np.random.uniform(size=len(val_X)) < 0.1
         
         model_architecture = spec.get("model_architecture", {}).get("type", "xgboost")
-        if model_architecture == 'rnn' or model_architecture == 'transformer':
+        if model_architecture != 'xgboost':
             config = spec.get("model_architecture", {}).get("hyperparameters", {})
-            config['num_epochs'] = {'type': 'fix', 'value': 10}
+            # config['num_epochs'] = {'type': 'fix', 'value': 10}
             config['input_size'] = {'type': 'fix', 'value': train_X.shape[1]}
             config['num_classes'] = {'type': 'fix', 'value': 1}
             model = NeuralNetwork(model_architecture,
@@ -272,6 +272,9 @@ class Model:
                                   val_ids,
                                   config)
             architecture_class = 'pytorch'
+            logging.info(f'model config {config}')
+            logging.info("Training")
+            model.train(tuning_mode = spec.get("model_architecture", {}).get("tuner", False))
         else: 
             architecture_class = 'xgboost'
             if model_type.endswith("classification"):
@@ -290,30 +293,10 @@ class Model:
                             test_y,
                             test_ids,
                             **model_params)
-
-        logging.info("Training")
-        model.train()
-       
+            logging.info("Training")
+            model.train()
+ 
         logging.info("Evaluating")
-
-        # logging.info("Training")
-        # model_cls = xgboost.XGBRegressor if model_type == "regression" else xgboost.XGBClassifier
-        # # Don't do class weights - instead, we can simply choose a better operating point
-        # # if not regressor:
-        # #     model_params['scale_pos_weight'] = (len(train_y) - train_y.sum()) / train_y.sum()
-        # if model_type == "multiclass_classification":
-        #     weights = compute_sample_weight(
-        #         class_weight='balanced',
-        #         y=train_y
-        #     )
-        #     params = {'sample_weight': weights}
-        # else:
-        #     params = {}
-            
-        # model = model_cls(**model_params)
-        # model.fit(train_X, train_y, eval_set=[(val_X[val_sample], val_y[val_sample])], **params)
-        
-        # logging.info("Evaluating")
 
         if update_fn is not None: update_fn({'message': 'Evaluating model'})
         metrics = model.evaluate(spec,full_metrics,variables,outcomes,train_mask,val_mask,test_mask,row_mask,**model_params)
