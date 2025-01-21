@@ -296,7 +296,8 @@ class Model:
             val_X,
             val_y,
             val_ids,
-            update_fn=lambda info: update_fn({'message': f"Training ({info.get('message', '...')})"})
+            update_fn=lambda info: update_fn({'message': f"Training ({info.get('message', '...')})"}),
+            use_tuner=spec.get("model_architecture", {}).get("tuner", False)
         )
        
         logging.info("Evaluating")

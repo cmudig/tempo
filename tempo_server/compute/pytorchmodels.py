@@ -10,17 +10,37 @@ class LSTM(nn.Module):
         self.hidden_size = hidden_size #hidden state
 
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
-                          num_layers=num_layers, batch_first=True) #lstm
-        self.fc = nn.Linear(hidden_size,num_classes)
+                          num_layers=num_layers, batch_first=True
+                          , bidirectional=True, dropout=0.2) #lstm
+        self.layer_norm = nn.LayerNorm(hidden_size*2)
+        self.fc = nn.Linear(hidden_size*2,num_classes)
     
     def forward(self,x):
-        h_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)#hidden state
-        c_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size) #internal state
+        h_0 = torch.zeros(self.num_layers*2, x.size(0), self.hidden_size)#hidden state
+        c_0 = torch.zeros(self.num_layers*2, x.size(0), self.hidden_size) #internal state
         # Propagate input through LSTM
         out, (hn, cn) = self.lstm(x, (h_0, c_0)) #lstm with input, hidden, and internal state   
+        # out = self.layer_norm(out[:, -1, :])
         out = self.fc(out) 
         
         return out
+
+class DenseModel(nn.Module):
+    def __init__(self, input_size, hidden_size, num_classes):
+        super(DenseModel, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)  # First dense layer
+        self.relu = nn.ReLU()                         # Activation function
+        self.fc2 = nn.Linear(hidden_size, hidden_size) # Second dense layer
+        self.dropout = nn.Dropout(0.2)               # Dropout for regularization
+        self.fc3 = nn.Linear(hidden_size, num_classes) # Output layer
+    
+    def forward(self, x):
+        x = self.fc1(x)       # Pass through first dense layer
+        x = self.relu(x)      # Apply ReLU activation
+        # x = self.fc2(x)       # Pass through second dense layer
+        x = self.dropout(x)   # Apply dropout
+        x = self.fc3(x)       # Output layer
+        return x
 
 class TimeSeriesTransformer(nn.Module):
     def __init__(self, num_classes, num_features, num_heads, num_layers, hidden_dim, dropout=0.1):

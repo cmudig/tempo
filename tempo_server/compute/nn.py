@@ -14,10 +14,11 @@ from ray import train, tune
 from ray.tune import Tuner
 from ray.train import Checkpoint
 from ray.tune.schedulers import ASHAScheduler
+import logging
 
 import shap
 from .raytuner import RayTuner
-from .pytorchmodels import LSTM,TimeSeriesTransformer
+from .pytorchmodels import LSTM,TimeSeriesTransformer, DenseModel
 
 from sklearn.metrics import f1_score, roc_curve, roc_auc_score, auc, precision_score, recall_score, precision_recall_curve, confusion_matrix, average_precision_score
 
@@ -133,7 +134,7 @@ class NeuralNetwork:
     def __init__(self,model_type, architecture, config, input_size, num_classes=1, tune_reporting=False):
 
         tmp_config = {}
-        default_config = {
+        self.default_config = {
             'num_epochs': 10,
             'batch_size': 64,
             'lr': 0.001,
@@ -143,8 +144,8 @@ class NeuralNetwork:
             'dropout': 0.1
         }
 
-        self.config = {k: config.get(k, { "type": "fix", "value": default_config[k] })
-                       for k in default_config}
+        self.config = {k: config.get(k, { "type": "fix", "value": self.default_config[k] })
+                       for k in self.default_config}
         self.tune_reporting = tune_reporting
 
         self.best_config = None # populated when the model is trained or loaded
@@ -170,6 +171,10 @@ class NeuralNetwork:
                 config['num_layers']['value'],
                 config['hidden_dim']['value'],
                 dropout=config['dropout']['value'])
+        elif self.architecture == 'dense':
+            return DenseModel(self.input_size, 
+                              config['hidden_dim'],
+                              self.num_classes)
             
     def load(self, hyperparameter_info, model_fs):
         self.best_config = hyperparameter_info
@@ -218,8 +223,10 @@ class NeuralNetwork:
         for i, (features, targets, lengths) in enumerate(train_dataloader):
             outputs = model(features)  # Forward pass
             optimizer.zero_grad()  # Calculate the gradient, manually setting to 0
-            
+        
+            # print("Gradient:", model.fc.weight.grad)
             loss = self.loss_fn(outputs,targets,lengths)
+            train_total_loss += loss
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
@@ -232,7 +239,10 @@ class NeuralNetwork:
                 val_outputs = model(val_features)
                 val_total_loss += self.loss_fn(val_outputs,val_targets,val_len).item()
         val_loss = val_total_loss / len(val_dataloader)
-        print(f'training loss: {loss}, val loss: {val_loss}')
+        train_loss = train_total_loss/len(train_dataloader)
+
+        print(f'training loss: {train_loss}, val loss: {val_loss}')
+        
         return loss,val_loss
     
     def predict(self, test_X, test_ids):
@@ -275,22 +285,24 @@ class NeuralNetwork:
                 shap_values.append(x_array)
         return np.concatenate(shap_values)
     
-    def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None):
+    def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None, use_tuner=False):
         needs_tune = any(x["type"] != "fix" for x in self.config.values())
         
-        if needs_tune:
+        if needs_tune and use_tuner:
             
             # TODO run the ray tuner directly here, creating instances of the 
             # NeuralNetwork class with fixed parameters for each parameter set being tested
             tuner = RayTuner(self.architecture,self.tuning_config)
             best_result = tuner.fit(self.data)
             best_config = best_result.config
+            self.config = best_config
             print('best config',best_config)
             print('best result',best_result)
-            self.train_dataloader = DataLoader(self.data['train'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
-            self.test_dataloader = DataLoader(self.data['test'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
-            self.val_dataloader = DataLoader(self.data['val'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=best_config['lr'], weight_decay=0.01)
+            logging.info(f'Ray Tuner Config {best_config}')
+            # self.train_dataloader = DataLoader(self.data['train'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
+            # self.test_dataloader = DataLoader(self.data['test'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
+            # self.val_dataloader = DataLoader(self.data['val'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
+            # self.optimizer = torch.optim.Adam(self.model.parameters(),lr=best_config['lr'])
 
             if not hasattr(best_result, 'checkpoint'):
                 self.train(best_config,False)
@@ -298,17 +310,12 @@ class NeuralNetwork:
                 with best_result.checkpoint.as_directory() as checkpoint_dir:
                     state_dict = torch.load(os.path.join(checkpoint_dir, 'model.pth'))
                 
-                    if(self.architecture == 'rnn'):
-                        model = LSTM(self.num_classes,self.input_size,best_config['hidden_dim'],best_config['num_layers'])
-                    elif(self.architecture == 'transformer'):
-                        model = TimeSeriesTransformer(self.input_size, self.num_heads, self.num_layers, self.hidden_dim)
-                    
-                    model.load_state_dict(state_dict)
-                    
-                self.model = model
-        
+                    self.model = self.create_model(best_config)                    
+                    self.model.load_state_dict(state_dict)
+
         else:
-            self.best_config = self.config
+            self.best_config = {k: {"type": "fix", "value": self.default_config[k]} if self.config[k] != "fix" else self.config[k]
+                                for k in self.config}
                
             # all parameters are fixed, so we can create the model
             if self.model is None:
@@ -327,13 +334,13 @@ class NeuralNetwork:
             counter = 0
             best_val_loss = float('inf')
             for i in range(epochs):
-                train_loss, val_loss = self.train_func(model, optimizer, train_dataloader, val_dataloader)
+                train_loss, val_loss = self.train_func(self.model, optimizer, train_dataloader, val_dataloader)
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     counter = 0
                 else:
-                    early_stop += 1
+                    counter += 1
                     if counter >= early_stop:
                         print('Early Stopping')
                         break
@@ -344,7 +351,7 @@ class NeuralNetwork:
                         if (i + 1) % 20 == 0:
                             # This saves the model to the trial directory
                             torch.save(
-                                model.state_dict(),
+                                self.model.state_dict(),
                                 os.path.join(temp_checkpoint_dir, "model.pth")
                             )
                             checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
@@ -352,7 +359,7 @@ class NeuralNetwork:
                         # Send the current training result back to Tune
                         train.report({"val_loss": val_loss}, checkpoint=checkpoint)
                 
-            self.model = model
+            # self.model = model
     
     def evaluate(self,spec,full_metrics,variables,outcomes,train_mask,val_mask,test_mask,row_mask,**model_params):
         test_pred = self.predict(data_type='test')
@@ -429,19 +436,25 @@ class NeuralNetwork:
         print('shap values')
         batch = next(iter(self.test_dataloader))
         target,label,l = batch
-        background = target[:int(self.batch_size/2)]
-        test = target[int(self.batch_size/2):int(self.batch_size/2)+1]
+        background = target[:int(self.config['batch_size']/2)]
+        test = target[int(self.config['batch_size']/2):int(self.config['batch_size']/2)+1]
         explainer = shap.GradientExplainer(self.model, background)
-        shap_values = explainer.shap_values(test)
+        shap_values = np.abs(explainer.shap_values(test))
 
+        # perf = np.mean(shap_values,axis=0)
+        # perf_std = np.std(shap_values,axis=0)
+        # sorted_perf_index = np.flip(np.argsort(perf))
+        # metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': perf_std[i]} 
+        #                                   for i in sorted_perf_index]
+        
         # TODO fix this
         perf_list = [np.sum(np.sum(i,axis=0),axis=0) for i in shap_values]
         perf = np.sum(perf_list,axis=0)
         sorted_perf_index = np.argsort(perf)
         performance = [self.column_names[i] for i in sorted_perf_index]
 
-        metrics['features'] = performance
-        metrics['shap values'] = perf
+        metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': 0} 
+                                          for i in sorted_perf_index]
 
         return metrics
     

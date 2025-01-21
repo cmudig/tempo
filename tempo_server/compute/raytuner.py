@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
-from .pytorchmodels import LSTM, TimeSeriesTransformer
+from .pytorchmodels import LSTM, TimeSeriesTransformer,DenseModel
 
 import tempfile
 import logging
@@ -41,9 +41,9 @@ class RayTuner:
             keytype = config[key]['type']
             if keytype == 'uniform':
                 tmp_config[key] = tune.randint(value['value'][0],value['value'][1])
-            elif keytype == 'grid_search':
+            elif keytype == 'grid search':
                 tmp_config[key] = tune.choice(value['value'])
-            elif keytype == 'log_uniform':
+            elif keytype == 'log uniform':
                 tmp_config[key] = tune.loguniform(value['value'][0],value['value'][1])
             elif keytype == 'fix':
                 tmp_config[key] = value['value']
@@ -64,18 +64,30 @@ class RayTuner:
         overall_loss = loss_masked.sum() / loss_mask.sum()
         return overall_loss
     
-    def train_func(self,model,optimizer,dataloader):
+    def train_func(self,model,optimizer,dataloader,val_dataloader):
         model.train()
+        train_total_loss = 0
         for i, (features, targets, lengths) in enumerate(dataloader):
             outputs = model(features)  # Forward pass
             optimizer.zero_grad()  # Calculate the gradient, manually setting to 0
             
             loss = self.loss_fn(outputs,targets,lengths)
+            train_total_loss += loss
+
             loss.backward()
             optimizer.step()
-
-        print(f'training loss: {loss}')
-        return loss
+        
+        model.eval()
+        val_total_loss = 0
+        with torch.no_grad():
+            for _ ,(val_features, val_targets,val_len) in enumerate(val_dataloader):
+                val_outputs = model(val_features)
+                val_total_loss += self.loss_fn(val_outputs,val_targets,val_len)
+        
+        val_loss = val_total_loss / len(val_dataloader)
+        train_loss = train_total_loss/len(dataloader)
+        print(f'training loss: {train_loss}, val loss: {val_loss}')
+        return train_loss,val_loss
     
     def pad_collate(self,batch):
         arrays_to_pad = list(zip(*batch))
@@ -110,20 +122,37 @@ class RayTuner:
 
         train_dataloader = DataLoader(data['train'],batch_size = batch_size, collate_fn=self.pad_collate)
         test_dataloader = DataLoader(data['test'],batch_size = batch_size, collate_fn=self.pad_collate)
+        val_dataloader = DataLoader(data['val'],batch_size = batch_size, collate_fn=self.pad_collate)
 
         if self.model_type == 'rnn':
             model = LSTM(config['num_classes'],config['input_size'],config['hidden_size'],config['num_layers'])
         elif self.model_type == 'transformer':
             model = TimeSeriesTransformer(config['input_size'], config['num_heads'], config['num_layers'], config['hidden_dim'])
+        elif self.model_type == 'dense':
+            model = model = DenseModel(config['input_size'],config['hidden_size'],config['num_classes'])
         optimizer = torch.optim.Adam(model.parameters(),lr=config['lr'])
 
+        early_stop = 3
+        counter = 0
+        best_val_loss = float('inf')
+
         for i in range(epochs):
-            self.train_func(model,optimizer,train_dataloader)
+            train_loss,val_loss = self.train_func(model,optimizer,train_dataloader,val_dataloader)
             roc_auc = self.test_func(model,test_dataloader)
+            logging.info(f"Ray Tuning Epoch {i}: Train Loss: {train_loss}, Val Loss: {val_loss}")
+            
+            if(val_loss < best_val_loss):
+                    best_val_loss = val_loss
+                    counter = 0
+            else:
+                counter += 1
+                if counter >= early_stop:
+                    print('Early Stopping')
+                    break
 
             with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
                 checkpoint = None
-                if (i + 1) % 20 == 0:
+                if (i + 1) % 5 == 0:
                     # This saves the model to the trial directory
                     torch.save(
                         model.state_dict(),
@@ -133,7 +162,8 @@ class RayTuner:
 
                 # Send the current training result back to Tune
                 train.report({"roc_auc": roc_auc}, checkpoint=checkpoint)
-    
+        logging.info("Ray Tuner Training End")
+
     def fit(self,data):
         config = self.config
 
@@ -146,14 +176,14 @@ class RayTuner:
 
             run_config = train.RunConfig(
                 name = 'test_experiement',
-                stop = {'training_iteration': 100},
+                stop = {'training_iteration': 200},
                 checkpoint_config = train.CheckpointConfig(
                     checkpoint_score_attribute='roc_auc',
                     num_to_keep=5
                 )
             ),
             tune_config = tune.TuneConfig(
-                num_samples=4,
+                num_samples=8,
                 scheduler = ASHAScheduler(
                     metric = 'roc_auc', 
                     mode = 'max'
@@ -166,15 +196,15 @@ class RayTuner:
         
         return best_result
     
-    def showTuningResults(self):
-        ax = None
-        for result in self.tuning_results:
-            label = f"lr={result.config['lr']:.3f}"
-            if ax is None:
-                ax = result.metrics_dataframe.plot("training_iteration", "roc_auc", label=label)
-            else:
-                result.metrics_dataframe.plot("training_iteration", "mean_accuracy", ax=ax, label=label)
-        ax.set_title("ROC_AUC vs. Training Iteration for All Trials")
-        ax.set_ylabel("ROC_AUC")
+    # def showTuningResults(self):
+    #     ax = None
+    #     for result in self.tuning_results:
+    #         label = f"lr={result.config['lr']:.3f}"
+    #         if ax is None:
+    #             ax = result.metrics_dataframe.plot("training_iteration", "roc_auc", label=label)
+    #         else:
+    #             result.metrics_dataframe.plot("training_iteration", "mean_accuracy", ax=ax, label=label)
+    #     ax.set_title("ROC_AUC vs. Training Iteration for All Trials")
+    #     ax.set_ylabel("ROC_AUC")
 
 
