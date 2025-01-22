@@ -349,7 +349,7 @@ def numba_carry_forward(ids, times, values, max_carry_time):
             current_id = ids[i]
                 
         if np.isnan(values[i]):
-            if last_value is not None and times[i] < last_time + max_carry_time:
+            if last_value is not None and times[i] <= last_time + max_carry_time:
                 new_values[i] = last_value
             else:
                 last_value = None

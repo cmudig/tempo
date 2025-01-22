@@ -15,6 +15,7 @@ from ray.tune import Tuner
 from ray.train import Checkpoint
 from ray.tune.schedulers import ASHAScheduler
 import logging
+import traceback
 
 import shap
 from .raytuner import RayTuner
@@ -36,7 +37,7 @@ class TrajectoryDataset(Dataset):
             if last_id != id:
                 if self.id_pos:
                     self.id_pos[-1] = (self.id_pos[-1][0], i)
-                    assert i - 1 > self.id_pos[-1][0], last_id
+                    assert i > self.id_pos[-1][0], last_id
                 self.id_pos.append((i, 0))
                 last_id = id
         self.id_pos[-1] = (self.id_pos[-1][0], len(self.ids))
@@ -121,7 +122,8 @@ class DataNormalizer:
             elif spec_element["method"] == "log":
                 scaled_scores = np.log(np.where(values == 0, np.random.uniform(spec_element["zero_lb"], spec_element["zero_ub"], size=values.shape), values))
                 new_data.append((scaled_scores - spec_element["mean"]) / spec_element["std"])
-        return np.vstack(new_data).T
+        new_data = np.vstack(new_data).T
+        return np.where(np.isnan(new_data), 0, new_data)
 
     def fit_transform(self, data):
         self.fit(data)
@@ -163,7 +165,8 @@ class NeuralNetwork:
             return LSTM(self.num_classes, 
                 self.input_size, 
                 config['hidden_dim']['value'], 
-                config['num_layers']['value'])
+                config['num_layers']['value'],
+                config['dropout']['value'])
         elif self.architecture == "transformer":
             return TimeSeriesTransformer(self.num_classes, 
                 self.input_size, 
@@ -173,8 +176,10 @@ class NeuralNetwork:
                 dropout=config['dropout']['value'])
         elif self.architecture == 'dense':
             return DenseModel(self.input_size, 
-                              config['hidden_dim'],
-                              self.num_classes)
+                              config['hidden_dim']['value'],
+                              self.num_classes,
+                              config['num_layers']['value'],
+                              config['dropout']['value'])
             
     def load(self, hyperparameter_info, model_fs):
         self.best_config = hyperparameter_info
@@ -209,39 +214,38 @@ class NeuralNetwork:
         elif self.model_type == "regression":
             loss_helper = nn.MSELoss(reduction='none')
 
-        loss = loss_helper(outputs, targets)
-        loss = torch.squeeze(loss,dim=-1)
+        loss = loss_helper(outputs.squeeze(-1) if outputs.shape[-1] == 1 else outputs, targets)
         L = torch.max(lengths).item()
         loss_mask = torch.arange(L)[None, :] < lengths[:, None]
         loss_masked = loss.where(loss_mask, torch.tensor(0.0))
-        overall_loss = loss_masked.sum() / loss_mask.sum()
+        overall_loss = loss_masked.sum() / (loss_mask.sum() + 1e-3)
         return overall_loss
 
-    def train_func(self,model,optimizer,train_dataloader,val_dataloader):
+    def train_func(self, model, optimizer, train_dataloader, val_dataloader, progress_fn=None):
         model.train()
         train_loss = 0
         for i, (features, targets, lengths) in enumerate(train_dataloader):
             outputs = model(features)  # Forward pass
             optimizer.zero_grad()  # Calculate the gradient, manually setting to 0
         
-            # print("Gradient:", model.fc.weight.grad)
             loss = self.loss_fn(outputs,targets,lengths)
-            train_total_loss += loss
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
+            if progress_fn is not None and i % 100 == 99:
+                progress_fn({'message': f'training loss {train_loss / (i + 1):.4f}'})
         train_loss /= len(train_dataloader)
 
         model.eval()
         val_total_loss = 0
         with torch.no_grad():
-            for _ ,(val_features, val_targets,val_len) in enumerate(val_dataloader):
+            for i, (val_features, val_targets, val_len) in enumerate(val_dataloader):
                 val_outputs = model(val_features)
-                val_total_loss += self.loss_fn(val_outputs,val_targets,val_len).item()
+                loss = self.loss_fn(val_outputs,val_targets,val_len)
+                val_total_loss += loss.item()
+                if progress_fn is not None and i % 100 == 99:
+                    progress_fn({'message': f'training loss {val_total_loss / (i + 1):.4f}'})
         val_loss = val_total_loss / len(val_dataloader)
-        train_loss = train_total_loss/len(train_dataloader)
-
-        print(f'training loss: {train_loss}, val loss: {val_loss}')
         
         return loss,val_loss
     
@@ -266,15 +270,16 @@ class NeuralNetwork:
                 predict.append(x_array)
         return np.concatenate(predict)
     
-    def explain(self, test_X, test_ids):
+    def explain(self, test_X, test_ids, num_batches=None):
         test_dataset = self.create_dataset(test_X, np.zeros(len(test_X)), test_ids)
         dataloader = DataLoader(test_dataset, 
                                 batch_size=self.best_config['batch_size'] if self.best_config else 32,
-                                collate_fn=self.pad_collate)
+                                collate_fn=self.pad_collate,
+                                shuffle=num_batches is not None)
         background = next(iter(dataloader))[0]
-        explainer = shap.GradientExplainer(self.model, background)
+        explainer = shap.DeepExplainer(self.model, background)
         shap_values = []
-        for batch in dataloader:
+        for i, batch in enumerate(dataloader):
             target, _, lengths = batch
             shaps = explainer.shap_values(target)
             for x, l in zip(shaps, lengths):
@@ -283,6 +288,8 @@ class NeuralNetwork:
                 flat_x = trunc_x.flatten()
                 x_array = flat_x.detach().numpy()
                 shap_values.append(x_array)
+            if num_batches is not None and i >= num_batches:
+                break
         return np.concatenate(shap_values)
     
     def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None, use_tuner=False):
@@ -314,27 +321,36 @@ class NeuralNetwork:
                     self.model.load_state_dict(state_dict)
 
         else:
-            self.best_config = {k: {"type": "fix", "value": self.default_config[k]} if self.config[k] != "fix" else self.config[k]
+            config_to_use = {k: {"type": "fix", "value": self.default_config[k]} if self.config[k]["type"] != "fix" else self.config[k]
                                 for k in self.config}
-               
+            self.best_config = {k: v["value"] for k, v in config_to_use.items()}
+            
             # all parameters are fixed, so we can create the model
             if self.model is None:
-                self.model = self.create_model(self.best_config)
+                self.model = self.create_model(config_to_use)
                     
             train_dataset = self.create_dataset(train_X, train_y, train_ids, fit_normalization=True)
             val_dataset = self.create_dataset(val_X, val_y, val_ids)
-            optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config['lr']['value'], weight_decay=0.01)
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=config_to_use['lr']['value'], weight_decay=0.01)
 
-            train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size,collate_fn=self.pad_collate)
-            val_dataloader = DataLoader(val_dataset, batch_size=self.batch_size,collate_fn=self.pad_collate)
+            train_dataloader = DataLoader(train_dataset,
+                                          batch_size=config_to_use['batch_size']['value'],
+                                          collate_fn=self.pad_collate)
+            val_dataloader = DataLoader(val_dataset,
+                                        batch_size=config_to_use['batch_size']['value'],
+                                        collate_fn=self.pad_collate)
 
-            epochs = self.config['num_epochs']['value']
+            epochs = config_to_use['num_epochs']['value']
                 
             early_stop = 3
             counter = 0
             best_val_loss = float('inf')
             for i in range(epochs):
-                train_loss, val_loss = self.train_func(self.model, optimizer, train_dataloader, val_dataloader)
+                train_loss, val_loss = self.train_func(self.model, 
+                                                       optimizer, 
+                                                       train_dataloader, 
+                                                       val_dataloader, 
+                                                       progress_fn=lambda info: progress_fn({'message': f"Epoch {i + 1}, {info['message']}"}))
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
@@ -361,9 +377,9 @@ class NeuralNetwork:
                 
             # self.model = model
     
-    def evaluate(self,spec,full_metrics,variables,outcomes,train_mask,val_mask,test_mask,row_mask,**model_params):
-        test_pred = self.predict(data_type='test')
-        test_y = self.getlabels(data_type='test')
+    def evaluate(self, spec, full_metrics, variables, outcomes, ids, train_mask, val_mask, test_mask, progress_fn=None):
+        test_pred = self.predict(variables[test_mask], ids[test_mask])
+        test_y = outcomes[test_mask]
         # test_y = self.test_y
         metrics = {}
         metrics["labels"] = make_series_summary(test_y 
@@ -429,32 +445,45 @@ class NeuralNetwork:
                         "true_positive_threshold": class_true_positive_threshold
                     })
         
-        metrics["n_train"] = {"instances": self.train_instances, "trajectories": self.train_trajectories}
-        metrics["n_val"] = {"instances": self.val_instances, "trajectories": self.val_trajectories}
-        metrics["n_test"] = {"instances": self.test_instances, "trajectories": self.test_trajectories}
+        metrics["n_train"] = {"instances": train_mask.sum(), "trajectories": len(np.unique(ids[train_mask]))}
+        metrics["n_val"] = {"instances": val_mask.sum(), "trajectories": len(np.unique(ids[val_mask]))}
+        metrics["n_test"] = {"instances": test_mask.sum(), "trajectories": len(np.unique(ids[test_mask]))}
 
-        print('shap values')
-        batch = next(iter(self.test_dataloader))
-        target,label,l = batch
-        background = target[:int(self.config['batch_size']/2)]
-        test = target[int(self.config['batch_size']/2):int(self.config['batch_size']/2)+1]
-        explainer = shap.GradientExplainer(self.model, background)
-        shap_values = np.abs(explainer.shap_values(test))
-
-        # perf = np.mean(shap_values,axis=0)
-        # perf_std = np.std(shap_values,axis=0)
-        # sorted_perf_index = np.flip(np.argsort(perf))
-        # metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': perf_std[i]} 
-        #                                   for i in sorted_perf_index]
+        # print('shap values')
+        # if progress_fn is not None:
+        #     progress_fn({'message': 'Calculating feature importances'})
+        # try:
+        #     shap_values = self.explain(variables[test_mask], ids[test_mask], num_batches=10)
+        #     perf = np.mean(shap_values,axis=0)
+        #     perf_std = np.std(shap_values,axis=0)
+        #     sorted_perf_index = np.flip(np.argsort(perf))
+        #     metrics['feature_importances'] = [{'feature': variables.columns[i], 'mean': perf[i], 'std': perf_std[i]} 
+        #                                      for i in sorted_perf_index]
+        # except:
+        #     logging.error(traceback.format_exc())
+        #     print("Error calculating shap values")
         
-        # TODO fix this
-        perf_list = [np.sum(np.sum(i,axis=0),axis=0) for i in shap_values]
-        perf = np.sum(perf_list,axis=0)
-        sorted_perf_index = np.argsort(perf)
-        performance = [self.column_names[i] for i in sorted_perf_index]
+        # batch = next(iter(self.test_dataloader))
+        # target,label,l = batch
+        # background = target[:int(self.config['batch_size']/2)]
+        # test = target[int(self.config['batch_size']/2):int(self.config['batch_size']/2)+1]
+        # explainer = shap.GradientExplainer(self.model, background)
+        # shap_values = np.abs(explainer.shap_values(test))
 
-        metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': 0} 
-                                          for i in sorted_perf_index]
+        # # perf = np.mean(shap_values,axis=0)
+        # # perf_std = np.std(shap_values,axis=0)
+        # # sorted_perf_index = np.flip(np.argsort(perf))
+        # # metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': perf_std[i]} 
+        # #                                   for i in sorted_perf_index]
+        
+        # # TODO fix this
+        # perf_list = [np.sum(np.sum(i,axis=0),axis=0) for i in shap_values]
+        # perf = np.sum(perf_list,axis=0)
+        # sorted_perf_index = np.argsort(perf)
+        # performance = [self.column_names[i] for i in sorted_perf_index]
+
+        # metrics['feature_importances'] = [{'feature': self.column_names[i], 'mean': perf[i], 'std': 0} 
+        #                                   for i in sorted_perf_index]
 
         return metrics
     

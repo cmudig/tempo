@@ -66,7 +66,7 @@ class XGBoost:
         shap_values = explainer.shap_values(test_X)
         return shap_values
         
-    def evaluate(self, spec, full_metrics, variables, outcomes, ids, train_mask, val_mask, test_mask):
+    def evaluate(self, spec, full_metrics, variables, outcomes, ids, train_mask, val_mask, test_mask, progress_fn=None):
         test_X = variables[test_mask]
         test_pred = self.predict(test_X, ids[test_mask])
         test_y = outcomes[test_mask]
@@ -186,18 +186,23 @@ class XGBoost:
         metrics["n_val"] = {"instances": val_mask.sum(), "trajectories": len(np.unique(ids[val_mask]))}
         metrics["n_test"] = {"instances": test_mask.sum(), "trajectories": len(np.unique(ids[test_mask]))}
 
-        try:
-            shap_values = self.explain(test_X, ids[test_mask])
-            perf = np.mean(shap_values,axis=0)
-            perf_std = np.std(shap_values,axis=0)
-            sorted_perf_index = np.flip(np.argsort(perf))
-            metrics['feature_importances'] = [{'feature': variables.columns[i], 'mean': perf[i], 'std': perf_std[i]} 
-                                             for i in sorted_perf_index]
-        except:
-            logging.error(traceback.format_exc())
-            print("Error calculating shap values")
+        if full_metrics:
+            if progress_fn is not None:
+                progress_fn({"message": "Calculating feature importances"})
+            try:
+                shap_values = self.explain(test_X, ids[test_mask])
+                perf = np.mean(shap_values,axis=0)
+                perf_std = np.std(shap_values,axis=0)
+                sorted_perf_index = np.flip(np.argsort(perf))
+                metrics['feature_importances'] = [{'feature': variables.columns[i], 'mean': perf[i], 'std': perf_std[i]} 
+                                                for i in sorted_perf_index]
+            except:
+                logging.error(traceback.format_exc())
+                print("Error calculating shap values")
                     
         if submodel_metric is not None and full_metrics:
+            if progress_fn is not None:
+                progress_fn({"message": "Checking for trivial solutions"})
             # Check for trivial solutions
             max_variables = 5
             metric_fraction = 0.95

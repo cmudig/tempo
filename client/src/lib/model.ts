@@ -72,10 +72,12 @@ export const ModelTypeStrings: { [key in ModelType]: string } = {
   [ModelType.Regression]: 'Regression',
 };
 
+export type HyperparameterSpec = { type: string; value: number | number[] };
+
 export type ModelArchitectureInfo = {
   type: string;
   tuner: boolean;
-  hyperparameters: { [key: string]: { type: string; value: any } };
+  hyperparameters: { [key: string]: HyperparameterSpec };
 };
 
 export const ModelArchitectureType: { [key: string]: string } = {

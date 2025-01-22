@@ -296,14 +296,14 @@ class Model:
             val_X,
             val_y,
             val_ids,
-            update_fn=lambda info: update_fn({'message': f"Training ({info.get('message', '...')})"}),
+            progress_fn=lambda info: update_fn({'message': f"Training ({info.get('message', '...')})"}),
             use_tuner=spec.get("model_architecture", {}).get("tuner", False)
         )
        
         logging.info("Evaluating")
 
         if update_fn is not None: update_fn({'message': 'Evaluating model'})
-        metrics = model.evaluate(spec,full_metrics,variables,outcomes,ids,train_mask,val_mask,test_mask)
+        metrics = model.evaluate(spec,full_metrics,variables,outcomes,ids,train_mask,val_mask,test_mask, progress_fn=update_fn)
         logging.info(f'metrics {metrics}')
         
         val_pred = model.predict(val_X, val_ids)

@@ -65,14 +65,14 @@
     type: 'xgboost',
     tuner: false,
     hyperparameters: {
-      "num_classes": {
-        type: "fix",
-        value: 1
+      num_classes: {
+        type: 'fix',
+        value: 1,
       },
-      "batch_size": {
-        type: "fix",
-        value: 64
-      }
+      batch_size: {
+        type: 'fix',
+        value: 64,
+      },
     },
   };
 
@@ -625,77 +625,82 @@
   <div class="w-full pb-4 px-4 relative">
     {#if !!saveError}
       <div class="rounded my-2 p-3 text-red-500 bg-red-50 font-mono">
-        {@html saveError}
+        {saveError}
       </div>
     {/if}
 
-    <div
-      class="py-3 mb-3 flex items-center flex-wrap sticky top-0 bg-white z-10"
-    >
-      {#if otherModels.length == 0}
-        <h2 class="text-lg font-bold flex-auto">
-          Specification for <span class="font-mono">{modelName}</span>
-        </h2>
-      {:else}
-        <h2 class="text-lg font-bold flex-auto">
-          Specification for {1 + otherModels.length} Models
-        </h2>
-      {/if}
-      <div class="flex gap-2 items-center">
-        {#if !!downloadProgress}
-          <div class="text-slate-500 text-sm">{downloadProgress}</div>
-        {/if}
-        <button class="btn btn-blue" on:click={() => trainModel(false)}>
-          {#if otherModels.length > 0}Train All{:else}Train{/if}
-        </button>
-        {#if hasDraft || !changesSaved}
-          <button class="my-1 btn btn-slate" on:click={reset}> Revert </button>
-        {/if}
+    <div class="sticky top-0 bg-white z-50 py-3">
+      <div class="flex items-center flex-wrap">
         {#if otherModels.length == 0}
-          <ActionMenuButton
-            buttonClass="bg-transparent px-2 py-1 hover:opacity-40"
-            align="right"
-          >
-            <div slot="options">
-              <a href="#" tabindex="0" role="menuitem" on:click={saveAsNewModel}
-                >Save and Train As...</a
-              >
-              <a
-                href="#"
-                tabindex="0"
-                role="menuitem"
-                title="Download the training, validation, and test data for the model inputs and outputs."
-                on:click={downloadModelData}>Download Data</a
-              >
-            </div></ActionMenuButton
-          >
+          <h2 class="text-lg font-bold flex-auto">
+            Specification for <span class="font-mono">{modelName}</span>
+          </h2>
+        {:else}
+          <h2 class="text-lg font-bold flex-auto">
+            Specification for {1 + otherModels.length} Models
+          </h2>
         {/if}
-      </div>
-    </div>
-    {#if hasDraft || !changesSaved}
-      <div
-        class="flex items-center rounded {changesSaved
-          ? 'bg-sky-100 text-sky-600'
-          : 'bg-orange-100 text-orange-700'} transition-colors duration-300 px-3 text-sm my-2"
-      >
-        <div class="flex-auto py-2">
-          {#if changesSaved}<strong>Draft saved&nbsp;</strong> Changes have not
-            yet been reflected in the trained model{otherModels.length > 0
-              ? 's'
-              : ''}.
-          {:else}
-            <strong>Unsaved changes&nbsp;</strong> A draft will be saved automatically...{/if}
-        </div>
-        {#if !changesSaved}
-          <div class="shrink-0">
-            <button
-              class="btn-sm bg-orange-200 hover:bg-orange-300 text-orange-700"
-              on:click={saveDraft}>Save Draft</button
+        <div class="flex gap-2 items-center">
+          {#if !!downloadProgress}
+            <div class="text-slate-500 text-sm">{downloadProgress}</div>
+          {/if}
+          <button class="btn btn-blue" on:click={() => trainModel(false)}>
+            {#if otherModels.length > 0}Train All{:else}Train{/if}
+          </button>
+          {#if hasDraft || !changesSaved}
+            <button class="my-1 btn btn-slate" on:click={reset}>
+              Revert
+            </button>
+          {/if}
+          {#if otherModels.length == 0}
+            <ActionMenuButton
+              buttonClass="bg-transparent px-2 py-1 hover:opacity-40"
+              align="right"
             >
-          </div>
-        {/if}
+              <div slot="options">
+                <a
+                  href="#"
+                  tabindex="0"
+                  role="menuitem"
+                  on:click={saveAsNewModel}>Save and Train As...</a
+                >
+                <a
+                  href="#"
+                  tabindex="0"
+                  role="menuitem"
+                  title="Download the training, validation, and test data for the model inputs and outputs."
+                  on:click={downloadModelData}>Download Data</a
+                >
+              </div></ActionMenuButton
+            >
+          {/if}
+        </div>
       </div>
-    {/if}
+      {#if hasDraft || !changesSaved}
+        <div
+          class="mt-3 flex items-center rounded {changesSaved
+            ? 'bg-sky-100 text-sky-600'
+            : 'bg-orange-100 text-orange-700'} transition-colors duration-300 px-3 text-sm"
+        >
+          <div class="flex-auto py-2">
+            {#if changesSaved}<strong>Draft saved&nbsp;</strong> Changes have
+              not yet been reflected in the trained model{otherModels.length > 0
+                ? 's'
+                : ''}.
+            {:else}
+              <strong>Unsaved changes&nbsp;</strong> A draft will be saved automatically...{/if}
+          </div>
+          {#if !changesSaved}
+            <div class="shrink-0">
+              <button
+                class="btn-sm bg-orange-200 hover:bg-orange-300 text-orange-700"
+                on:click={saveDraft}>Save Draft</button
+              >
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </div>
     <h3 class="font-bold mt-3 mb-2">
       Model Description <button
         class="hover:opacity-50 text-slate-500 text-sm ml-2"

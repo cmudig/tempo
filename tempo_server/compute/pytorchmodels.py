@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 
 class LSTM(nn.Module):
-    def __init__(self, num_classes, input_size, hidden_size, num_layers):
+    def __init__(self, num_classes, input_size, hidden_size, num_layers, dropout):
         super(LSTM, self).__init__()
         self.num_classes = num_classes #number of classes
         self.num_layers = num_layers #number of layers
@@ -11,7 +11,7 @@ class LSTM(nn.Module):
 
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
                           num_layers=num_layers, batch_first=True
-                          , bidirectional=True, dropout=0.2) #lstm
+                          , bidirectional=True, dropout=dropout) #lstm
         self.layer_norm = nn.LayerNorm(hidden_size*2)
         self.fc = nn.Linear(hidden_size*2,num_classes)
     
@@ -26,24 +26,24 @@ class LSTM(nn.Module):
         return out
 
 class DenseModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_classes):
+    def __init__(self, input_size, hidden_size, num_classes, num_layers, dropout):
         super(DenseModel, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)  # First dense layer
         self.relu = nn.ReLU()                         # Activation function
-        self.fc2 = nn.Linear(hidden_size, hidden_size) # Second dense layer
-        self.dropout = nn.Dropout(0.2)               # Dropout for regularization
+        self.hidden_layers = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(num_layers)]) # Hidden layers
+        self.dropout = nn.Dropout(dropout)               # Dropout for regularization
         self.fc3 = nn.Linear(hidden_size, num_classes) # Output layer
     
     def forward(self, x):
         x = self.fc1(x)       # Pass through first dense layer
-        x = self.relu(x)      # Apply ReLU activation
-        # x = self.fc2(x)       # Pass through second dense layer
-        x = self.dropout(x)   # Apply dropout
+        x = self.dropout(self.relu(x))      # Apply ReLU activation
+        for hidden_layer in self.hidden_layers:
+            x = self.dropout(self.relu(hidden_layer(x)))
         x = self.fc3(x)       # Output layer
         return x
 
 class TimeSeriesTransformer(nn.Module):
-    def __init__(self, num_classes, num_features, num_heads, num_layers, hidden_dim, dropout=0.1):
+    def __init__(self, num_classes, num_features, num_heads, num_layers, hidden_dim, dropout):
         super(TimeSeriesTransformer, self).__init__()
         
         self.num_features = num_features
