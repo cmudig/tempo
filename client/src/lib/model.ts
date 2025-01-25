@@ -49,6 +49,12 @@ export type ModelMetrics = {
     values: number[][];
     bins: number[];
   };
+
+  model_architecture?: {
+    type: string;
+    tuner: boolean;
+    hyperparameters: { [key: string]: any };
+  };
 };
 
 export function metricsHaveWarnings(metrics: ModelMetrics): boolean {

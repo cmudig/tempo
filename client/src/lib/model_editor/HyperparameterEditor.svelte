@@ -99,7 +99,7 @@
     </div>
 
     <div class="mb-4 flex flex-row gap-4 items-center">
-      <span class="text-sm">Use tuner:</span>
+      <span class="text-sm">Use tuner</span>
       <label class="relative inline-flex items-center cursor-pointer">
         <input
           type="checkbox"

@@ -190,7 +190,7 @@ class XGBoost:
             if progress_fn is not None:
                 progress_fn({"message": "Calculating feature importances"})
             try:
-                shap_values = self.explain(test_X, ids[test_mask])
+                shap_values = np.abs(self.explain(test_X, ids[test_mask]))
                 perf = np.mean(shap_values,axis=0)
                 perf_std = np.std(shap_values,axis=0)
                 sorted_perf_index = np.flip(np.argsort(perf))

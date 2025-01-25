@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     decimalMetrics,
+    ModelArchitectureType,
     ModelTypeStrings,
     type ModelMetrics,
     type ModelSummary,
@@ -267,6 +268,38 @@
       {:else if currentView == MetricsTab.featureImportance}
         {#if !!metrics.feature_importances}
           <FeatureImportanceChart importances={metrics.feature_importances} />
+        {:else}
+          <div
+            class="w-full flex justify-center items-center h-64 text-slate-500"
+          >
+            No feature importances available.
+          </div>
+        {/if}
+      {:else if currentView == MetricsTab.hyperparameters}
+        {#if !!metrics.model_architecture}
+          <div
+            style="max-width: 600px;"
+            class="w-full grid grid-cols-2 gap-2 items-baseline"
+          >
+            <div class="text-right font-bold text-sm text-slate-600">
+              Architecture
+            </div>
+            <div class="text-left font-mono ml-2">
+              {ModelArchitectureType[metrics.model_architecture.type]}
+            </div>
+            <div class="text-right font-bold text-sm text-slate-600">
+              Hyperparameter Tuning
+            </div>
+            <div class="text-left font-mono ml-2">
+              {metrics.model_architecture.tuner ? 'Enabled' : 'Disabled'}
+            </div>
+            {#each Object.entries(metrics.model_architecture.hyperparameters) as [hyperparamName, hyperparamValue] (hyperparamName)}
+              <div class="text-right font-bold text-sm text-slate-600">
+                {hyperparamName}
+              </div>
+              <div class="text-left font-mono ml-2">{hyperparamValue}</div>
+            {/each}
+          </div>
         {:else}
           <div
             class="w-full flex justify-center items-center h-64 text-slate-500"

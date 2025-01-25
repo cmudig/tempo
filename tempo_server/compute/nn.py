@@ -10,10 +10,12 @@ from sklearn.metrics import roc_curve, auc
 import os
 from scipy.stats import percentileofscore
 import tempfile
+import ray
 from ray import train, tune
 from ray.tune import Tuner
 from ray.train import Checkpoint
-from ray.tune.schedulers import ASHAScheduler
+from ray.tune.search.hyperopt import HyperOptSearch
+from ray.tune.search import ConcurrencyLimiter
 import logging
 import traceback
 
@@ -164,22 +166,22 @@ class NeuralNetwork:
         if self.architecture == "rnn":
             return LSTM(self.num_classes, 
                 self.input_size, 
-                config['hidden_dim']['value'], 
-                config['num_layers']['value'],
-                config['dropout']['value'])
+                config['hidden_dim'], 
+                config['num_layers'],
+                config['dropout'])
         elif self.architecture == "transformer":
             return TimeSeriesTransformer(self.num_classes, 
                 self.input_size, 
-                config['num_heads']['value'],
-                config['num_layers']['value'],
-                config['hidden_dim']['value'],
-                dropout=config['dropout']['value'])
+                config['num_heads'],
+                config['num_layers'],
+                config['hidden_dim'],
+                dropout=config['dropout'])
         elif self.architecture == 'dense':
             return DenseModel(self.input_size, 
-                              config['hidden_dim']['value'],
+                              config['hidden_dim'],
                               self.num_classes,
-                              config['num_layers']['value'],
-                              config['dropout']['value'])
+                              config['num_layers'],
+                              config['dropout'])
             
     def load(self, hyperparameter_info, model_fs):
         self.best_config = hyperparameter_info
@@ -187,6 +189,7 @@ class NeuralNetwork:
         self.model.load_state_dict(model_fs.read_file("model.pth"))
             
     def save(self, model_fs):
+        logging.info(f"Saving model to {model_fs}")
         model_fs.write_file(self.model.state_dict(), "model.pth")
      
     def get_hyperparameters(self):
@@ -292,38 +295,73 @@ class NeuralNetwork:
                 break
         return np.concatenate(shap_values)
     
+    def run_with_tuner(self, config, data=None):
+        train_X, train_y, train_ids, val_X, val_y, val_ids = data
+        nn = NeuralNetwork(self.model_type, 
+                           self.architecture, 
+                           {k: { "type": "fix", "value": config[k] } for k in config}, 
+                           self.input_size, 
+                           num_classes=self.num_classes, 
+                           tune_reporting=True)
+        nn.train(train_X, train_y, train_ids, val_X, val_y, val_ids)
+    
     def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None, use_tuner=False):
         needs_tune = any(x["type"] != "fix" for x in self.config.values())
         
         if needs_tune and use_tuner:
             
-            # TODO run the ray tuner directly here, creating instances of the 
-            # NeuralNetwork class with fixed parameters for each parameter set being tested
-            tuner = RayTuner(self.architecture,self.tuning_config)
-            best_result = tuner.fit(self.data)
-            best_config = best_result.config
-            self.config = best_config
-            print('best config',best_config)
-            print('best result',best_result)
-            logging.info(f'Ray Tuner Config {best_config}')
-            # self.train_dataloader = DataLoader(self.data['train'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
-            # self.test_dataloader = DataLoader(self.data['test'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
-            # self.val_dataloader = DataLoader(self.data['val'],batch_size = best_config['batch_size'],collate_fn=self.pad_collate)
-            # self.optimizer = torch.optim.Adam(self.model.parameters(),lr=best_config['lr'])
+            tune_config = {}
+            for key,value in list(self.config.items()):
+                keytype = self.config[key]['type']
+                if keytype == 'uniform':
+                    tune_config[key] = tune.randint(value['value'][0],value['value'][1])
+                elif keytype == 'grid search':
+                    tune_config[key] = tune.choice(value['value'])
+                elif keytype == 'log uniform':
+                    tune_config[key] = tune.loguniform(value['value'][0],value['value'][1])
+                elif keytype == 'fix':
+                    tune_config[key] = value['value']
+                else:
+                    raise ValueError(f"Unknown hyperparameter type {keytype}")
 
-            if not hasattr(best_result, 'checkpoint'):
-                self.train(best_config,False)
-            else:
-                with best_result.checkpoint.as_directory() as checkpoint_dir:
-                    state_dict = torch.load(os.path.join(checkpoint_dir, 'model.pth'))
-                
-                    self.model = self.create_model(best_config)                    
-                    self.model.load_state_dict(state_dict)
+            ray.shutdown()
+            ray.init(logging_level=logging.DEBUG)
+
+            tuner = Tuner(
+                tune.with_parameters(self.run_with_tuner,
+                                     data=(train_X, train_y, train_ids, val_X, val_y, val_ids)),
+                param_space=tune_config,
+                run_config=train.RunConfig(
+                    name='test_experiment',
+                    checkpoint_config=train.CheckpointConfig(
+                        checkpoint_score_attribute='val_loss',
+                        num_to_keep=5
+                    )
+                ),
+                tune_config=tune.TuneConfig(
+                    num_samples=8,
+                    search_alg=ConcurrencyLimiter(HyperOptSearch(
+                        metric='val_loss', 
+                        mode='min'
+                    ), max_concurrent=2)
+                )
+            )
+
+            tuning_results = tuner.fit()
+            best_result = tuning_results.get_best_result(metric='val_loss',mode='min')
+            self.best_config = best_result.config
+            logging.info('best config:',self.best_config)
+            
+            with best_result.checkpoint.as_directory() as checkpoint_dir:
+                state_dict = torch.load(os.path.join(checkpoint_dir, 'model.pth'))
+            
+                self.model = self.create_model(self.best_config)
+                self.model.load_state_dict(state_dict)
 
         else:
-            config_to_use = {k: {"type": "fix", "value": self.default_config[k]} if self.config[k]["type"] != "fix" else self.config[k]
+            config_to_use = {k: self.default_config[k] if self.config[k]["type"] != "fix" else self.config[k]["value"]
                                 for k in self.config}
-            self.best_config = {k: v["value"] for k, v in config_to_use.items()}
+            self.best_config = {**config_to_use}
             
             # all parameters are fixed, so we can create the model
             if self.model is None:
@@ -331,35 +369,23 @@ class NeuralNetwork:
                     
             train_dataset = self.create_dataset(train_X, train_y, train_ids, fit_normalization=True)
             val_dataset = self.create_dataset(val_X, val_y, val_ids)
-            optimizer = torch.optim.Adam(self.model.parameters(), lr=config_to_use['lr']['value'], weight_decay=0.01)
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=config_to_use['lr'], weight_decay=0.01)
 
             train_dataloader = DataLoader(train_dataset,
-                                          batch_size=config_to_use['batch_size']['value'],
+                                          batch_size=config_to_use['batch_size'],
                                           collate_fn=self.pad_collate)
             val_dataloader = DataLoader(val_dataset,
-                                        batch_size=config_to_use['batch_size']['value'],
+                                        batch_size=config_to_use['batch_size'],
                                         collate_fn=self.pad_collate)
 
-            epochs = config_to_use['num_epochs']['value']
+            epochs = config_to_use['num_epochs']
                 
-            early_stop = 3
-            counter = 0
-            best_val_loss = float('inf')
             for i in range(epochs):
                 train_loss, val_loss = self.train_func(self.model, 
                                                        optimizer, 
                                                        train_dataloader, 
                                                        val_dataloader, 
-                                                       progress_fn=lambda info: progress_fn({'message': f"Epoch {i + 1}, {info['message']}"}))
-
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    counter = 0
-                else:
-                    counter += 1
-                    if counter >= early_stop:
-                        print('Early Stopping')
-                        break
+                                                       progress_fn=(lambda info: progress_fn({'message': f"Epoch {i + 1}, {info['message']}"})) if progress_fn is not None else None)
 
                 if self.tune_reporting:
                     with tempfile.TemporaryDirectory() as temp_checkpoint_dir:

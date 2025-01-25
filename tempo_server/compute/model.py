@@ -95,7 +95,7 @@ class Model:
         """Copies the contents to the given new locations, and returns a Model at the new locations."""
         if self.fs.exists("spec.json"):
             self.fs.copy_file(model_fs, "spec.json")
-        for fname in ["metrics.json", "model.json", "preds.pkl"]:
+        for fname in ["metrics.json", "model.json", "model.pth", "preds.pkl"]:
             if self.result_fs.exists(fname):
                 self.result_fs.copy_file(result_fs, fname)
         return Model(model_fs, result_fs)
@@ -229,22 +229,19 @@ class Model:
                            indent=2)
         
         # Save out the metrics    
+        logging.info(f"Hyperparameters: {model.get_hyperparameters()}")
         self.result_fs.write_file({**convert_to_native_types(metrics), 
-                                   'hyperparameters': model.get_hyperparameters(),
+                                   'model_architecture': {
+                                       "type": spec.get("model_architecture", {}).get("type", "xgboost"),
+                                       "tuner": spec.get("model_architecture", {}).get("tuner", False),
+                                       "hyperparameters": model.get_hyperparameters()
+                                   },
                                    **({'dummy_variables': dummy_variables} if dummy_variables else {})},
                            "metrics.json")
             
         # Save out the model itself and its predictions
 
         model.save(self.result_fs)
-        # if isinstance(model, NeuralNetwork):
-        #     self.result_fs.write_file(model.state_dict(), 'model.pth')
-        # else:
-        #     with tempfile.NamedTemporaryFile('r+', suffix='.json') as model_file:
-        #         print(model_file.name)
-        #         model.save_model(model_file.name)
-        #         model_file.seek(0)
-        #         self.result_fs.write_file(model_file.read(), "model.json")
 
         # Save out the true values and prediction (probabilities)
         self.result_fs.write_file(predictions, "preds.pkl")
@@ -439,7 +436,7 @@ class Model:
         model = self._make_model_trainer(spec, 
                                          sum(v.get("enabled", True) for v in spec["variables"].values()),
                                          len(spec["output_values"]) if "output_values" in spec else 1)
-        model.load(metrics["hyperparameters"], self.result_fs)
+        model.load(metrics["model_architecture"]["hyperparameters"], self.result_fs)
         logging.info("Loaded model")
         
         if update_fn is not None: update_fn({'message': "Running model"})
