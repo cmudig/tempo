@@ -1329,7 +1329,7 @@ class TimeIndex(TimeSeriesQueryable):
         # Remove timesteps where no value is present
         start_df = start_df[~pd.isna(start_df[starts.time_field])]
         start_df[starts.time_field] = start_df[starts.time_field].astype(np.int64)
-        return TimeIndex(start_df, id_field=starts.id_field, time_field=starts.time_field)
+        return TimeIndex(start_df.reset_index(drop=True), id_field=starts.id_field, time_field=starts.time_field)
         
     def add(self, duration, invert_self=False):
         """duration: either a Duration or an Attributes containing durations in
@@ -1590,7 +1590,7 @@ class TimeSeries(TimeSeriesQueryable):
         if isinstance(other, Attributes):
             return self.with_values(getattr(self.series, opname)(make_aligned_value_series(self, other)), preserve_nans=True)
         if isinstance(other, TimeSeries):
-            return self.with_values(getattr(self.series, opname)(other.series), preserve_nans=True)
+            return self.with_values(getattr(self.series.reset_index(drop=True), opname)(other.series.reset_index(drop=True)), preserve_nans=True)
         if isinstance(other, Duration):
             return self.with_values(getattr(self.series, opname)(other.value()), preserve_nans=True)
         return self.with_values(getattr(self.series, opname)(other), preserve_nans=True)

@@ -19,7 +19,7 @@ cache_worker_sample_dataset = None # tuple (name, Dataset)
 def _get_dataset(filesystem, dataset_name):
     """Only used by the worker to get a full-size dataset"""
     global cache_dataset
-    if cache_dataset is None or cache_dataset[1] != dataset_name:
+    if cache_dataset is None or cache_dataset[0] != dataset_name:
         ds = Dataset(filesystem.subdirectory("datasets", dataset_name))
         ds.load_data()
         cache_dataset = (dataset_name, ds)
@@ -28,7 +28,7 @@ def _get_dataset(filesystem, dataset_name):
 def _get_worker_sample_dataset(filesystem, dataset_name):
     """Only used by the worker to get a sample dataset for the test set"""
     global cache_worker_sample_dataset
-    if cache_worker_sample_dataset is None or cache_worker_sample_dataset[1] != dataset_name:
+    if cache_worker_sample_dataset is None or cache_worker_sample_dataset[0] != dataset_name:
         ds = Dataset(filesystem.subdirectory("datasets", dataset_name), "test")
         ds.load_data()
         cache_worker_sample_dataset = (dataset_name, ds)
