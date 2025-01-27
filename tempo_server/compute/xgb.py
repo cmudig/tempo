@@ -59,11 +59,27 @@ class XGBoost:
         else:
             return self.model.predict_proba(test_X)[:,1]
     
-    def explain(self, test_X, test_ids):
+    def explain(self, test_X, test_ids, sample=False):
         """Returns the SHAP values for the given set of instances as a matrix,
         one row per input and one column per feature."""
         explainer = shap.TreeExplainer(self.model)
+        if sample:
+            sample_idxs = np.random.choice(len(test_X), min(1000, len(test_X)), replace=False)
+            if isinstance(test_X, pd.DataFrame):
+                test_X = test_X.iloc[sample_idxs]
+            else:
+                test_X = test_X[np.random.choice(len(test_X), min(1000, len(test_X)), replace=False)]
+            if isinstance(test_ids, pd.Series):
+                test_ids = test_ids.iloc[sample_idxs]
+            else:
+                test_ids = test_ids[sample_idxs]
         shap_values = explainer.shap_values(test_X)
+        if isinstance(shap_values, list):
+            shap_values = np.stack(shap_values, axis=0)
+        if len(shap_values.shape) > 2:
+            test_pred = self.predict(test_X, test_ids)
+            shap_values = shap_values[np.argmax(test_pred, axis=1), np.arange(shap_values.shape[1])]
+
         return shap_values
         
     def evaluate(self, spec, full_metrics, variables, outcomes, ids, train_mask, val_mask, test_mask, progress_fn=None):
@@ -73,7 +89,7 @@ class XGBoost:
         metrics = {}
         metrics["labels"] = make_series_summary(test_y 
                                                      if self.model_type != 'multiclass_classification' 
-                                                     else pd.Series([spec["output_values"][i] for i in test_y]))
+                                                     else pd.Series([spec["output_values"][int(i)] for i in test_y]))
         if self.model_type == "regression":
             metrics["performance"] = {
                 "R^2": float(r2_score(test_y, test_pred)),
@@ -164,7 +180,7 @@ class XGBoost:
                                                 ((max_predictions == i) & (test_y != i)).sum()))
                         }
                     } for i, c in enumerate(spec["output_values"])]
-                    metrics["predictions"] = make_series_summary(pd.Series([spec["output_values"][i] for i in max_predictions]))
+                    metrics["predictions"] = make_series_summary(pd.Series([spec["output_values"][int(i)] for i in max_predictions]))
 
                     submodel_metric = "Macro F1"
                 
@@ -190,7 +206,7 @@ class XGBoost:
             if progress_fn is not None:
                 progress_fn({"message": "Calculating feature importances"})
             try:
-                shap_values = np.abs(self.explain(test_X, ids[test_mask]))
+                shap_values = np.abs(self.explain(test_X, ids[test_mask], sample=True))
                 perf = np.mean(shap_values,axis=0)
                 perf_std = np.std(shap_values,axis=0)
                 sorted_perf_index = np.flip(np.argsort(perf))
