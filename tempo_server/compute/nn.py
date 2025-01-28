@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch #pytorch
 from torch.nn.utils.rnn import pad_sequence
 import torch.nn.functional as F
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve, f1_score
 import os
 from scipy.stats import percentileofscore
 import tempfile
@@ -20,7 +20,6 @@ import logging
 import traceback
 
 import shap
-from .raytuner import RayTuner
 from .pytorchmodels import LSTM,TimeSeriesTransformer, DenseModel
 
 from sklearn.metrics import f1_score, roc_curve, roc_auc_score, auc, precision_score, recall_score, precision_recall_curve, confusion_matrix, average_precision_score
@@ -125,7 +124,7 @@ class DataNormalizer:
                 scaled_scores = np.log(np.where(values == 0, np.random.uniform(spec_element["zero_lb"], spec_element["zero_ub"], size=values.shape), values))
                 new_data.append((scaled_scores - spec_element["mean"]) / spec_element["std"])
         new_data = np.vstack(new_data).T
-        return np.where(np.isnan(new_data), 0, new_data)
+        return np.where(np.logical_or(np.isnan(new_data), np.isinf(new_data)), 0, new_data)
 
     def fit_transform(self, data):
         self.fit(data)
@@ -186,11 +185,16 @@ class NeuralNetwork:
     def load(self, hyperparameter_info, model_fs):
         self.best_config = hyperparameter_info
         self.model = self.create_model(self.best_config)
-        self.model.load_state_dict(model_fs.read_file("model.pth"))
+        state_dict = model_fs.read_file("model.pth")
+        self.model.load_state_dict(state_dict['model'])
+        self.data_normalizer.normalization_spec = state_dict['normalizer']
             
     def save(self, model_fs):
         logging.info(f"Saving model to {model_fs}")
-        model_fs.write_file(self.model.state_dict(), "model.pth")
+        model_fs.write_file({
+            'model': self.model.state_dict(),
+            'normalizer': self.data_normalizer.normalization_spec
+        }, "model.pth")
      
     def get_hyperparameters(self):
         return self.best_config
@@ -213,7 +217,8 @@ class NeuralNetwork:
         if self.model_type == "binary_classification":
             loss_helper = nn.BCEWithLogitsLoss(reduction='none')
         elif self.model_type == "multiclass_classification":
-            loss_helper = nn.CrossEntropyLoss(reduction='none')
+            def loss_helper(outputs, targets):
+                return F.cross_entropy(outputs.reshape(-1, outputs.shape[-1]), targets.flatten().long(), reduction='none').reshape(*outputs.shape[:-1])
         elif self.model_type == "regression":
             loss_helper = nn.MSELoss(reduction='none')
 
@@ -265,12 +270,8 @@ class NeuralNetwork:
             elif self.model_type == 'multiclass_classification':
                 outputs = F.softmax(outputs, 2)
             # TODO normalize regression outputs
-            for x,y,l in zip(outputs, targets, lengths):
-                size = l.item()
-                trunc_x = x[:size, :]
-                flat_x = trunc_x.flatten()
-                x_array = flat_x.detach().numpy()
-                predict.append(x_array)
+            for x, l in zip(outputs, lengths):
+                predict.append(x[:l].detach().numpy())
         return np.concatenate(predict)
     
     def explain(self, test_X, test_ids, num_batches=None):
@@ -325,7 +326,8 @@ class NeuralNetwork:
                     raise ValueError(f"Unknown hyperparameter type {keytype}")
 
             ray.shutdown()
-            ray.init(logging_level=logging.DEBUG)
+            # use local mode to prevent issues with asynchronous file I/O in flask server
+            ray.init(logging_level=logging.DEBUG, local_mode=True)
 
             tuner = Tuner(
                 tune.with_parameters(self.run_with_tuner,
@@ -340,24 +342,31 @@ class NeuralNetwork:
                 ),
                 tune_config=tune.TuneConfig(
                     num_samples=8,
-                    search_alg=ConcurrencyLimiter(HyperOptSearch(
+                    search_alg=HyperOptSearch(
                         metric='val_loss', 
                         mode='min'
-                    ), max_concurrent=2)
+                    )
                 )
             )
 
-            tuning_results = tuner.fit()
-            best_result = tuning_results.get_best_result(metric='val_loss',mode='min')
-            self.best_config = best_result.config
-            logging.info('best config:',self.best_config)
-            
-            with best_result.checkpoint.as_directory() as checkpoint_dir:
-                state_dict = torch.load(os.path.join(checkpoint_dir, 'model.pth'))
-            
-                self.model = self.create_model(self.best_config)
-                self.model.load_state_dict(state_dict)
-
+            try:
+                tuning_results = tuner.fit()
+                best_result = tuning_results.get_best_result(metric='val_loss',mode='min')
+                self.best_config = best_result.config
+                logging.info('best config:',self.best_config)
+                
+                with best_result.checkpoint.as_directory() as checkpoint_dir:
+                    state_dict = torch.load(os.path.join(checkpoint_dir, 'model.pth'))
+                
+                    self.model = self.create_model(self.best_config)
+                    self.model.load_state_dict(state_dict['model'])
+                    self.data_normalizer.normalization_spec = state_dict['normalizer']
+            except Exception as e:
+                ray.shutdown()
+                traceback.print_exc()
+                raise RuntimeError(f"Error during hyperparameter search: {e}")
+            else:
+                ray.shutdown()
         else:
             config_to_use = {k: self.default_config[k] if self.config[k]["type"] != "fix" else self.config[k]["value"]
                                 for k in self.config}
@@ -389,15 +398,14 @@ class NeuralNetwork:
 
                 if self.tune_reporting:
                     with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
-                        checkpoint = None
-                        if (i + 1) % 20 == 0:
-                            # This saves the model to the trial directory
-                            torch.save(
-                                self.model.state_dict(),
-                                os.path.join(temp_checkpoint_dir, "model.pth")
-                            )
-                            checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
+                        # This saves the model to the trial directory
+                        torch.save(
+                            { 'model': self.model.state_dict(), 'normalizer': self.data_normalizer.normalization_spec },
+                            os.path.join(temp_checkpoint_dir, "model.pth")
+                        )
+                        checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
 
+                        print("Reporting val loss", val_loss)
                         # Send the current training result back to Tune
                         train.report({"val_loss": val_loss}, checkpoint=checkpoint)
                 
@@ -410,67 +418,116 @@ class NeuralNetwork:
         metrics = {}
         metrics["labels"] = make_series_summary(test_y 
                                                      if self.model_type != 'multiclass_classification' 
-                                                     else pd.Series([spec["output_values"][i] for i in test_y]))
+                                                     else pd.Series([spec["output_values"][int(i)] for i in test_y]))
 
-        fpr, tpr, thresholds = roc_curve(test_y, test_pred)
-        opt_threshold = thresholds[np.argmax(tpr - fpr)]
-        if np.isinf(opt_threshold):
-            # Set to 1 if positive label is never predicted, otherwise 0
-            if (test_y > 0).mean() < 0.01:
-                opt_threshold = 1e-6
+        if self.model_type == "regression":
+            metrics["performance"] = {
+                "R^2": float(r2_score(test_y, test_pred)),
+                "MSE": float(np.mean((test_y - test_pred) ** 2))
+            }
+            bin_edges = np.histogram_bin_edges(np.concatenate([test_y, test_pred]), bins=10)
+            metrics["hist"] = {
+                "values": np.histogram2d(test_y, test_pred, bins=bin_edges)[0].tolist(),
+                "bins": bin_edges.tolist()
+            }
+            hist, bin_edges = np.histogram((test_pred - test_y), bins=10)
+            metrics["difference_hist"] = {
+                "values": hist.tolist(),
+                "bins": bin_edges.tolist()
+            }
+            metrics["predictions"] = make_series_summary(test_pred)
+
+            submodel_metric = "R^2"
+        else:
+            test_y = test_y.astype(np.uint8)
+            if len(np.unique(test_y)) > 1:
+                if self.model_type == "binary_classification":
+                    fpr, tpr, thresholds = roc_curve(test_y, test_pred)
+                    opt_threshold = thresholds[np.argmax(tpr - fpr)]
+                    if np.isinf(opt_threshold):
+                        # Set to 1 if positive label is never predicted, otherwise 0
+                        if (test_y > 0).mean() < 0.01:
+                            opt_threshold = 1e-6
+                        else:
+                            opt_threshold = 1 - 1e-6
+                        
+                    metrics["threshold"] = float(opt_threshold)
+                    metrics["performance"] = {
+                        "Accuracy": float((test_y == (test_pred >= opt_threshold)).mean()),
+                        "AUROC": float(roc_auc_score(test_y, test_pred)),
+                        "Micro F1": float(f1_score(test_y, test_pred >= opt_threshold, average="micro")),
+                        "Macro F1": float(f1_score(test_y, test_pred >= opt_threshold, average="macro")),
+                    }
+                    metrics["roc"] = {}
+                    for t in sorted([*np.arange(0, 1, 0.02), 
+                                    float(opt_threshold)]):
+                        conf = confusion_matrix(test_y, (test_pred >= t))
+                        tn, fp, fn, tp = conf.ravel()
+                        metrics["roc"].setdefault("thresholds", []).append(round(t, 3))
+                        metrics["roc"].setdefault("fpr", []).append(fp / (fp + tn))
+                        metrics["roc"].setdefault("tpr", []).append(tp / (tp + fn))
+                        precision = float(tp / (tp + fp))
+                        recall = float(tp / (tp + fn))
+                        metrics["roc"].setdefault("performance", []).append({
+                            "Accuracy": (tp + tn) / conf.sum(),
+                            "Sensitivity": recall,
+                            "Specificity": float(tn / (tn + fp)),
+                            "Precision": precision,
+                            "Micro F1": 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0,
+                            "Macro F1": 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0,
+                        })
+                    
+                    conf = confusion_matrix(test_y, (test_pred >= opt_threshold))
+                    metrics["confusion_matrix"] = conf.tolist()
+                    tn, fp, fn, tp = conf.ravel()
+                    metrics["performance"]["Sensitivity"] = float(tp / (tp + fn))
+                    metrics["performance"]["Specificity"] = float(tn / (tn + fp))
+                    metrics["performance"]["Precision"] = float(tp / (tp + fp))
+                    metrics["predictions"] = make_series_summary(test_pred)
+
+                    submodel_metric = "AUROC"
+                elif self.model_type == "multiclass_classification":
+                    max_predictions = np.argmax(test_pred, axis=1)
+                    metrics["performance"] = {
+                        "Accuracy": (test_y == max_predictions).mean(),
+                        "Micro F1": float(f1_score(test_y, max_predictions, average="micro")),
+                        "Macro F1": float(f1_score(test_y, max_predictions, average="macro")),
+                    }
+                    conf = confusion_matrix(test_y, max_predictions)
+                    metrics["confusion_matrix"] = conf.tolist()
+                    
+                    metrics["perclass"] = [{
+                        "label": c,
+                        "performance": {
+                            "Sensitivity": float(((max_predictions == i) & (test_y == i)).sum() / 
+                                                (((max_predictions == i) & (test_y == i)).sum() + 
+                                                ((max_predictions != i) & (test_y == i)).sum())),
+                            "Specificity": float(((max_predictions != i) & (test_y != i)).sum() / 
+                                                (((max_predictions != i) & (test_y != i)).sum() + 
+                                                ((max_predictions == i) & (test_y != i)).sum())),
+                            "Precision": float(((max_predictions == i) & (test_y == i)).sum() / 
+                                                (((max_predictions == i) & (test_y == i)).sum() + 
+                                                ((max_predictions == i) & (test_y != i)).sum()))
+                        }
+                    } for i, c in enumerate(spec["output_values"])]
+                    metrics["predictions"] = make_series_summary(pd.Series([spec["output_values"][int(i)] for i in max_predictions]))
+
+                    submodel_metric = "Macro F1"
+                
+                if full_metrics:
+                    # Check whether any classes are never predicted
+                    class_true_positive_threshold = 0.1
+                    for true_class, probs in enumerate(conf):
+                        tp_fraction = probs[true_class] / probs.sum()
+                        if tp_fraction < class_true_positive_threshold:
+                            metrics.setdefault("class_not_predicted_warnings", []).append({
+                                "class": true_class,
+                                "true_positive_fraction": tp_fraction,
+                                "true_positive_threshold": class_true_positive_threshold
+                            })
             else:
-                opt_threshold = 1 - 1e-6
-            
-        metrics["threshold"] = float(opt_threshold)
-        metrics["performance"] = {
-            "Accuracy": float((test_y == (test_pred >= opt_threshold)).mean()),
-            "AUROC": float(roc_auc_score(test_y, test_pred)),
-            "Micro F1": float(f1_score(test_y, test_pred >= opt_threshold, average="micro")),
-            "Macro F1": float(f1_score(test_y, test_pred >= opt_threshold, average="macro")),
-        }
-
-        print('roc')
-        metrics["roc"] = {}
-        for t in sorted([*np.arange(0, 1, 0.02), 
-                        float(opt_threshold)]):
-            conf = confusion_matrix(test_y, (test_pred >= t))
-            tn, fp, fn, tp = conf.ravel()
-            metrics["roc"].setdefault("thresholds", []).append(round(t, 3))
-            metrics["roc"].setdefault("fpr", []).append(fp / (fp + tn))
-            metrics["roc"].setdefault("tpr", []).append(tp / (tp + fn))
-            precision = float(tp / (tp + fp))
-            recall = float(tp / (tp + fn))
-            metrics["roc"].setdefault("performance", []).append({
-                "Accuracy": (tp + tn) / conf.sum(),
-                "Sensitivity": recall,
-                "Specificity": float(tn / (tn + fp)),
-                "Precision": precision,
-                "Micro F1": 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0,
-                "Macro F1": 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0,
-            })
-        
-        conf = confusion_matrix(test_y, (test_pred >= opt_threshold))
-        metrics["confusion_matrix"] = conf.tolist()
-        tn, fp, fn, tp = conf.ravel()
-        metrics["performance"]["Sensitivity"] = float(tp / (tp + fn))
-        metrics["performance"]["Specificity"] = float(tn / (tn + fp))
-        metrics["performance"]["Precision"] = float(tp / (tp + fp))
-        metrics["predictions"] = make_series_summary(test_pred)
-
-        submodel_metric = "AUROC"
-
-        if full_metrics:
-            # Check whether any classes are never predicted
-            class_true_positive_threshold = 0.1
-            for true_class, probs in enumerate(conf):
-                tp_fraction = probs[true_class] / probs.sum()
-                if tp_fraction < class_true_positive_threshold:
-                    metrics.setdefault("class_not_predicted_warnings", []).append({
-                        "class": true_class,
-                        "true_positive_fraction": tp_fraction,
-                        "true_positive_threshold": class_true_positive_threshold
-                    })
-        
+                submodel_metric = None
+                
         metrics["n_train"] = {"instances": train_mask.sum(), "trajectories": len(np.unique(ids[train_mask]))}
         metrics["n_val"] = {"instances": val_mask.sum(), "trajectories": len(np.unique(ids[val_mask]))}
         metrics["n_test"] = {"instances": test_mask.sum(), "trajectories": len(np.unique(ids[test_mask]))}

@@ -9,7 +9,6 @@ from sklearn.metrics import r2_score, roc_auc_score, confusion_matrix, roc_curve
 from divisi.utils import convert_to_native_types
 from .nn import NeuralNetwork
 import shap
-from .raytuner import RayTuner
 from .xgb import XGBoost
 import uuid
 import logging
@@ -171,8 +170,8 @@ class Model:
             modeling_df, dummy_variables = self.make_modeling_variables(query_engine, spec, update_fn=update_fn)
             
         if update_fn is not None: update_fn({'message': 'Loading target variable'})
-        outcome = query_engine.query("(" + spec['outcome'] + 
-                                    (f" where ({spec['cohort']})" if spec.get('cohort', '') else '') + ") " + 
+        outcome = query_engine.query("((" + spec['outcome'] + 
+                                    (f") where ({spec['cohort']})" if spec.get('cohort', '') else ')') + ") " + 
                                     spec["timestep_definition"])
         logging.info(f"Outcome missingness: {(~pd.isna(outcome.get_values())).sum()}")
         
@@ -194,6 +193,7 @@ class Model:
             codes, uniques = pd.factorize(outcome.get_values(), sort=True)
             codes = np.where(codes >= 0, codes, np.nan)
             spec["output_values"] = list(uniques)
+            logging.info(f"output values: {spec['output_values']}")
             outcome_values = codes
         else:
             outcome_values = outcome.get_values()
@@ -211,6 +211,10 @@ class Model:
         outcome_mask = ~pd.isna(outcome_values)
         row_mask = df_mask & outcome_mask
         
+        train_mask &= row_mask
+        val_mask &= row_mask
+        test_mask &= row_mask
+        
         model, metrics, predictions = self._train_model(
             spec,
             modeling_df,
@@ -219,7 +223,6 @@ class Model:
             train_mask,
             val_mask,
             test_mask,
-            row_mask=row_mask,
             update_fn=update_fn,
             early_stopping_rounds=3)
     
@@ -251,7 +254,7 @@ class Model:
     def _make_model_trainer(self, spec, input_size, output_size):
         model_architecture = spec.get("model_architecture", {}).get("type", "xgboost")
         config = spec.get("model_architecture", {}).get("hyperparameters", {})
-        if model_architecture == 'rnn' or model_architecture == 'transformer':
+        if model_architecture == 'rnn' or model_architecture == 'transformer' or model_architecture == 'dense':
             return NeuralNetwork(spec["model_type"], 
                                   model_architecture,
                                   config,
@@ -260,31 +263,29 @@ class Model:
         else: 
             return XGBoost(spec["model_type"], **config)
 
-    def _train_model(self, spec, variables, outcomes, ids, train_mask, val_mask, test_mask, row_mask=None, full_metrics=True, update_fn=None, **model_params):
+    def _train_model(self, spec, variables, outcomes, ids, train_mask, val_mask, test_mask, full_metrics=True, update_fn=None, **model_params):
         """
         variables: a dataframe containing variables for all patients
         """
-        if row_mask is None: row_mask = np.ones(len(variables), dtype=bool)
-
-        train_X = variables[train_mask & row_mask] #.values
-        train_y = outcomes[train_mask & row_mask]
-        train_ids = ids[train_mask & row_mask]
+        train_X = variables[train_mask] #.values
+        train_y = outcomes[train_mask]
+        train_ids = ids[train_mask]
         logging.info(f"Training samples and missingness: {train_X}, {train_y}, {pd.isna(train_X).sum(axis=0)}, {pd.isna(train_y).sum()}")
-        val_X = variables[val_mask & row_mask] #.values
-        val_y = outcomes[val_mask & row_mask]
-        val_ids = ids[val_mask & row_mask]
+        val_X = variables[val_mask] #.values
+        val_y = outcomes[val_mask]
+        val_ids = ids[val_mask]
         logging.info(f"Val samples and missingness: {val_X}, {val_y}, {pd.isna(val_X).sum(axis=0)}, {pd.isna(val_y).sum()}")
 
-        test_X = variables[test_mask & row_mask] #.values
-        test_y = outcomes[test_mask & row_mask]
-        test_ids = ids[test_mask & row_mask]
+        test_X = variables[test_mask] #.values
+        test_y = outcomes[test_mask]
+        test_ids = ids[test_mask]
         
         if spec["model_type"].endswith("classification"):
             train_y = train_y.astype(int)
             val_y = val_y.astype(int)
             test_y = test_y.astype(int)
 
-        model = self._make_model_trainer(spec, train_X.shape[1], train_y.max() if spec["model_type"] == 'multiclass_classification' else 1)
+        model = self._make_model_trainer(spec, train_X.shape[1], train_y.max() + 1 if spec["model_type"] == 'multiclass_classification' else 1)
         logging.info("Training")
         model.train(
             train_X,
@@ -311,10 +312,10 @@ class Model:
         # nans whenever the row shouldn't be considered part of the
         # cohort for this model
         return model, metrics, (
-            np.where(val_mask & row_mask, outcomes, np.nan)[val_mask],
-            self._get_dataset_aligned_predictions(outcomes, val_pred, (val_mask & row_mask).values)[val_mask],
-            np.where(test_mask & row_mask, outcomes, np.nan)[test_mask],
-            self._get_dataset_aligned_predictions(outcomes, test_pred, (test_mask & row_mask).values)[test_mask],
+            np.where(val_mask, outcomes, np.nan)[val_mask],
+            self._get_dataset_aligned_predictions(outcomes, val_pred, (val_mask).values)[val_mask],
+            np.where(test_mask, outcomes, np.nan)[test_mask],
+            self._get_dataset_aligned_predictions(outcomes, test_pred, (test_mask).values)[test_mask],
         )
 
     def load_cache_if_needed(self):
@@ -336,8 +337,8 @@ class Model:
         modeling_df, _ = self.make_modeling_variables(query_engine, spec, update_fn=update_fn, dummy_col_values=dv)
             
         if update_fn is not None: update_fn({'message': 'Loading target variable'})
-        outcome = query_engine.query("(" + spec['outcome'] + 
-                                    (f" where ({spec['cohort']})" if spec.get('cohort', '') else '') + ") " + 
+        outcome = query_engine.query("((" + spec['outcome'] + 
+                                    (f") where ({spec['cohort']})" if spec.get('cohort', '') else ')') + ") " + 
                                     spec["timestep_definition"])
         matching_ids = outcome.get_ids().isin(dataset.get_numerical_ids(ids))
         modeling_df = modeling_df[matching_ids].reset_index(drop=True)
