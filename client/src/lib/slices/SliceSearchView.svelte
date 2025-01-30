@@ -477,7 +477,8 @@
         <div>Retrieving subgroups...</div>
         {#if showDetailLoadingMessage}
           <div class="mt-2 text-sm text-slate-500">
-            It may take up to a minute to rank subgroups on your first visit.
+            It may take several minutes to load subgrouping variables the first
+            time you visit.
           </div>
         {/if}
         <div role="status" class="w-8 h-8 grow-0 shrink-0 mt-4">

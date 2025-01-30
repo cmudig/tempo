@@ -15,16 +15,35 @@ from ray import train, tune
 from ray.tune import Tuner
 from ray.train import Checkpoint
 from ray.tune.search.hyperopt import HyperOptSearch
-from ray.tune.search import ConcurrencyLimiter
+from ray.tune.search import ConcurrencyLimiter, basic_variant
 import logging
 import traceback
 
 import shap
 from .pytorchmodels import LSTM,TimeSeriesTransformer, DenseModel
+from .filesystem import LocalFilesystem
 
 from sklearn.metrics import f1_score, roc_curve, roc_auc_score, auc, precision_score, recall_score, precision_recall_curve, confusion_matrix, average_precision_score
 
 from .utils import make_series_summary
+
+# To add/remove hyperparameters, modify this dictionary and HyperparameterEditor.svelte
+DEFAULT_CONFIG = {
+    'num_epochs': 10,
+    'batch_size': 64,
+    'lr': 0.001,
+    'num_layers': 1,
+    'num_heads' : 4,
+    'hidden_dim': 128,
+    'dropout': 0.1,
+    'weight_decay': 0.01
+}
+
+RELEVANT_HYPERPARAMETERS = {
+    'dense': ['num_epochs', 'batch_size', 'lr', 'num_layers', 'hidden_size', 'dropout', 'weight_decay'],
+    'rnn': ['num_epochs', 'batch_size', 'lr', 'num_layers', 'hidden_size', 'dropout', 'weight_decay'],
+    'transformer': ['num_epochs', 'batch_size', 'lr', 'num_layers', 'num_heads', 'hidden_dim', 'dropout', 'weight_decay']
+}
 
 class TrajectoryDataset(Dataset):
     def __init__(self,data, labels, ids):
@@ -136,19 +155,9 @@ class NeuralNetwork:
     """
     def __init__(self,model_type, architecture, config, input_size, num_classes=1, tune_reporting=False):
 
-        tmp_config = {}
-        self.default_config = {
-            'num_epochs': 10,
-            'batch_size': 64,
-            'lr': 0.001,
-            'num_layers': 1,
-            'num_heads' : 4,
-            'hidden_dim': 128,
-            'dropout': 0.1
-        }
-
-        self.config = {k: config.get(k, { "type": "fix", "value": self.default_config[k] })
-                       for k in self.default_config}
+        self.config = {k: config.get(k, { "type": "fix", "value": DEFAULT_CONFIG[k] })
+                       for k in DEFAULT_CONFIG
+                       if k in RELEVANT_HYPERPARAMETERS[architecture]}
         self.tune_reporting = tune_reporting
 
         self.best_config = None # populated when the model is trained or loaded
@@ -163,24 +172,17 @@ class NeuralNetwork:
     
     def create_model(self, config):
         if self.architecture == "rnn":
-            return LSTM(self.num_classes, 
-                self.input_size, 
-                config['hidden_dim'], 
-                config['num_layers'],
-                config['dropout'])
+            return LSTM(self.input_size, 
+                        self.num_classes,
+                        **config)
         elif self.architecture == "transformer":
-            return TimeSeriesTransformer(self.num_classes, 
-                self.input_size, 
-                config['num_heads'],
-                config['num_layers'],
-                config['hidden_dim'],
-                dropout=config['dropout'])
+            return TimeSeriesTransformer(self.input_size,
+                                         self.num_classes, 
+                                         **config)
         elif self.architecture == 'dense':
             return DenseModel(self.input_size, 
-                              config['hidden_dim'],
                               self.num_classes,
-                              config['num_layers'],
-                              config['dropout'])
+                              **config)
             
     def load(self, hyperparameter_info, model_fs):
         self.best_config = hyperparameter_info
@@ -269,6 +271,8 @@ class NeuralNetwork:
                 outputs = F.sigmoid(outputs)
             elif self.model_type == 'multiclass_classification':
                 outputs = F.softmax(outputs, 2)
+            if outputs.shape[-1] == 1:
+                outputs = outputs.squeeze(-1)
             # TODO normalize regression outputs
             for x, l in zip(outputs, lengths):
                 predict.append(x[:l].detach().numpy())
@@ -296,20 +300,10 @@ class NeuralNetwork:
                 break
         return np.concatenate(shap_values)
     
-    def run_with_tuner(self, config, data=None):
-        train_X, train_y, train_ids, val_X, val_y, val_ids = data
-        nn = NeuralNetwork(self.model_type, 
-                           self.architecture, 
-                           {k: { "type": "fix", "value": config[k] } for k in config}, 
-                           self.input_size, 
-                           num_classes=self.num_classes, 
-                           tune_reporting=True)
-        nn.train(train_X, train_y, train_ids, val_X, val_y, val_ids)
-    
-    def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None, use_tuner=False):
+    def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None, num_samples=8, checkpoint_fs=None):
         needs_tune = any(x["type"] != "fix" for x in self.config.values())
         
-        if needs_tune and use_tuner:
+        if needs_tune:
             
             tune_config = {}
             for key,value in list(self.config.items()):
@@ -325,50 +319,43 @@ class NeuralNetwork:
                 else:
                     raise ValueError(f"Unknown hyperparameter type {keytype}")
 
-            ray.shutdown()
-            # use local mode to prevent issues with asynchronous file I/O in flask server
-            ray.init(logging_level=logging.DEBUG, local_mode=True)
-
-            tuner = Tuner(
-                tune.with_parameters(self.run_with_tuner,
-                                     data=(train_X, train_y, train_ids, val_X, val_y, val_ids)),
-                param_space=tune_config,
-                run_config=train.RunConfig(
-                    name='test_experiment',
-                    checkpoint_config=train.CheckpointConfig(
-                        checkpoint_score_attribute='val_loss',
-                        num_to_keep=5
-                    )
-                ),
-                tune_config=tune.TuneConfig(
-                    num_samples=8,
-                    search_alg=HyperOptSearch(
-                        metric='val_loss', 
-                        mode='min'
-                    )
-                )
-            )
-
-            try:
-                tuning_results = tuner.fit()
-                best_result = tuning_results.get_best_result(metric='val_loss',mode='min')
-                self.best_config = best_result.config
-                logging.info('best config:',self.best_config)
-                
-                with best_result.checkpoint.as_directory() as checkpoint_dir:
-                    state_dict = torch.load(os.path.join(checkpoint_dir, 'model.pth'))
-                
-                    self.model = self.create_model(self.best_config)
-                    self.model.load_state_dict(state_dict['model'])
-                    self.data_normalizer.normalization_spec = state_dict['normalizer']
-            except Exception as e:
-                ray.shutdown()
-                traceback.print_exc()
-                raise RuntimeError(f"Error during hyperparameter search: {e}")
-            else:
-                ray.shutdown()
+            best_state_dict = None
+            best_loss = 1e9
+            best_config = None
+            
+            for sample_idx in range(num_samples):
+                sampled_config = {k: tune_config[k].sample() 
+                                     if not isinstance(tune_config[k], (float, int)) 
+                                     else tune_config[k]
+                                  for k in tune_config}
+                logging.info(f"Sampled config: {sampled_config}")
+                nn = NeuralNetwork(self.model_type, 
+                           self.architecture, 
+                           {k: { "type": "fix", "value": sampled_config[k] } for k in sampled_config}, 
+                           self.input_size, 
+                           num_classes=self.num_classes)
+                with tempfile.TemporaryDirectory() as tempdir:
+                    fs = LocalFilesystem(tempdir, temporary=True)
+                    val_loss = nn.train(train_X, 
+                                        train_y, 
+                                        train_ids, 
+                                        val_X, 
+                                        val_y, 
+                                        val_ids, 
+                                        progress_fn=(lambda info: progress_fn({'message': f"Model {sample_idx + 1} of {num_samples}, {info['message']}"})) if progress_fn is not None else None,
+                                        checkpoint_fs=fs)
+                    logging.info(f"Current config loss: {val_loss} best so far: {best_loss}")
+                    if val_loss < best_loss:
+                        best_loss = val_loss
+                        best_state_dict = fs.read_file("model.pth")
+                        best_config = sampled_config
+                        
+            self.best_config = best_config
+            self.model = self.create_model(self.best_config)
+            self.model.load_state_dict(best_state_dict['model'])
+            self.data_normalizer.normalization_spec = best_state_dict['normalizer']
         else:
-            config_to_use = {k: self.default_config[k] if self.config[k]["type"] != "fix" else self.config[k]["value"]
+            config_to_use = {k: DEFAULT_CONFIG[k] if self.config[k]["type"] != "fix" else self.config[k]["value"]
                                 for k in self.config}
             self.best_config = {**config_to_use}
             
@@ -378,7 +365,7 @@ class NeuralNetwork:
                     
             train_dataset = self.create_dataset(train_X, train_y, train_ids, fit_normalization=True)
             val_dataset = self.create_dataset(val_X, val_y, val_ids)
-            optimizer = torch.optim.Adam(self.model.parameters(), lr=config_to_use['lr'], weight_decay=0.01)
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=config_to_use['lr'], weight_decay=config_to_use['weight_decay'])
 
             train_dataloader = DataLoader(train_dataset,
                                           batch_size=config_to_use['batch_size'],
@@ -389,37 +376,35 @@ class NeuralNetwork:
 
             epochs = config_to_use['num_epochs']
                 
+            best_loss = 1e9
             for i in range(epochs):
                 train_loss, val_loss = self.train_func(self.model, 
                                                        optimizer, 
                                                        train_dataloader, 
                                                        val_dataloader, 
                                                        progress_fn=(lambda info: progress_fn({'message': f"Epoch {i + 1}, {info['message']}"})) if progress_fn is not None else None)
+                if val_loss < best_loss:
+                    best_loss = val_loss
 
-                if self.tune_reporting:
-                    with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
+                    if checkpoint_fs is not None:
                         # This saves the model to the trial directory
-                        torch.save(
+                        checkpoint_fs.write_file(
                             { 'model': self.model.state_dict(), 'normalizer': self.data_normalizer.normalization_spec },
-                            os.path.join(temp_checkpoint_dir, "model.pth")
+                            "model.pth"
                         )
-                        checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
-
-                        print("Reporting val loss", val_loss)
-                        # Send the current training result back to Tune
-                        train.report({"val_loss": val_loss}, checkpoint=checkpoint)
+            return best_loss
                 
             # self.model = model
+            
     
     def evaluate(self, spec, full_metrics, variables, outcomes, ids, train_mask, val_mask, test_mask, progress_fn=None):
         test_pred = self.predict(variables[test_mask], ids[test_mask])
-        test_y = outcomes[test_mask]
+        test_y = (outcomes.values if isinstance(outcomes, pd.Series) else outcomes)[test_mask]
         # test_y = self.test_y
         metrics = {}
         metrics["labels"] = make_series_summary(test_y 
                                                      if self.model_type != 'multiclass_classification' 
                                                      else pd.Series([spec["output_values"][int(i)] for i in test_y]))
-
         if self.model_type == "regression":
             metrics["performance"] = {
                 "R^2": float(r2_score(test_y, test_pred)),

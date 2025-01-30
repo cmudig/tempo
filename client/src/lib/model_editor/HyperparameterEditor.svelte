@@ -7,7 +7,8 @@
   import HyperparameterInput from './HyperparameterInput.svelte';
 
   export let modelArchitecture: ModelArchitectureInfo | null = null;
-  $: console.log('architecture type1:', modelArchitecture);
+  $: if (!!modelArchitecture && !modelArchitecture.num_samples)
+    modelArchitecture = { ...modelArchitecture, num_samples: 10 };
 
   const DefaultHyperparameters: { [key: string]: HyperparameterSpec } = {
     num_epochs: { type: 'grid search', value: [5, 10, 20] },
@@ -16,6 +17,8 @@
     num_layers: { type: 'grid search', value: [1, 2, 3] },
     hidden_dim: { type: 'grid search', value: [32, 64, 128] },
     num_heads: { type: 'grid search', value: [2, 4, 8] },
+    dropout: { type: 'grid search', value: [0, 0.1, 0.2] },
+    weight_decay: { type: 'log uniform', value: [1e-4, 0.1] },
   };
 
   const HyperparameterNames: { [key: string]: string } = {
@@ -25,6 +28,8 @@
     num_layers: 'Number of Layers',
     hidden_dim: 'Hidden Size',
     num_heads: '# Attention Heads',
+    dropout: 'Dropout',
+    weight_decay: 'Weight Decay',
   };
 
   function addHyperParameter(
@@ -52,6 +57,8 @@
         'lr',
         'num_layers',
         'hidden_dim',
+        'dropout',
+        'weight_decay',
       ];
     else if (modelArchitecture.type == 'rnn')
       hyperparamsToUse = [
@@ -60,6 +67,8 @@
         'lr',
         'num_layers',
         'hidden_dim',
+        'dropout',
+        'weight_decay',
       ];
     else if (modelArchitecture.type == 'transformer')
       hyperparamsToUse = [
@@ -69,6 +78,8 @@
         'num_layers',
         'hidden_dim',
         'num_heads',
+        'dropout',
+        'weight_decay',
       ];
     hyperparamsToUse.forEach((paramName) => {
       newHyperparameters[paramName] =
@@ -99,22 +110,17 @@
     </div>
 
     <div class="mb-4 flex flex-row gap-4 items-center">
-      <span class="text-sm">Use tuner</span>
-      <label class="relative inline-flex items-center cursor-pointer">
-        <input
-          type="checkbox"
-          class="sr-only peer"
-          bind:checked={modelArchitecture.tuner}
-        />
-        <div
-          class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"
-        ></div>
-      </label>
+      <span class="text-sm">Number of Training Runs</span>
+      <input
+        type="number"
+        class="flat-text-input w-24"
+        min="1"
+        max="50"
+        bind:value={modelArchitecture.num_samples}
+      />
       <span class="text-xs text-slate-500"
-        >{#if modelArchitecture.tuner}Hyperparameters will be searched according
-          to the options below. Training may take longer.{:else}Fixed
-          hyperparameters will be used, replacing any non-fixed values below
-          with defaults.{/if}</span
+        >Sample the hyperparameter space and pick the model with the best
+        validation loss.</span
       >
     </div>
     <div

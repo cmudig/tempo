@@ -50,11 +50,7 @@ export type ModelMetrics = {
     bins: number[];
   };
 
-  model_architecture?: {
-    type: string;
-    tuner: boolean;
-    hyperparameters: { [key: string]: any };
-  };
+  model_architecture?: ModelArchitectureInfo;
 };
 
 export function metricsHaveWarnings(metrics: ModelMetrics): boolean {
@@ -82,7 +78,7 @@ export type HyperparameterSpec = { type: string; value: number | number[] };
 
 export type ModelArchitectureInfo = {
   type: string;
-  tuner: boolean;
+  num_samples: number;
   hyperparameters: { [key: string]: HyperparameterSpec };
 };
 

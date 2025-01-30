@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 
 class LSTM(nn.Module):
-    def __init__(self, num_classes, input_size, hidden_size, num_layers, dropout):
+    def __init__(self, input_size, num_classes, hidden_size=16, num_layers=1, dropout=0.1, **kwargs):
         super(LSTM, self).__init__()
         self.num_classes = num_classes #number of classes
         self.num_layers = num_layers #number of layers
@@ -26,7 +26,7 @@ class LSTM(nn.Module):
         return out
 
 class DenseModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_classes, num_layers, dropout):
+    def __init__(self, input_size, num_classes, hidden_size=16, num_layers=1, dropout=0.1, **kwargs):
         super(DenseModel, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)  # First dense layer
         self.relu = nn.ReLU()                         # Activation function
@@ -43,7 +43,7 @@ class DenseModel(nn.Module):
         return x
 
 class TimeSeriesTransformer(nn.Module):
-    def __init__(self, num_classes, num_features, num_heads, num_layers, hidden_dim, dropout):
+    def __init__(self, num_features, num_classes, num_heads=4, num_layers=1, hidden_dim=64, dropout=0.1, **kwargs):
         super(TimeSeriesTransformer, self).__init__()
         
         self.num_features = num_features

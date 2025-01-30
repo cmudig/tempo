@@ -744,7 +744,6 @@ class EvaluateQuery(lark.visitors.Interpreter):
                 
             if var_name is not None:
                 var_exp = var_exp.rename(var_name)
-            logging.info(f"Variable {var_name} evaluates to {var_exp}")
         except Exception as e:
             raise ValueError(f"Exception occurred when processing variable '{var_name}': {e}")
         else:

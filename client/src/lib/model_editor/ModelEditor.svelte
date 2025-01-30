@@ -63,7 +63,7 @@
   export let modelArchitecture: ModelArchitectureInfo | null = null;
   const DefaultModelArchitecture: ModelArchitectureInfo = {
     type: 'xgboost',
-    tuner: false,
+    num_samples: 10,
     hyperparameters: {
       num_classes: {
         type: 'fix',

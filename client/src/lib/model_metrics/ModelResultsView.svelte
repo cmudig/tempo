@@ -288,10 +288,10 @@
               {ModelArchitectureType[metrics.model_architecture.type]}
             </div>
             <div class="text-right font-bold text-sm text-slate-600">
-              Hyperparameter Tuning
+              Number of Training Runs
             </div>
             <div class="text-left font-mono ml-2">
-              {metrics.model_architecture.tuner ? 'Enabled' : 'Disabled'}
+              {metrics.model_architecture.num_samples}
             </div>
             {#each Object.entries(metrics.model_architecture.hyperparameters) as [hyperparamName, hyperparamValue] (hyperparamName)}
               <div class="text-right font-bold text-sm text-slate-600">

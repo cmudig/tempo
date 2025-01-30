@@ -38,7 +38,7 @@ class XGBoost:
         """Create a dictionary of hyperparameters that can be used to reinstantiate the model."""
         return self.model_params
                
-    def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None, use_tuner=False):
+    def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None, num_samples=1):
         if self.model_type == "multiclass_classification":
             weights = compute_sample_weight(
                 class_weight='balanced',

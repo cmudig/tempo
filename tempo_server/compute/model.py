@@ -12,6 +12,7 @@ import shap
 from .xgb import XGBoost
 import uuid
 import logging
+import traceback
 
 class Model:
     def __init__(self, model_fs, result_fs=None):
@@ -94,6 +95,7 @@ class Model:
         """Copies the contents to the given new locations, and returns a Model at the new locations."""
         if self.fs.exists("spec.json"):
             self.fs.copy_file(model_fs, "spec.json")
+        result_fs = self.fs if result_fs is None else result_fs
         for fname in ["metrics.json", "model.json", "model.pth", "preds.pkl"]:
             if self.result_fs.exists(fname):
                 self.result_fs.copy_file(result_fs, fname)
@@ -236,7 +238,7 @@ class Model:
         self.result_fs.write_file({**convert_to_native_types(metrics), 
                                    'model_architecture': {
                                        "type": spec.get("model_architecture", {}).get("type", "xgboost"),
-                                       "tuner": spec.get("model_architecture", {}).get("tuner", False),
+                                       "num_samples": spec.get("model_architecture", {}).get("num_samples", False),
                                        "hyperparameters": model.get_hyperparameters()
                                    },
                                    **({'dummy_variables': dummy_variables} if dummy_variables else {})},
@@ -287,16 +289,20 @@ class Model:
 
         model = self._make_model_trainer(spec, train_X.shape[1], train_y.max() + 1 if spec["model_type"] == 'multiclass_classification' else 1)
         logging.info("Training")
-        model.train(
-            train_X,
-            train_y,
-            train_ids,
-            val_X,
-            val_y,
-            val_ids,
-            progress_fn=lambda info: update_fn({'message': f"Training ({info.get('message', '...')})"}),
-            use_tuner=spec.get("model_architecture", {}).get("tuner", False)
-        )
+        try:
+            model.train(
+                train_X,
+                train_y,
+                train_ids,
+                val_X,
+                val_y,
+                val_ids,
+                progress_fn=lambda info: update_fn({'message': f"Training ({info.get('message', '...')})"}),
+                num_samples=spec.get("model_architecture", {}).get("num_samples", 1)
+            )
+        except Exception as e:
+            logging.info(f"Model training error: {traceback.format_exc()}")
+            raise ValueError(f"Error training model: {e}")
        
         logging.info("Evaluating")
 
