@@ -1,0 +1,649 @@
+{
+  "variables": {
+    "Avg Cart Item Price": {
+      "query": "(mean {cart} from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Avg Purchased Item Price": {
+      "query": "(mean {purchase} from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Avg Time Between Views": {
+      "query": "(mean time_diff from #now - 1 h to #now \nwith time_diff as (((first time({view}) from #now + 10 s to #now + 15 min) - #now) / 60 at every {view} from #mintime to #maxtime)) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Avg Viewed Item Price": {
+      "query": "(mean {view} from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Max Time Between Views": {
+      "query": "(max time_diff from #now - 1 h to #now \nwith time_diff as (((first time({view}) from #now + 10 s to #now + 15 min) - #now) / 60 at every {view} from #mintime to #maxtime) ) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand accord Viewed Recent": {
+      "query": "(sum ({view brand} = 'accord') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand acv Viewed Recent": {
+      "query": "(sum ({view brand} = 'acv') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand aerocool Viewed Recent": {
+      "query": "(sum ({view brand} = 'aerocool') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand alas Viewed Recent": {
+      "query": "(sum ({view brand} = 'alas') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand alcatel Viewed Recent": {
+      "query": "(sum ({view brand} = 'alcatel') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand amd Viewed Recent": {
+      "query": "(sum ({view brand} = 'amd') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand ark Viewed Recent": {
+      "query": "(sum ({view brand} = 'ark') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand asrock Viewed Recent": {
+      "query": "(sum ({view brand} = 'asrock') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand asus Viewed Recent": {
+      "query": "(sum ({view brand} = 'asus') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand bbk Viewed Recent": {
+      "query": "(sum ({view brand} = 'bbk') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand berkut Viewed Recent": {
+      "query": "(sum ({view brand} = 'berkut') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand blast Viewed Recent": {
+      "query": "(sum ({view brand} = 'blast') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand bort Viewed Recent": {
+      "query": "(sum ({view brand} = 'bort') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand bosch Viewed Recent": {
+      "query": "(sum ({view brand} = 'bosch') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand brother Viewed Recent": {
+      "query": "(sum ({view brand} = 'brother') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand cactus Viewed Recent": {
+      "query": "(sum ({view brand} = 'cactus') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand cameronsino Viewed Recent": {
+      "query": "(sum ({view brand} = 'cameronsino') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand canon Viewed Recent": {
+      "query": "(sum ({view brand} = 'canon') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand corsair Viewed Recent": {
+      "query": "(sum ({view brand} = 'corsair') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand deepcool Viewed Recent": {
+      "query": "(sum ({view brand} = 'deepcool') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand defender Viewed Recent": {
+      "query": "(sum ({view brand} = 'defender') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand dialog Viewed Recent": {
+      "query": "(sum ({view brand} = 'dialog') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand digma Viewed Recent": {
+      "query": "(sum ({view brand} = 'digma') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand edifier Viewed Recent": {
+      "query": "(sum ({view brand} = 'edifier') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand epson Viewed Recent": {
+      "query": "(sum ({view brand} = 'epson') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand exegate Viewed Recent": {
+      "query": "(sum ({view brand} = 'exegate') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand favourite Viewed Recent": {
+      "query": "(sum ({view brand} = 'favourite') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand formula Viewed Recent": {
+      "query": "(sum ({view brand} = 'formula') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand fubag Viewed Recent": {
+      "query": "(sum ({view brand} = 'fubag') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand gigabyte Viewed Recent": {
+      "query": "(sum ({view brand} = 'gigabyte') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand ginzzu Viewed Recent": {
+      "query": "(sum ({view brand} = 'ginzzu') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand gorenje Viewed Recent": {
+      "query": "(sum ({view brand} = 'gorenje') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand greenconnect Viewed Recent": {
+      "query": "(sum ({view brand} = 'greenconnect') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand hama Viewed Recent": {
+      "query": "(sum ({view brand} = 'hama') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand hammer Viewed Recent": {
+      "query": "(sum ({view brand} = 'hammer') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand hoco Viewed Recent": {
+      "query": "(sum ({view brand} = 'hoco') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand honor Viewed Recent": {
+      "query": "(sum ({view brand} = 'honor') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand hp Viewed Recent": {
+      "query": "(sum ({view brand} = 'hp') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand huawei Viewed Recent": {
+      "query": "(sum ({view brand} = 'huawei') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand huter Viewed Recent": {
+      "query": "(sum ({view brand} = 'huter') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand hyperx Viewed Recent": {
+      "query": "(sum ({view brand} = 'hyperx') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand hyundai Viewed Recent": {
+      "query": "(sum ({view brand} = 'hyundai') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand intel Viewed Recent": {
+      "query": "(sum ({view brand} = 'intel') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand janome Viewed Recent": {
+      "query": "(sum ({view brand} = 'janome') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand jbl Viewed Recent": {
+      "query": "(sum ({view brand} = 'jbl') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand jvc Viewed Recent": {
+      "query": "(sum ({view brand} = 'jvc') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand kenwood Viewed Recent": {
+      "query": "(sum ({view brand} = 'kenwood') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand kingston Viewed Recent": {
+      "query": "(sum ({view brand} = 'kingston') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand kitfort Viewed Recent": {
+      "query": "(sum ({view brand} = 'kitfort') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand kromax Viewed Recent": {
+      "query": "(sum ({view brand} = 'kromax') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand kyocera Viewed Recent": {
+      "query": "(sum ({view brand} = 'kyocera') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand lenovo Viewed Recent": {
+      "query": "(sum ({view brand} = 'lenovo') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand lexmark Viewed Recent": {
+      "query": "(sum ({view brand} = 'lexmark') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand lg Viewed Recent": {
+      "query": "(sum ({view brand} = 'lg') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand logitech Viewed Recent": {
+      "query": "(sum ({view brand} = 'logitech') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand makita Viewed Recent": {
+      "query": "(sum ({view brand} = 'makita') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand metabo Viewed Recent": {
+      "query": "(sum ({view brand} = 'metabo') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand microsoft Viewed Recent": {
+      "query": "(sum ({view brand} = 'microsoft') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand mikrotik Viewed Recent": {
+      "query": "(sum ({view brand} = 'mikrotik') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand mobilepc Viewed Recent": {
+      "query": "(sum ({view brand} = 'mobilepc') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand msi Viewed Recent": {
+      "query": "(sum ({view brand} = 'msi') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand navitel Viewed Recent": {
+      "query": "(sum ({view brand} = 'navitel') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand nokia Viewed Recent": {
+      "query": "(sum ({view brand} = 'nokia') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand nv-print Viewed Recent": {
+      "query": "(sum ({view brand} = 'nv-print') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand orient Viewed Recent": {
+      "query": "(sum ({view brand} = 'orient') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand p.i.t. Viewed Recent": {
+      "query": "(sum ({view brand} = 'p.i.t.') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand palit Viewed Recent": {
+      "query": "(sum ({view brand} = 'palit') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand palmexx Viewed Recent": {
+      "query": "(sum ({view brand} = 'palmexx') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand panasonic Viewed Recent": {
+      "query": "(sum ({view brand} = 'panasonic') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand pantum Viewed Recent": {
+      "query": "(sum ({view brand} = 'pantum') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand patriot Viewed Recent": {
+      "query": "(sum ({view brand} = 'patriot') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand perfeo Viewed Recent": {
+      "query": "(sum ({view brand} = 'perfeo') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand philips Viewed Recent": {
+      "query": "(sum ({view brand} = 'philips') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand pioneer Viewed Recent": {
+      "query": "(sum ({view brand} = 'pioneer') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand pitatel Viewed Recent": {
+      "query": "(sum ({view brand} = 'pitatel') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand pocketbook Viewed Recent": {
+      "query": "(sum ({view brand} = 'pocketbook') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand polaris Viewed Recent": {
+      "query": "(sum ({view brand} = 'polaris') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand powercolor Viewed Recent": {
+      "query": "(sum ({view brand} = 'powercolor') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand redmond Viewed Recent": {
+      "query": "(sum ({view brand} = 'redmond') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand ricoh Viewed Recent": {
+      "query": "(sum ({view brand} = 'ricoh') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand ritmix Viewed Recent": {
+      "query": "(sum ({view brand} = 'ritmix') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand samsung Viewed Recent": {
+      "query": "(sum ({view brand} = 'samsung') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand sapphire Viewed Recent": {
+      "query": "(sum ({view brand} = 'sapphire') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand scarlett Viewed Recent": {
+      "query": "(sum ({view brand} = 'scarlett') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand sirius Viewed Recent": {
+      "query": "(sum ({view brand} = 'sirius') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand smartbuy Viewed Recent": {
+      "query": "(sum ({view brand} = 'smartbuy') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand sony Viewed Recent": {
+      "query": "(sum ({view brand} = 'sony') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand spigen Viewed Recent": {
+      "query": "(sum ({view brand} = 'spigen') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand starwind Viewed Recent": {
+      "query": "(sum ({view brand} = 'starwind') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand steelseries Viewed Recent": {
+      "query": "(sum ({view brand} = 'steelseries') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand sven Viewed Recent": {
+      "query": "(sum ({view brand} = 'sven') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand swat Viewed Recent": {
+      "query": "(sum ({view brand} = 'swat') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand thermaltake Viewed Recent": {
+      "query": "(sum ({view brand} = 'thermaltake') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand thomas Viewed Recent": {
+      "query": "(sum ({view brand} = 'thomas') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand topon Viewed Recent": {
+      "query": "(sum ({view brand} = 'topon') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand tp-link Viewed Recent": {
+      "query": "(sum ({view brand} = 'tp-link') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand transcend Viewed Recent": {
+      "query": "(sum ({view brand} = 'transcend') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand xerox Viewed Recent": {
+      "query": "(sum ({view brand} = 'xerox') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num Brand xiaomi Viewed Recent": {
+      "query": "(sum ({view brand} = 'xiaomi') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num Brand zalman Viewed Recent": {
+      "query": "(sum ({view brand} = 'zalman') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num accessories.bag Viewed Recent": {
+      "query": "(sum ({view category} = 'accessories.bag') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num accessories.briefcase Viewed Recent": {
+      "query": "(case when (sum ({view category} = 'accessories.briefcase') from #now - 1 h to #now impute 0) then 'True' else 'False' end) impute 'Missing'"
+    },
+    "Num apparel.glove Viewed Recent": {
+      "query": "(sum ({view category} = 'apparel.glove') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num appliances.environment.air_heater Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.environment.air_heater') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.environment.fan Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.environment.fan') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num appliances.environment.vacuum Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.environment.vacuum') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.iron Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.iron') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.kitchen.blender Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.blender') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num appliances.kitchen.coffee_grinder Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.coffee_grinder') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num appliances.kitchen.coffee_machine Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.coffee_machine') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.kitchen.fryer Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.fryer') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.kitchen.grill Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.grill') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.kitchen.juicer Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.juicer') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num appliances.kitchen.kettle Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.kettle') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.kitchen.meat_grinder Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.meat_grinder') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.kitchen.microwave Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.microwave') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.kitchen.mixer Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.mixer') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.kitchen.refrigerators Viewed Recent": {
+      "query": "(case when (sum ({view category} = 'appliances.kitchen.refrigerators') from #now - 1 h to #now impute 0) then 'True' else 'False' end) impute 'Missing'"
+    },
+    "Num appliances.kitchen.steam_cooker Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.steam_cooker') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num appliances.kitchen.toster Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.kitchen.toster') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num appliances.kitchen.washer Viewed Recent": {
+      "query": "(case when (sum ({view category} = 'appliances.kitchen.washer') from #now - 1 h to #now impute 0) then 'True' else 'False' end) impute 'Missing'"
+    },
+    "Num appliances.personal.hair_cutter Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.personal.hair_cutter') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.personal.massager Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.personal.massager') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num appliances.personal.scales Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.personal.scales') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num appliances.sewing_machine Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.sewing_machine') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num appliances.steam_cleaner Viewed Recent": {
+      "query": "(sum ({view category} = 'appliances.steam_cleaner') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num auto.accessories.alarm Viewed Recent": {
+      "query": "(sum ({view category} = 'auto.accessories.alarm') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num auto.accessories.compressor Viewed Recent": {
+      "query": "(sum ({view category} = 'auto.accessories.compressor') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num auto.accessories.gps Viewed Recent": {
+      "query": "(sum ({view category} = 'auto.accessories.gps') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num auto.accessories.immobilizer Viewed Recent": {
+      "query": "(sum ({view category} = 'auto.accessories.immobilizer') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num auto.accessories.light Viewed Recent": {
+      "query": "(sum ({view category} = 'auto.accessories.light') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num auto.accessories.parktronic Viewed Recent": {
+      "query": "(sum ({view category} = 'auto.accessories.parktronic') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num auto.accessories.player Viewed Recent": {
+      "query": "(sum ({view category} = 'auto.accessories.player') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num auto.accessories.radar Viewed Recent": {
+      "query": "(sum ({view category} = 'auto.accessories.radar') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num auto.accessories.videoregister Viewed Recent": {
+      "query": "(sum ({view category} = 'auto.accessories.videoregister') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num auto.accessories.winch Viewed Recent": {
+      "query": "(case when (sum ({view category} = 'auto.accessories.winch') from #now - 1 h to #now impute 0) then 'True' else 'False' end) impute 'Missing'"
+    },
+    "Num auto.accessories.window Viewed Recent": {
+      "query": "(sum ({view category} = 'auto.accessories.window') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num computers.components.cdrw Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.components.cdrw') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.components.cooler Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.components.cooler') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.components.cpu Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.components.cpu') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.components.hdd Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.components.hdd') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.components.motherboard Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.components.motherboard') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.components.network_adapter Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.components.network_adapter') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num computers.components.power_supply Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.components.power_supply') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.components.sound_card Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.components.sound_card') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num computers.components.tv_tuner Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.components.tv_tuner') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.components.videocards Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.components.videocards') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.desktop Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.desktop') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.ebooks Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.ebooks') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.gaming Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.gaming') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num computers.network.router Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.network.router') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.notebook Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.notebook') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.peripherals.camera Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.peripherals.camera') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.peripherals.joystick Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.peripherals.joystick') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.peripherals.keyboard Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.peripherals.keyboard') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.peripherals.monitor Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.peripherals.monitor') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.peripherals.mouse Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.peripherals.mouse') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.peripherals.nas Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.peripherals.nas') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.peripherals.printer Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.peripherals.printer') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.peripherals.scanner Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.peripherals.scanner') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num computers.peripherals.vr Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.peripherals.vr') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num computers.peripherals.wifi Viewed Recent": {
+      "query": "(sum ({view category} = 'computers.peripherals.wifi') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num construction.tools.drill Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.drill') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num construction.tools.generator Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.generator') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num construction.tools.heater Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.heater') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num construction.tools.light Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.light') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num construction.tools.painting Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.painting') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num construction.tools.pump Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.pump') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num construction.tools.saw Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.saw') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num construction.tools.screw Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.screw') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num construction.tools.soldering Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.soldering') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num construction.tools.welding Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.welding') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num construction.tools.wrench Viewed Recent": {
+      "query": "(sum ({view category} = 'construction.tools.wrench') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num country_yard.cultivator Viewed Recent": {
+      "query": "(sum ({view category} = 'country_yard.cultivator') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num country_yard.lawn_mower Viewed Recent": {
+      "query": "(sum ({view category} = 'country_yard.lawn_mower') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num country_yard.watering Viewed Recent": {
+      "query": "(case when (sum ({view category} = 'country_yard.watering') from #now - 1 h to #now impute 0) then 'True' else 'False' end) impute 'Missing'"
+    },
+    "Num country_yard.weather_station Viewed Recent": {
+      "query": "(sum ({view category} = 'country_yard.weather_station') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num electronics.audio.acoustic Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.audio.acoustic') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num electronics.audio.dictaphone Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.audio.dictaphone') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num electronics.audio.headphone Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.audio.headphone') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num electronics.audio.microphone Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.audio.microphone') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num electronics.audio.music_tools.piano Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.audio.music_tools.piano') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num electronics.calculator Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.calculator') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num electronics.camera.photo Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.camera.photo') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num electronics.camera.video Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.camera.video') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num electronics.clocks Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.clocks') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num electronics.fax Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.fax') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num electronics.tablet Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.tablet') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num electronics.telephone Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.telephone') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num electronics.video.projector Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.video.projector') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num electronics.video.tv Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.video.tv') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num electronics.video.tv_remote Viewed Recent": {
+      "query": "(sum ({view category} = 'electronics.video.tv_remote') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num furniture.bathroom.bath Viewed Recent": {
+      "query": "(sum ({view category} = 'furniture.bathroom.bath') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num furniture.bedroom.blanket Viewed Recent": {
+      "query": "(sum ({view category} = 'furniture.bedroom.blanket') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num furniture.kitchen.chair Viewed Recent": {
+      "query": "(sum ({view category} = 'furniture.kitchen.chair') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num furniture.living_room.chair Viewed Recent": {
+      "query": "(sum ({view category} = 'furniture.living_room.chair') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num furniture.living_room.shelving Viewed Recent": {
+      "query": "(sum ({view category} = 'furniture.living_room.shelving') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num jewelry.ring Viewed Recent": {
+      "query": "(case when (sum ({view category} = 'jewelry.ring') from #now - 1 h to #now impute 0) then 'True' else 'False' end) impute 'Missing'"
+    },
+    "Num jewelry.souvenir Viewed Recent": {
+      "query": "(sum ({view category} = 'jewelry.souvenir') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num kids.skates Viewed Recent": {
+      "query": "(sum ({view category} = 'kids.skates') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num kids.toys Viewed Recent": {
+      "query": "(sum ({view category} = 'kids.toys') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num medicine.tools.tonometer Viewed Recent": {
+      "query": "(sum ({view category} = 'medicine.tools.tonometer') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num sport.bicycle Viewed Recent": {
+      "query": "(sum ({view category} = 'sport.bicycle') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num stationery.battery Viewed Recent": {
+      "query": "(sum ({view category} = 'stationery.battery') from #now - 1 h to #now impute 0) impute 'Missing'"
+    },
+    "Num stationery.cartrige Viewed Recent": {
+      "query": "(sum ({view category} = 'stationery.cartrige') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num stationery.paper Viewed Recent": {
+      "query": "(sum ({view category} = 'stationery.paper') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Num stationery.stapler Viewed Recent": {
+      "query": "(sum ({view category} = 'stationery.stapler') from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Total Cart Recent": {
+      "query": "(count ({cart}) from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Total Purchased Recent": {
+      "query": "(count ({purchase}) from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    },
+    "Total Viewed Recent": {
+      "query": "(count ({view}) from #now - 1 h to #now impute 0) cut quantiles [0, 0.1, 0.3, 0.7, 0.9, 1] impute 'Missing'"
+    }
+  }
+}
