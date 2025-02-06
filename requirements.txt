@@ -11,3 +11,4 @@ divisi-toolkit>=0.2.0
 torch>=2.0.0
 pyarrow>=13.0.0
 ray[train,tune]
+shap>=0.43.0
