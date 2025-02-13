@@ -206,17 +206,11 @@ class Model:
         test_mask = outcome.get_ids().isin(test_ids)
 
         df_mask = pd.isna(modeling_df)
-        # if df_mask.any().any():
-        #     raise ValueError('There exist Nan values in the data')
         df_mask = ~df_mask
         df_mask = df_mask.all(axis=1)
         outcome_mask = ~pd.isna(outcome_values)
-        row_mask = df_mask & outcome_mask
-        
-        train_mask &= row_mask
-        val_mask &= row_mask
-        test_mask &= row_mask
-        
+        valid_mask = df_mask & outcome_mask
+                
         model, metrics, predictions = self._train_model(
             spec,
             modeling_df,
@@ -225,6 +219,7 @@ class Model:
             train_mask,
             val_mask,
             test_mask,
+            valid_mask,
             update_fn=update_fn,
             early_stopping_rounds=3)
     
@@ -265,22 +260,24 @@ class Model:
         else: 
             return XGBoost(spec["model_type"], **config)
 
-    def _train_model(self, spec, variables, outcomes, ids, train_mask, val_mask, test_mask, full_metrics=True, update_fn=None, **model_params):
+    def _train_model(self, spec, variables, outcomes, ids, train_mask, val_mask, test_mask, valid_mask, full_metrics=True, update_fn=None, **model_params):
         """
         variables: a dataframe containing variables for all patients
+        valid_mask: denotes where neither the inputs nor output are missing
         """
-        train_X = variables[train_mask] #.values
-        train_y = outcomes[train_mask]
-        train_ids = ids[train_mask]
-        logging.info(f"Training samples and missingness: {train_X}, {train_y}, {pd.isna(train_X).sum(axis=0)}, {pd.isna(train_y).sum()}")
-        val_X = variables[val_mask] #.values
-        val_y = outcomes[val_mask]
-        val_ids = ids[val_mask]
-        logging.info(f"Val samples and missingness: {val_X}, {val_y}, {pd.isna(val_X).sum(axis=0)}, {pd.isna(val_y).sum()}")
+        train_X = variables[train_mask & valid_mask] #.values
+        train_y = outcomes[train_mask & valid_mask]
+        train_ids = ids[train_mask & valid_mask]
+        logging.info(f"Training samples and missingness: {train_X.shape}, {train_y.shape}, {pd.isna(train_X).sum(axis=0)}, {pd.isna(train_y).sum()}")
+        val_X = variables[val_mask & valid_mask] #.values
+        val_y = outcomes[val_mask & valid_mask]
+        val_ids = ids[val_mask & valid_mask]
+        logging.info(f"Val samples and missingness: {val_X.shape}, {val_y.shape}, {pd.isna(val_X).sum(axis=0)}, {pd.isna(val_y).sum()}")
 
-        test_X = variables[test_mask] #.values
-        test_y = outcomes[test_mask]
-        test_ids = ids[test_mask]
+        test_X = variables[test_mask & valid_mask] #.values
+        test_y = outcomes[test_mask & valid_mask]
+        test_ids = ids[test_mask & valid_mask]
+        logging.info(f"Test samples and missingness: {test_X.shape}, {test_y.shape}, {pd.isna(test_X).sum(axis=0)}, {pd.isna(test_y).sum()}")
         
         if spec["model_type"].endswith("classification"):
             train_y = train_y.astype(int)
@@ -307,7 +304,15 @@ class Model:
         logging.info("Evaluating")
 
         if update_fn is not None: update_fn({'message': 'Evaluating model'})
-        metrics = model.evaluate(spec,full_metrics,variables,outcomes,ids,train_mask,val_mask,test_mask, progress_fn=update_fn)
+        metrics = model.evaluate(spec,
+                                 full_metrics,
+                                 variables,
+                                 outcomes,
+                                 ids,
+                                 train_mask & valid_mask,
+                                 val_mask & valid_mask,
+                                 test_mask & valid_mask,
+                                 progress_fn=update_fn)
         logging.info(f'metrics {metrics}')
         
         val_pred = model.predict(val_X, val_ids)
@@ -319,9 +324,9 @@ class Model:
         # cohort for this model
         return model, metrics, (
             np.where(val_mask, outcomes, np.nan)[val_mask],
-            self._get_dataset_aligned_predictions(outcomes, val_pred, (val_mask).values)[val_mask],
+            self._get_dataset_aligned_predictions(outcomes, val_pred, (val_mask & valid_mask).values)[val_mask],
             np.where(test_mask, outcomes, np.nan)[test_mask],
-            self._get_dataset_aligned_predictions(outcomes, test_pred, (test_mask).values)[test_mask],
+            self._get_dataset_aligned_predictions(outcomes, test_pred, (test_mask & valid_mask).values)[test_mask],
         )
 
     def load_cache_if_needed(self):

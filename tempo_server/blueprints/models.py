@@ -192,7 +192,7 @@ def rename_model(dataset_name, model_name):
     
     cache_dir = dataset.model_cache_dir(model_name)
     if cache_dir.exists():
-        cache_dir.rename(dataset.model_spec_dir(body["name"]))
+        cache_dir.rename(dataset.model_cache_dir(body["name"]))
 
     return "Success"
     
