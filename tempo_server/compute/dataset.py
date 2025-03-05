@@ -18,7 +18,10 @@ class Dataset:
         dataset_fs: A Filesystem object that stores the dataset.
         """
         self.fs = dataset_fs
-        self.spec = self.fs.read_file("spec.json")
+        try:
+            self.spec = self.fs.read_file("spec.json")
+        except:
+            self.spec = None
         self.split = split
         
         self.global_cache_dir = self.fs.subdirectory("_cache")

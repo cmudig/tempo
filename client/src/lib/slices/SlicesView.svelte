@@ -1,22 +1,13 @@
 <script lang="ts">
-  import { type ModelMetrics, type VariableDefinition } from '../model';
   import {
     createEventDispatcher,
     getContext,
     onDestroy,
     onMount,
   } from 'svelte';
-  import * as d3 from 'd3';
-  import ModelTrainingView from '../ModelTrainingView.svelte';
-  import {
-    checkSlicingStatus,
-    checkTrainingStatus,
-    type SliceFindingStatus,
-    type TrainingStatus,
-  } from '../training';
+  import { checkTrainingStatus, type TrainingStatus } from '../training';
   import SliceSearchView from './SliceSearchView.svelte';
   import {
-    SliceSearchControl,
     type Slice,
     type SliceFeatureBase,
   } from '../slices/utils/slice.type';
@@ -28,19 +19,16 @@
     faChevronLeft,
     faHeart,
     faPlus,
-    faWrench,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa';
   import SliceSpecEditor from './SliceSpecEditor.svelte';
   import { scoreFunctionToString, type ScoreFunction } from './scorefunctions';
   import ScoreFunctionPanel from './ScoreFunctionPanel.svelte';
   import RuleFilterPanel from './RuleFilterPanel.svelte';
-  import { RuleFilterType, type RuleFilter } from './rulefilters';
+  import type { RuleFilter } from './rulefilters';
 
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
-
-  const dispatch = createEventDispatcher();
 
   export let modelName: string | null = null;
   export let modelsToShow: string[];

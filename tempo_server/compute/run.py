@@ -155,6 +155,10 @@ def task_runner(fs_info, task_info, update_fn):
              "ground_truth": outcome[i]
              } for i in range(len(index))
         ])
+    elif cmd == Commands.CLEAR_MEMORY_CACHE:
+        global cache_dataset, cache_worker_sample_dataset
+        cache_dataset = None
+        cache_worker_sample_dataset = None
         
     return "Success"
     
@@ -184,3 +188,7 @@ def get_sample_dataset(dataset_name):
         sample_dataset = (dataset_name, ds)
         
     return sample_dataset[1]
+
+def clear_sample_dataset():
+    global sample_dataset
+    sample_dataset = None

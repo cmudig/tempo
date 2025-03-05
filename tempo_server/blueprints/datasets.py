@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from ..compute.run import get_worker, get_filesystem
+from ..compute.run import get_worker, get_filesystem, clear_sample_dataset
 from ..compute.utils import Commands
 from ..compute.dataset import Dataset
 from ..compute.slicefinder import SliceFinder
@@ -21,7 +21,8 @@ def list_datasets():
     for n in fs.list_files():
         try:
             ds = Dataset(fs.subdirectory(n))
-            results[n] = { "spec": ds.get_spec(), "models": list(ds.get_models().keys()) }
+            if spec := ds.get_spec():
+                results[n] = { "spec": spec, "models": list(ds.get_models().keys()) }
         except:
             continue
     return jsonify(results)
@@ -63,6 +64,108 @@ def update_dataset_spec(dataset_name):
 
     return jsonify({ "task_id": task_id })
 
+@datasets_blueprint.post("/datasets/new")
+@datasets_blueprint.post("/datasets/new/<reference_name>")
+def make_new_dataset(reference_name=None):
+    """
+    Parameters:
+    * reference_name: The name of the spec to duplicate to create the new
+        dataset. If none is provided, creates an empty dataset.
+        
+    Returns: JSON of the format {
+        "name": <initial model name>,
+        "spec": { model spec }
+    }
+    """
+    if reference_name is None:
+        base_spec = {
+            "data": {
+                "sources": [],
+            },
+            "slices": {
+                "sampler": {
+                    "min_items_fraction": 0.02,
+                    "samples_per_model": 100,
+                    "max_features": 3,
+                    "scoring_fraction": 0.2,
+                    "num_candidates": 20,
+                    "similarity_threshold": 0.5
+                }
+            }
+        }
+        base_name = "Untitled"
+    else:
+        if not get_filesystem().subdirectory("datasets", reference_name).exists():
+            return "Dataset does not exist", 404
+        base_name = reference_name
+        base_spec = Dataset(get_filesystem().subdirectory("datasets", reference_name)).get_spec()
+        
+    increment_index = None
+    final_name = base_name
+    while get_filesystem().subdirectory("datasets").exists(final_name):
+        if increment_index is None:
+            increment_index = 2
+        else:
+            increment_index += 1
+        final_name = f"{base_name} {increment_index}"
+
+    Dataset(get_filesystem().subdirectory("datasets", final_name)).write_spec(base_spec)
+    return jsonify({"name": final_name, "spec": base_spec})
+
+@datasets_blueprint.delete("/datasets/<dataset_name>")
+def delete_model(dataset_name):
+    """
+    Parameters:
+    * dataset_name: Name of the dataset to delete
+    
+    Returns: plain-text "Success" if the model was deleted
+    """
+    dataset_dir = get_filesystem().subdirectory("datasets", dataset_name)
+    if not dataset_dir.exists():
+        return "Dataset does not exist", 404
+    
+    try:
+        dataset_dir.delete()
+    except:
+        return "Dataset could not be deleted", 400
+    
+    clear_sample_dataset()
+    get_worker().submit_task({
+        "cmd": Commands.CLEAR_MEMORY_CACHE
+    })
+    
+    return "Success"
+    
+@datasets_blueprint.post("/datasets/<dataset_name>/rename")
+def rename_dataset(dataset_name):
+    """
+    Parameters:
+    * dataset_name: Name of the dataset to rename
+    
+    Request body: JSON of the format { 'name': new name }
+    
+    Returns: plain-text "Success" if the model was renamed
+    """
+    dataset_dir = get_filesystem().subdirectory("datasets", dataset_name)
+    if not dataset_dir.exists():
+        return "Dataset does not exist", 404
+    
+    body = request.json
+    if "name" not in body:
+        return "rename requires a 'name' field in the request body", 400
+    
+    try:
+        dataset_dir.rename(get_filesystem().subdirectory("datasets", body.get("name")))
+    except:
+        return "Dataset could not be renamed", 400
+    
+    clear_sample_dataset()
+    get_worker().submit_task({
+        "cmd": Commands.CLEAR_MEMORY_CACHE
+    })
+
+    return "Success"
+    
 @datasets_blueprint.post("/datasets/<dataset_name>/clear_cache")
 def clear_caches(dataset_name):
     """

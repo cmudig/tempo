@@ -6,6 +6,7 @@ import shutil
 import pandas as pd
 import torch
 from google.cloud import storage
+from google.cloud.exceptions import NotFound
 from google.api_core import page_iterator
 
 BINARY_FILE_TYPES = ('pickle', 'feather', 'bytes', 'pytorch')
@@ -190,12 +191,12 @@ class GCSFilesystem:
     
     def list_files(self, *path):
         prefix = self.make_full_path(*path)
-        return sorted([
+        return sorted(p for p in [
             *(os.path.basename(b.name) 
               for b in self.bucket.list_blobs(prefix=prefix)
               if os.path.dirname(b.name) == prefix),
             *(os.path.basename(p.rstrip('/')) for p in list_directories(self.bucket_name, prefix))
-        ])
+        ] if p)
         
     def make_full_path(self, *path):
         return '/'.join((self.base_path, *path)).lstrip('/')
@@ -231,20 +232,23 @@ class GCSFilesystem:
             except:
                 raise ValueError(f"Unknown format for path {path[-1]}")
         full_path = self.make_full_path(*path)
-        with self.bucket.blob(full_path).open('rb' if format in BINARY_FILE_TYPES else 'r') as file:
-            if format.lower() in ('str', 'bytes'):
-                return file.read()
-            elif format.lower() == 'json':
-                return json.load(file, **kwargs)
-            elif format.lower() == 'csv':
-                return pd.read_csv(file, **kwargs)
-            elif format.lower() == 'pickle':
-                return pickle.load(file, **kwargs)
-            elif format.lower() == 'feather':
-                return pd.read_feather(file, **kwargs)
-            elif format.lower() == 'pytorch':
-                return torch.load(file, **kwargs)
-            raise ValueError(f"Unsupported format {format}")
+        try:
+            with self.bucket.blob(full_path).open('rb' if format in BINARY_FILE_TYPES else 'r') as file:
+                if format.lower() in ('str', 'bytes'):
+                    return file.read()
+                elif format.lower() == 'json':
+                    return json.load(file, **kwargs)
+                elif format.lower() == 'csv':
+                    return pd.read_csv(file, **kwargs)
+                elif format.lower() == 'pickle':
+                    return pickle.load(file, **kwargs)
+                elif format.lower() == 'feather':
+                    return pd.read_feather(file, **kwargs)
+                elif format.lower() == 'pytorch':
+                    return torch.load(file, **kwargs)
+                raise ValueError(f"Unsupported format {format}")
+        except NotFound:
+            raise ValueError(f"File {path[-1]} not found")
         
     def write_file(self, content, *path, format=None, **kwargs):            
         if format is None: 

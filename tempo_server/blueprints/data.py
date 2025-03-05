@@ -53,7 +53,10 @@ def get_data_summary(dataset_name):
     if not fs.exists("datasets", dataset_name, "spec.json"):
         return "Dataset not found", 404
 
-    dataset = get_sample_dataset(dataset_name)
+    try:
+        dataset = get_sample_dataset(dataset_name)
+    except:
+        return "Dataset spec error", 400
     summary = dataset.get_summary()
     if summary is None:
         worker = get_worker()
@@ -74,7 +77,10 @@ def list_data_fields(dataset_name):
     Returns: JSON of the format [ "field_1", "field_2", ... ] where each
         field is the name of an attribute, event, or interval
     """
-    sample_dataset = get_sample_dataset(dataset_name)
+    try:
+        sample_dataset = get_sample_dataset(dataset_name)
+    except:
+        return "Dataset spec error", 400
     result = [
         *[c for attr_set in sample_dataset.attributes for c in attr_set.df.columns],
         *[c for event_set in sample_dataset.events for c in event_set.get_types().unique()],
@@ -173,7 +179,10 @@ def download_batch_queries(dataset_name):
     """
     body = request.json
     if "queries" not in body: return "/data/download request body must include a queries dictionary", 400
-    dataset = get_sample_dataset(dataset_name)
+    try:
+        dataset = get_sample_dataset(dataset_name)
+    except:
+        return "Dataset spec error", 400
     if (result_path := dataset.get_downloadable_query(body["queries"])) is not None:
         contents = dataset.read_downloadable_query_result(result_path)
         return { 
