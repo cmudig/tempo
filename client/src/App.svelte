@@ -471,7 +471,9 @@
     <div
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 flex items-center justify-center pointer-events-none p-16"
     >
-      <div class="w-full h-full z-20 rounded-md bg-white pointer-events-auto">
+      <div
+        class="w-full h-full z-20 rounded-md bg-white pointer-events-auto overflow-hidden"
+      >
         <DatasetView
           bind:currentDataset={$currentDataset}
           {isLoadingDatasets}

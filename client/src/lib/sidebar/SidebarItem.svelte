@@ -124,7 +124,7 @@
           {/if}
         </div>
       {/if}
-      <div class="flex-auto min-w-0">
+      <div class="flex-auto min-w-0" class:ml-2={!showCheckbox}>
         {#if isEditingName}
           <form
             class="w-full"

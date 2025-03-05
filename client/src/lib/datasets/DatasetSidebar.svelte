@@ -108,9 +108,7 @@
           displayItemType="dataset"
           isEditingName={editingDatasetName == dsName}
           isActive={currentDataset === dsName}
-          isChecked={selectedDatasets.includes(dsName) ||
-            currentDataset === dsName}
-          allowCheck={currentDataset != dsName}
+          showCheckbox={false}
           on:click={() => {
             currentDataset = dsName;
             selectedDatasets = [];
