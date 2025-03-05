@@ -12,3 +12,4 @@ torch>=2.0.0
 pyarrow>=13.0.0
 ray[train,tune]
 shap>=0.43.0
+google-cloud-storage>=2.19.0

@@ -131,7 +131,7 @@ class SliceFinder:
     def __init__(self, dataset):
         self.dataset = dataset
         self.results_fs = self.dataset.global_cache_dir.subdirectory("slices", "results")
-        self.variable_cache_fs = self.dataset.split_cache_dir.subdirectory("slicing_variables")
+        self.variable_cache_fs = self.dataset.get_slicing_variable_cache_fs()
         self._results_cache = None # keys: strings of the format "model name###variable spec name"
         self._variable_specs_cache = {} # keys: tuples (timestep definition, variable spec name)
         self._model_cache = {} # keys: model name strings

@@ -3,7 +3,7 @@ Module that manages all of the
 """
 from functools import partial
 from .worker import BackgroundWorker
-from .filesystem import LocalFilesystem
+from .filesystem import LocalFilesystem, GCSFilesystem
 from .dataset import Dataset
 from .model import Model
 from .slicefinder import SliceFinder
@@ -16,6 +16,19 @@ import traceback
 cache_dataset = None # tuple (name, Dataset)
 cache_worker_sample_dataset = None # tuple (name, Dataset)
 
+def make_filesystem_from_info(fs_info):
+    if fs_info['type'] == 'local':
+        return LocalFilesystem(fs_info['path'])
+    elif fs_info['type'] == 'gcs':
+        from google.cloud import storage
+        print('gcs info:', fs_info)
+        return GCSFilesystem(storage.Client(), 
+                             fs_info['bucket'], 
+                             fs_info.get('base_path', ''),
+                             local_fallback=fs_info.get('local_fallback', None))
+    else:
+        raise ValueError(f"Unknown filesystem type: {fs_info['type']}")
+    
 def _get_dataset(filesystem, dataset_name):
     """Only used by the worker to get a full-size dataset"""
     global cache_dataset
@@ -34,7 +47,8 @@ def _get_worker_sample_dataset(filesystem, dataset_name):
         cache_worker_sample_dataset = (dataset_name, ds)
     return cache_worker_sample_dataset[1]
 
-def task_runner(filesystem, task_info, update_fn):
+def task_runner(fs_info, task_info, update_fn):
+    filesystem = make_filesystem_from_info(fs_info)
     logging.info(f"My filesystem is {filesystem}, performing task {task_info}")
     cmd = task_info['cmd']
     if cmd == Commands.TRAIN_MODEL:
@@ -68,7 +82,10 @@ def task_runner(filesystem, task_info, update_fn):
         update_fn({'message': 'Creating slicing variables'})
         slicing_spec_name = dataset.default_slicing_variable_spec_name(model_name)
         slicing_spec = dataset.get_slicing_variable_spec(slicing_spec_name)
-        variables_df = model.make_modeling_variables(dataset.make_query_engine(), spec, dummies=False)
+        variables_df = model.make_modeling_variables(dataset.make_query_engine(), 
+                                                     spec, 
+                                                     update_fn=lambda m: update_fn({'message': 'Creating slicing variables: ' + m['message']}), 
+                                                     dummies=False)
         slicing_spec.create_default(spec, variables_df)
         
         slicefinder = SliceFinder(dataset)
@@ -146,11 +163,11 @@ worker = None
 filesystem = None
 sample_dataset = None # tuple (name, Dataset)
 
-def setup_worker(fs, log_path, verbose=False):
+def setup_worker(fs_info, log_path, verbose=False):
     global worker
     global filesystem
-    worker = BackgroundWorker(partial(task_runner, fs), log_path, verbose=verbose)
-    filesystem = fs
+    worker = BackgroundWorker(partial(task_runner, fs_info), log_path, verbose=verbose)
+    filesystem = make_filesystem_from_info(fs_info)
     return worker
 
 def get_worker():

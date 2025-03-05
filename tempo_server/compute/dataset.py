@@ -8,6 +8,7 @@ import time
 import uuid
 from tempo_server.compute.model import Model
 from tempo_server.compute.slicefinder import SlicingVariableSpec
+from tempo_server.compute.filesystem import GCSFilesystem
 
 DEFAULT_SPLIT = {"train": 0.5, "val": 0.25, "test": 0.25}
 
@@ -213,8 +214,18 @@ class Dataset:
 
     def get_variable_cache_fs(self):
         if self.split_cache_dir is not None:
-            return self.split_cache_dir.subdirectory("variables")
+            result = self.split_cache_dir.subdirectory("variables")
+            if isinstance(result, GCSFilesystem):
+                return result.get_local_fallback() or result
+            return result
     
+    def get_slicing_variable_cache_fs(self):
+        if self.split_cache_dir is not None:
+            result = self.split_cache_dir.subdirectory("slicing_variables")
+            if isinstance(result, GCSFilesystem):
+                return result.get_local_fallback() or result
+            return result
+        
     def make_query_engine(self, cache_fs=None):
         """If cache_fs is None, uses the default variable cache."""
         if self.attributes is None:
