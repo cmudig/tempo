@@ -87,4 +87,4 @@ if __name__ == '__main__':
             print("Shut down model worker")
     atexit.register(close_running_threads)
     
-    app.run(debug=not args.public, port=args.port, host='0.0.0.0' if public else '127.0.0.1')
+    app.run(debug=not args.public, port=args.port, host='0.0.0.0' if public else '127.0.0.1', threaded=not args.single_thread)
