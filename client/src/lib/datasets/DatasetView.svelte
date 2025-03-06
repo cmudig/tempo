@@ -180,88 +180,96 @@
       >
     </div>
 
-    <div
-      class="text-lg font-bold whitespace-nowrap flex-auto truncate font-mono p-4 grow-0 shrink-0"
-    >
-      {#if currentView == View.specification}Specification{:else if currentView == View.info}Dataset
-        Info{:else}Utilities{/if}
-      for
-      {#if selectedDatasets.length > 0}
-        {@const numDatasets = new Set([...selectedDatasets, currentDataset])
-          .size}
-        {numDatasets} dataset{numDatasets > 1 ? 's' : ''}
-      {:else}{currentDataset}{/if}
-    </div>
-    <div class="flex-auto min-h-0 overflow-auto w-full">
-      {#if currentView == View.info}
-        {#if selectedDatasets.length == 0}
-          <div class="py-4">
-            <DatasetInfoView
-              showHeader={false}
-              showCloseButton={false}
-              scroll={false}
-            />
+    {#if !!currentDataset}
+      <div
+        class="text-lg font-bold whitespace-nowrap flex-auto truncate font-mono p-4 grow-0 shrink-0"
+      >
+        {#if currentView == View.specification}Specification{:else if currentView == View.info}Dataset
+          Info{:else}Utilities{/if}
+        for
+        {#if selectedDatasets.length > 0}
+          {@const numDatasets = new Set([...selectedDatasets, currentDataset])
+            .size}
+          {numDatasets} dataset{numDatasets > 1 ? 's' : ''}
+        {:else}{currentDataset}{/if}
+      </div>
+      <div class="flex-auto min-h-0 overflow-auto w-full">
+        {#if currentView == View.info}
+          {#if selectedDatasets.length == 0}
+            <div class="py-4">
+              <DatasetInfoView
+                showHeader={false}
+                showCloseButton={false}
+                scroll={false}
+              />
+            </div>
+          {:else}
+            <div
+              class="w-full h-full flex flex-col items-center justify-center"
+            >
+              <div class="text-slate-500">Multiple models selected</div>
+            </div>
+          {/if}
+        {:else if currentView == View.specification}{:else if currentView == View.utilities}
+          <div
+            class="mb-4 px-4 grid gap-4 items-center"
+            style="grid-template-columns: max-content auto;"
+          >
+            <button
+              class="btn btn-red"
+              disabled={clearingCache}
+              on:click={() => clearCache('variables')}
+            >
+              Clear Variable Caches
+            </button>
+            <div class="flex-auto text-sm text-slate-500">
+              Remove all computed variables for model training, slicing, and
+              queries.
+            </div>
+            <button
+              class="btn btn-red"
+              disabled={clearingCache}
+              on:click={() => clearCache('models')}
+            >
+              Clear Trained Models
+            </button>
+            <div class="flex-auto text-sm text-slate-500">
+              Remove all model training results (without removing the
+              specifications).
+            </div>
+            <button
+              class="btn btn-red"
+              disabled={clearingCache}
+              on:click={() => clearCache('slices')}
+            >
+              Clear Subgroup Results
+            </button>
+            <div class="flex-auto text-sm text-slate-500">
+              Remove discovered subgroups.
+            </div>
+            <button
+              class="btn btn-red"
+              disabled={clearingCache}
+              on:click={() => clearCache('all')}
+            >
+              Clear All Caches
+            </button>
+            <div class="flex-auto text-sm text-slate-500">
+              Remove all of the above cached data for this dataset, including
+              the train/val/test split.
+            </div>
           </div>
-        {:else}
-          <div class="w-full h-full flex flex-col items-center justify-center">
-            <div class="text-slate-500">Multiple models selected</div>
-          </div>
+          {#if !!clearCacheMessage}
+            <div class="px-4 mb-4 text-blue-500 text-sm">
+              {clearCacheMessage}
+            </div>
+          {/if}
         {/if}
-      {:else if currentView == View.specification}{:else if currentView == View.utilities}
-        <div
-          class="mb-4 px-4 grid gap-4 items-center"
-          style="grid-template-columns: max-content auto;"
-        >
-          <button
-            class="btn btn-red"
-            disabled={clearingCache}
-            on:click={() => clearCache('variables')}
-          >
-            Clear Variable Caches
-          </button>
-          <div class="flex-auto text-sm text-slate-500">
-            Remove all computed variables for model training, slicing, and
-            queries.
-          </div>
-          <button
-            class="btn btn-red"
-            disabled={clearingCache}
-            on:click={() => clearCache('models')}
-          >
-            Clear Trained Models
-          </button>
-          <div class="flex-auto text-sm text-slate-500">
-            Remove all model training results (without removing the
-            specifications).
-          </div>
-          <button
-            class="btn btn-red"
-            disabled={clearingCache}
-            on:click={() => clearCache('slices')}
-          >
-            Clear Subgroup Results
-          </button>
-          <div class="flex-auto text-sm text-slate-500">
-            Remove discovered subgroups.
-          </div>
-          <button
-            class="btn btn-red"
-            disabled={clearingCache}
-            on:click={() => clearCache('all')}
-          >
-            Clear All Caches
-          </button>
-          <div class="flex-auto text-sm text-slate-500">
-            Remove all of the above cached data for this dataset, including the
-            train/val/test split.
-          </div>
-        </div>
-        {#if !!clearCacheMessage}
-          <div class="px-4 mb-4 text-blue-500 text-sm">
-            {clearCacheMessage}
-          </div>
-        {/if}
-      {/if}
-    </div>
+      </div>
+    {:else}
+      <div class="w-full h-full flex flex-col items-center justify-center">
+        <div class="text-slate-500">No datasets yet!</div>
+      </div>
+    {/if}
   </div>
 </div>

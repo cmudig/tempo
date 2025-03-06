@@ -13,3 +13,5 @@ pyarrow>=13.0.0
 ray[train,tune]
 shap>=0.43.0
 google-cloud-storage>=2.19.0
+flask-login==0.6.0
+Flask-WTF>=1.2.0

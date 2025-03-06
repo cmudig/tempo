@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from flask_login import login_required
 from ..compute.run import get_worker
 from ..compute.worker import TaskStatus
 
@@ -7,6 +8,7 @@ tasks_blueprint = Blueprint('tasks', __name__)
 # Getting tasks and their status
 
 @tasks_blueprint.get("/tasks")
+@login_required
 def list_tasks():
     """
     Query parameters: keys and values for filtering the results list by the task
@@ -31,6 +33,7 @@ def list_tasks():
     return jsonify(jobs)
     
 @tasks_blueprint.get("/tasks/<task_id>")
+@login_required
 def task_status(task_id):
     """
     Returns: JSON of the format { 
@@ -49,6 +52,7 @@ def task_status(task_id):
         return jsonify({ "status": status[0], "status_info": status[1] })
     
 @tasks_blueprint.post("/tasks/<task_id>/stop")
+@login_required
 def stop_task(task_id):
     """
     Parameters:

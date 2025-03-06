@@ -11,6 +11,7 @@ from .utils import Commands, make_query_result_summary
 from divisi.utils import convert_to_native_types
 import logging
 import traceback
+from flask_login import current_user
 
 # these variables are only used in the worker
 cache_dataset = None # tuple (name, Dataset)
@@ -47,9 +48,14 @@ def _get_worker_sample_dataset(filesystem, dataset_name):
         cache_worker_sample_dataset = (dataset_name, ds)
     return cache_worker_sample_dataset[1]
 
-def task_runner(fs_info, task_info, update_fn):
+def task_runner(fs_info, partition_by_user, task_info, update_fn):
     filesystem = make_filesystem_from_info(fs_info)
+    if partition_by_user:
+        if "user_id" not in task_info:
+            raise ValueError("User authentication required, but no user_id provided")
+        filesystem = filesystem.subdirectory("users", task_info["user_id"])
     logging.info(f"My filesystem is {filesystem}, performing task {task_info}")
+        
     cmd = task_info['cmd']
     if cmd == Commands.TRAIN_MODEL:
         update_fn({'message': 'Loading data'})
@@ -166,11 +172,14 @@ def task_runner(fs_info, task_info, update_fn):
 worker = None
 filesystem = None
 sample_dataset = None # tuple (name, Dataset)
+fs_partition_by_user = False
 
-def setup_worker(fs_info, log_path, verbose=False):
+def setup_worker(fs_info, log_path, verbose=False, partition_by_user=False):
     global worker
     global filesystem
-    worker = BackgroundWorker(partial(task_runner, fs_info), log_path, verbose=verbose)
+    global fs_partition_by_user
+    fs_partition_by_user = partition_by_user
+    worker = BackgroundWorker(partial(task_runner, fs_info, partition_by_user), log_path, verbose=verbose)
     filesystem = make_filesystem_from_info(fs_info)
     return worker
 
@@ -178,12 +187,14 @@ def get_worker():
     return worker
 
 def get_filesystem():
+    if fs_partition_by_user and current_user.is_authenticated:
+        return filesystem.subdirectory("users", current_user.get_id())
     return filesystem
 
 def get_sample_dataset(dataset_name):
     global sample_dataset
     if sample_dataset is None or sample_dataset[0] != dataset_name:
-        ds = Dataset(filesystem.subdirectory("datasets", dataset_name), split="test")
+        ds = Dataset(get_filesystem().subdirectory("datasets", dataset_name), split="test")
         ds.load_data()
         sample_dataset = (dataset_name, ds)
         

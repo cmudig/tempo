@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from flask_login import login_required
 from ..compute.run import get_worker, get_filesystem
 from ..compute.dataset import Dataset
 from ..compute.utils import Commands
@@ -38,6 +39,7 @@ def model_training_job_info(dataset_name, model_name):
     ), None)
     
 @models_blueprint.route('/datasets/<dataset_name>/models', methods=["GET"])
+@login_required
 def get_models(dataset_name):
     """
     Parameters:
@@ -66,6 +68,7 @@ def get_models(dataset_name):
         return jsonify({ "models": results})
 
 @models_blueprint.route("/datasets/<dataset_name>/models/<model_name>")
+@login_required
 def get_model_spec(dataset_name, model_name):
     """
     Parameters:
@@ -93,6 +96,7 @@ def get_model_spec(dataset_name, model_name):
 
 
 @models_blueprint.post("/datasets/<dataset_name>/models/new/<reference_name>")
+@login_required
 def make_new_model_spec(dataset_name, reference_name=""):
     """
     Parameters:
@@ -137,6 +141,7 @@ def make_new_model_spec(dataset_name, reference_name=""):
 
 
 @models_blueprint.delete("/datasets/<dataset_name>/models/<model_name>")
+@login_required
 def delete_model(dataset_name, model_name):
     """
     Parameters:
@@ -164,6 +169,7 @@ def delete_model(dataset_name, model_name):
     return "Success"
     
 @models_blueprint.post("/datasets/<dataset_name>/models/<model_name>/rename")
+@login_required
 def rename_model(dataset_name, model_name):
     """
     Parameters:
@@ -198,6 +204,7 @@ def rename_model(dataset_name, model_name):
     
 
 @models_blueprint.route("/datasets/<dataset_name>/models/<model_name>/metrics")
+@login_required
 def get_model_metrics(dataset_name, model_name):
     """
     Parameters:
@@ -221,6 +228,7 @@ def get_model_metrics(dataset_name, model_name):
         return "Metrics not available", 400
 
 @models_blueprint.route("/datasets/<dataset_name>/models", methods=["POST"])
+@login_required
 def generate_model(dataset_name):
     """
     Parameters:
@@ -288,6 +296,7 @@ def generate_model(dataset_name):
     return jsonify(model_training_job_info(dataset_name, model_name))
 
 @models_blueprint.post("/datasets/<dataset_name>/models/<model_name>/instances")
+@login_required
 def get_model_instances(dataset_name, model_name):
     """
     Parameters:
@@ -335,6 +344,7 @@ def get_model_instances(dataset_name, model_name):
     return jsonify(worker.task_info(task_id))
 
 @models_blueprint.post("/datasets/<dataset_name>/models/<model_name>/predict")
+@login_required
 def get_model_predictions(dataset_name, model_name):
     """
     Parameters:

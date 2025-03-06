@@ -26,7 +26,7 @@
   <div class="w-full sticky top-0">
     <div class="py-2 px-4 flex items-center grow-0 shrink-0 gap-2">
       <div class="text-lg font-bold whitespace-nowrap shrink-1 overflow-hidden">
-        Datasets
+        Select Dataset
       </div>
       {#if isLoadingDatasets}
         <div role="status">

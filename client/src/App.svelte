@@ -20,17 +20,24 @@
     faCaretLeft,
     faCaretRight,
     faSearch,
+    faUserCircle,
+    faWrench,
+    faChartBar,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa/src/fa.svelte';
   import ResizablePanel from './lib/utils/ResizablePanel.svelte';
   import DatasetInfoView from './lib/datasets/DatasetInfoView.svelte';
   import logoUrl from './assets/logo_dark.svg';
+  import logoLightUrl from './assets/logo_light.svg';
   import QueryLanguageReferenceView from './lib/QueryLanguageReferenceView.svelte';
   import ModelTrainingView from './lib/ModelTrainingView.svelte';
   import { writable, type Writable } from 'svelte/store';
   import type { Dataset } from './lib/dataset';
   import DatasetView from './lib/datasets/DatasetView.svelte';
   import DatasetQueryScratchpad from './lib/datasets/DatasetQueryScratchpad.svelte';
+  import ActionMenuButton from './lib/slices/utils/ActionMenuButton.svelte';
+
+  export let csrf: string = '';
 
   let currentDataset: Writable<string | null> = writable(null);
   let queryResultCache: Writable<{ [key: string]: QueryEvaluationResult }> =
@@ -58,11 +65,16 @@
   let showingQueryBuilder: boolean = false;
   let queryHistory: string[] = [];
   let showingQueryReference: boolean = false;
+  let showingLogin: boolean = false;
+  let showingSignup: boolean = false;
+  let loginErrorMessage: string | null = null;
+  let currentUser: string | null = null;
 
   let selectedModels: string[] = [];
 
   let isLoadingDatasets: boolean = false;
   let isLoadingModels: boolean = false;
+  let isLoadingUser: boolean = false;
   let showSidebar: boolean = true;
 
   let sliceSpec = 'default';
@@ -75,16 +87,35 @@
   let savedSlices: { [key: string]: { [key: string]: SliceFeatureBase } } = {};
 
   onMount(async () => {
+    await checkCurrentUser();
     await refreshDatasets();
     await refreshModels();
   });
 
+  async function checkCurrentUser() {
+    isLoadingUser = true;
+    try {
+      let result = await fetch(import.meta.env.BASE_URL + 'user_info');
+      console.log('user result:', result);
+      if (result.status == 403) {
+        showingSignup = true;
+        isLoadingUser = false;
+        return;
+      }
+      let response = await result.json();
+      console.log('user response:', response);
+      currentUser = response.user_id ?? null;
+    } catch (e) {
+      console.error('error getting current user:', e);
+    }
+    isLoadingUser = false;
+  }
+
   async function refreshDatasets() {
     isLoadingDatasets = true;
     try {
-      datasetOptions = await (
-        await fetch(import.meta.env.BASE_URL + '/datasets')
-      ).json();
+      let result = await fetch(import.meta.env.BASE_URL + '/datasets');
+      datasetOptions = await result.json();
     } catch (e) {
       console.error('error fetching datasets:', e);
     }
@@ -93,12 +124,16 @@
     if (!$currentDataset || !datasetOptions[$currentDataset]) {
       if (Object.keys(datasetOptions).length > 0)
         $currentDataset = Object.keys(datasetOptions).sort()[0];
+      else $currentDataset = null;
     }
+    if (Object.keys(datasetOptions).length == 0)
+      showingDatasetManagement = true;
     isLoadingDatasets = false;
   }
 
   async function refreshModels() {
-    if ($currentDataset == null) return;
+    if (Object.keys(datasetOptions).length == 0 || $currentDataset == null)
+      return;
 
     isLoadingModels = true;
     try {
@@ -255,6 +290,82 @@
 
   let trainingBar: ModelTrainingView;
   let refreshKey: any = {}; // set to a different object when need to refresh the main page
+
+  let enteredUsername: string = '';
+  let enteredPassword: string = '';
+  let rememberMe: boolean = false;
+  let loggingIn: boolean = false;
+  async function login() {
+    loggingIn = true;
+    try {
+      let result = await fetch(import.meta.env.BASE_URL + '/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrf,
+        },
+        body: JSON.stringify({
+          user_id: enteredUsername,
+          password: enteredPassword,
+          remember: rememberMe,
+        }),
+        credentials: 'same-origin',
+      });
+      if (result.status != 200) {
+        loginErrorMessage = await result.text();
+        return;
+      }
+      let response = await result.json();
+      if (response.error) {
+        loginErrorMessage = response.error;
+        return;
+      }
+      loginErrorMessage = null;
+      showingLogin = false;
+      showingSignup = false;
+      currentUser = response.user_id;
+      refreshDatasets();
+    } catch (e) {
+      loginErrorMessage = 'Error occurred while logging in';
+    }
+    loggingIn = false;
+  }
+
+  async function signUp() {
+    loggingIn = true;
+    try {
+      let result = await fetch(import.meta.env.BASE_URL + '/create_user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrf,
+        },
+        body: JSON.stringify({
+          user_id: enteredUsername,
+          password: enteredPassword,
+          remember: rememberMe,
+        }),
+        credentials: 'same-origin',
+      });
+      if (result.status != 200) {
+        loginErrorMessage = await result.text();
+        return;
+      }
+      let response = await result.json();
+      if (response.error) {
+        loginErrorMessage = response.error;
+        return;
+      }
+      loginErrorMessage = null;
+      showingLogin = false;
+      showingSignup = false;
+      currentUser = response.user_id;
+      refreshDatasets();
+    } catch (e) {
+      loginErrorMessage = 'Error occurred while creating account';
+    }
+    loggingIn = false;
+  }
 </script>
 
 <svelte:document
@@ -292,15 +403,15 @@
       <img src={logoUrl} class="h-full" alt="Tempo" />
     </div>
     <div class="flex-auto" />
-    <select
-      class="flat-select-dark py-1 mr-3 font-mono"
-      bind:value={$currentDataset}
-    >
-      {#each Object.keys(datasetOptions).sort() as d}
-        <option value={d}>{d}</option>
-      {/each}
-      <option value={manageDatasetsValue}>Manage datasets...</option>
-    </select>
+    <button
+      class="mr-3 btn btn-dark-slate"
+      on:click={() => (showingDatasetManagement = true)}
+      ><Fa icon={faDatabase} class="inline mr-2" />
+      {#if !!$currentDataset}Select Dataset <span
+          class="font-normal font-mono text-slate-300 text-sm ml-1"
+          >{$currentDataset}</span
+        >{:else}Select Dataset{/if}
+    </button>
     <button
       class="mr-3 btn btn-dark-slate"
       on:click={() => (showingQueryBuilder = true)}
@@ -311,16 +422,44 @@
           .startsWith('mac')}&#8984;K{:else}Cmd+K{/if}</span
       ></button
     >
-    <button
-      class="mr-3 btn btn-dark-slate"
-      on:click={() => (showingQueryReference = true)}
-      ><Fa icon={faBook} class="inline mr-2" /> Syntax Reference</button
-    >
-    <button
-      class="btn btn-dark-slate"
-      on:click={() => (showingDatasetInfo = !showingDatasetInfo)}
-      ><Fa icon={faDatabase} class="inline mr-2" /> Dataset Info</button
-    >
+    <ActionMenuButton buttonClass="btn btn-dark-slate" align="right">
+      <span slot="button-content">
+        <Fa icon={faWrench} class="inline mr-2" /> Tools
+      </span>
+      <div slot="options">
+        <a
+          href="#"
+          tabindex="0"
+          role="menuitem"
+          title="Show documentation for the query language"
+          on:click={() => (showingQueryReference = true)}
+          ><Fa icon={faBook} class="inline mr-2" /> Syntax Reference</a
+        >
+        <a
+          href="#"
+          tabindex="0"
+          role="menuitem"
+          title="Show summary of dataset characteristics"
+          class={!$currentDataset ? 'pointer-events-none opacity-50' : ''}
+          on:click={() => (showingDatasetInfo = true)}
+          ><Fa icon={faChartBar} class="inline mr-2" /> Dataset Info</a
+        >
+        {#if currentUser !== null}
+          <a
+            href="/logout"
+            tabindex="0"
+            role="menuitem"
+            title="Log out of this user account"
+            ><div class="mb-1">
+              <Fa icon={faUserCircle} class="inline mr-2" /> Log Out
+            </div>
+            <div class="text-xs text-slate-500">
+              Logged in: <span class="font-mono">{currentUser}</span>
+            </div></a
+          >
+        {/if}
+      </div>
+    </ActionMenuButton>
   </div>
   <div class="flex-auto w-full flex h-0">
     {#if showSidebar}
@@ -418,11 +557,11 @@
       {/key}
     </div>
   </div>
-  {#if isLoadingDatasets}
+  {#if isLoadingDatasets || isLoadingUser}
     <div
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 bg-white/70 flex items-center justify-center flex-col"
     >
-      <div class="text-center mb-4">Loading datasets...</div>
+      <div class="text-center mb-4">Loading...</div>
       <div role="status">
         <svg
           aria-hidden="true"
@@ -443,7 +582,115 @@
       </div>
     </div>
   {/if}
-  {#if showingDatasetInfo}
+  {#if showingLogin || showingSignup}
+    <div
+      class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 bg-black/70"
+      on:click={async () => {
+        showingLogin = false;
+        showingSignup = false;
+        await checkCurrentUser();
+        await refreshDatasets();
+      }}
+      tabindex="0"
+      on:keydown={(e) => {}}
+    />
+    <div
+      class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 flex items-center justify-center pointer-events-none"
+    >
+      <div
+        class="w-1/2 z-20 rounded-md bg-white p-6 pointer-events-auto overflow-hidden"
+        style="min-width: 240px; max-width: 600px;"
+      >
+        <div class="flex justify-center mb-4">
+          <img src={logoLightUrl} class="h-8" alt="Tempo" />
+        </div>
+        <div class="w-full leading-relaxed mb-4">
+          Tempo is an interactive tool designed to help you prototype and
+          evaluate predictive models on temporal event datasets, like health
+          records. Log in or create an account below to try using Tempo on a
+          sample dataset, or upload your own. All user data is deleted every 7
+          days.
+        </div>
+        <div class="flex w-full justify-center">
+          <form
+            class="w-1/2 p-4 rounded bg-slate-100"
+            style="min-width: 400px;"
+            on:submit|preventDefault={() => {
+              if (showingLogin) login();
+              else signUp();
+            }}
+          >
+            <fieldset id="login" class="bg-transparent">
+              <legend class="font-bold"
+                >{#if showingLogin}Sign In{:else}Create Account{/if}</legend
+              >
+              {#if !!loginErrorMessage}
+                <div class="p-2 my-2 rounded bg-red-100 text-small">
+                  {loginErrorMessage}
+                </div>
+              {/if}
+              <div class="mt-2">
+                <label class="text-sm" for="user_id">User ID</label>
+                <input
+                  class="flat-text-input w-full"
+                  type="username"
+                  name="user_id"
+                  bind:value={enteredUsername}
+                />
+              </div>
+              <div class="mt-2">
+                <label class="text-sm" for="password">Password</label>
+                <input
+                  class="flat-text-input w-full"
+                  type="password"
+                  name="password"
+                  bind:value={enteredPassword}
+                />
+              </div>
+              <div class="mt-2">
+                <label class="text-sm cursor-pointer"
+                  ><input
+                    type="checkbox"
+                    name="remember"
+                    bind:value={rememberMe}
+                  /> Remember me</label
+                >
+              </div>
+            </fieldset>
+            <div class="">
+              <input
+                class="mt-2 btn btn-blue cursor-pointer"
+                disabled={enteredUsername.length == 0 ||
+                  enteredPassword.length == 0}
+                type="submit"
+                value={showingLogin ? 'Sign In' : 'Create Account'}
+              />
+            </div>
+            <div class="mt-2 text-slate-600">
+              {#if showingLogin}Don't have an account yet? <a
+                  on:click={() => {
+                    showingLogin = false;
+                    showingSignup = true;
+                    loginErrorMessage = null;
+                  }}
+                  href="#"
+                  class="text-blue-500 hover:opacity-50">Create one</a
+                >{:else}Already have an account? <a
+                  on:click={() => {
+                    showingLogin = true;
+                    showingSignup = false;
+                    loginErrorMessage = null;
+                  }}
+                  href="#"
+                  class="text-blue-500 hover:opacity-50">Log in</a
+                >
+              {/if}
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  {:else if showingDatasetInfo}
     <div
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 bg-black/70"
       on:click={() => (showingDatasetInfo = false)}
@@ -460,8 +707,7 @@
         <DatasetInfoView on:close={() => (showingDatasetInfo = false)} />
       </div>
     </div>
-  {/if}
-  {#if showingDatasetManagement}
+  {:else if showingDatasetManagement}
     <div
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 bg-black/70"
       on:click={() => (showingDatasetManagement = false)}
@@ -483,8 +729,7 @@
         />
       </div>
     </div>
-  {/if}
-  {#if showingQueryBuilder}
+  {:else if showingQueryBuilder}
     <div
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 bg-gray-800/30"
       on:click={() => (showingQueryBuilder = false)}
@@ -501,8 +746,7 @@
         <DatasetQueryScratchpad bind:queryHistory />
       </div>
     </div>
-  {/if}
-  {#if showingQueryReference}
+  {:else if showingQueryReference}
     <div
       class="fixed top-0 left-0 right-0 bottom-0 w-full h-full z-20 bg-black/70"
       on:click={() => (showingQueryReference = false)}

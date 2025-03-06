@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from flask_login import login_required
 from ..compute.run import get_worker, get_filesystem, clear_sample_dataset
 from ..compute.utils import Commands
 from ..compute.dataset import Dataset
@@ -9,6 +10,7 @@ datasets_blueprint = Blueprint('datasets', __name__)
 # Dataset management
 
 @datasets_blueprint.get("/datasets")
+@login_required
 def list_datasets():
     """
     Returns: JSON array of the format {
@@ -28,6 +30,7 @@ def list_datasets():
     return jsonify(results)
     
 @datasets_blueprint.get("/datasets/<dataset_name>/spec")
+@login_required
 def get_dataset_spec(dataset_name):
     """
     Parameters:
@@ -42,6 +45,7 @@ def get_dataset_spec(dataset_name):
     return fs.read_file("datasets", dataset_name, "spec.json", format='json')
 
 @datasets_blueprint.post("/datasets/<dataset_name>/spec")
+@login_required
 def update_dataset_spec(dataset_name):
     """
     Parameters:
@@ -66,6 +70,7 @@ def update_dataset_spec(dataset_name):
 
 @datasets_blueprint.post("/datasets/new")
 @datasets_blueprint.post("/datasets/new/<reference_name>")
+@login_required
 def make_new_dataset(reference_name=None):
     """
     Parameters:
@@ -113,6 +118,7 @@ def make_new_dataset(reference_name=None):
     return jsonify({"name": final_name, "spec": base_spec})
 
 @datasets_blueprint.delete("/datasets/<dataset_name>")
+@login_required
 def delete_model(dataset_name):
     """
     Parameters:
@@ -137,6 +143,7 @@ def delete_model(dataset_name):
     return "Success"
     
 @datasets_blueprint.post("/datasets/<dataset_name>/rename")
+@login_required
 def rename_dataset(dataset_name):
     """
     Parameters:
@@ -167,6 +174,7 @@ def rename_dataset(dataset_name):
     return "Success"
     
 @datasets_blueprint.post("/datasets/<dataset_name>/clear_cache")
+@login_required
 def clear_caches(dataset_name):
     """
     Parameters:

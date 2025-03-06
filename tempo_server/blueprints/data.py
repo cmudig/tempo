@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from flask_login import login_required
 from ..compute.run import get_filesystem, get_worker, get_sample_dataset
 from ..compute.utils import Commands, QUERY_RESULT_TYPENAMES, make_query_result_summary, acquire_lock
 from threading import Lock
@@ -24,6 +25,7 @@ def _get_data_summary_task(dataset_name):
 
     
 @data_blueprint.route("/datasets/<dataset_name>/data/summary")
+@login_required
 def get_data_summary(dataset_name):
     """
     Parameters:
@@ -69,6 +71,7 @@ def get_data_summary(dataset_name):
     return jsonify(summary)
     
 @data_blueprint.route("/datasets/<dataset_name>/data/fields")
+@login_required
 def list_data_fields(dataset_name):
     """
     Parameters:
@@ -89,6 +92,7 @@ def list_data_fields(dataset_name):
     return jsonify({"fields": convert_to_native_types(result)})
     
 @data_blueprint.route("/datasets/<dataset_name>/data/query")
+@login_required
 def query_dataset(dataset_name):
     """
     Parameters:
@@ -159,6 +163,7 @@ def query_dataset(dataset_name):
 
     
 @data_blueprint.post("/datasets/<dataset_name>/data/download")
+@login_required
 def download_batch_queries(dataset_name):
     """
     Parameters:
@@ -206,6 +211,7 @@ def download_batch_queries(dataset_name):
 
     
 @data_blueprint.post("/datasets/<dataset_name>/data/validate_syntax")
+@login_required
 def validate_syntax(dataset_name):
     """
     Parameters:

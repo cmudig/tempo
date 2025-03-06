@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from flask_login import login_required
 from ..compute.run import get_worker, get_filesystem
 from ..compute.utils import Commands
 from ..compute.dataset import Dataset
@@ -35,6 +36,7 @@ def slice_finding_job_info(dataset_name, model_name, variable_spec_name, score_f
     ), None)
 
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>")    
+@login_required
 def get_slice_finding_results(dataset_name, model_name):
     """
     Parameters:
@@ -98,6 +100,7 @@ def get_slice_finding_results(dataset_name, model_name):
         return f"Error occurred while retrieving subgroups: {str(e)}", 500
     
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/find")
+@login_required
 def start_slice_finding(dataset_name, model_name):
     """
     Parameters:
@@ -169,6 +172,7 @@ def start_slice_finding(dataset_name, model_name):
     return jsonify(worker.task_info(task_id))
     
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/validate_score_function")
+@login_required
 def validate_score_function_spec(dataset_name, model_name):
     """
     Parameters:
@@ -208,6 +212,7 @@ def validate_score_function_spec(dataset_name, model_name):
         return jsonify({"error": str(e)})
     
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/score")
+@login_required
 def score_slice(dataset_name, model_name):
     """
     Parameters:
@@ -251,6 +256,7 @@ def score_slice(dataset_name, model_name):
     return jsonify({ "slices": convert_to_native_types(evaluation_results) })
 
 @slices_blueprint.route("/datasets/<dataset_name>/slices/<model_name>/compare", methods=["POST"])
+@login_required
 def get_slice_comparisons(dataset_name, model_name):
     """
     Parameters:
@@ -356,6 +362,7 @@ def get_slice_comparisons(dataset_name, model_name):
         return jsonify(convert_to_native_types(differences))
     
 @slices_blueprint.route("/datasets/<dataset_name>/slices/specs", methods=["GET"])
+@login_required
 def get_slice_specs(dataset_name):
     """
     Parameters:
@@ -376,6 +383,7 @@ def get_slice_specs(dataset_name):
     return jsonify({spec_name: spec.get_spec() for spec_name, spec in specs.items()})
 
 @slices_blueprint.get("/datasets/<dataset_name>/slices/specs/<spec_name>")
+@login_required
 def get_slice_spec(dataset_name, spec_name):
     """
     Parameters:
@@ -397,6 +405,7 @@ def get_slice_spec(dataset_name, spec_name):
         
 
 @slices_blueprint.post("/datasets/<dataset_name>/slices/specs/<spec_name>")
+@login_required
 def edit_slice_spec(dataset_name, spec_name):
     """
     Parameters:
