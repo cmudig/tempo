@@ -37,7 +37,8 @@
   import DatasetQueryScratchpad from './lib/datasets/DatasetQueryScratchpad.svelte';
   import ActionMenuButton from './lib/slices/utils/ActionMenuButton.svelte';
 
-  export let csrf: string = '';
+  export let csrf: Writable<string> = writable('');
+  setContext('csrf', csrf);
 
   let currentDataset: Writable<string | null> = writable(null);
   let queryResultCache: Writable<{ [key: string]: QueryEvaluationResult }> =
@@ -218,6 +219,8 @@
             `/datasets/${$currentDataset}/models/new/${reference}`,
           {
             method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'X-CSRF-Token': $csrf },
           }
         )
       ).json();
@@ -254,7 +257,9 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'X-CSRF-Token': $csrf,
           },
+          credentials: 'same-origin',
           body: JSON.stringify({
             name: newName,
           }),
@@ -276,6 +281,10 @@
               `/datasets/${$currentDataset}/models/${m}`,
             {
               method: 'DELETE',
+              headers: {
+                'X-CSRF-Token': $csrf,
+              },
+              credentials: 'same-origin',
             }
           )
         )
@@ -302,7 +311,7 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrf,
+          'X-CSRF-Token': $csrf,
         },
         body: JSON.stringify({
           user_id: enteredUsername,
@@ -338,7 +347,7 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrf,
+          'X-CSRF-Token': $csrf,
         },
         body: JSON.stringify({
           user_id: enteredUsername,

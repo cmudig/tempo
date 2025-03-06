@@ -44,7 +44,8 @@ if __name__ == '__main__':
     base_fs = make_filesystem_from_info(fs_info)
     
     app = Flask(__name__, template_folder=FRONTEND_BUILD_DIR)
-    csrf = CSRFProtect(app)
+    if args.users:
+        csrf = CSRFProtect(app)
 
     partition_by_user = (os.environ.get("LOGIN_DISABLED") == "1" or not args.users)
     app.config['LOGIN_DISABLED'] = partition_by_user

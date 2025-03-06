@@ -27,6 +27,7 @@
   import RuleFilterPanel from './RuleFilterPanel.svelte';
   import type { RuleFilter } from './rulefilters';
 
+  let csrf: Writable<string> = getContext('csrf');
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
 
@@ -269,7 +270,9 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'X-CSRF-Token': $csrf,
           },
+          credentials: 'same-origin',
           body: JSON.stringify({
             variable_spec_name: sliceSpec,
             score_function_spec: scoreFunctionSpec,
@@ -343,7 +346,9 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-CSRF-Token': $csrf,
             },
+            credentials: 'same-origin',
             body: JSON.stringify({
               variable_spec_name: sliceSpec,
               score_function_spec: scoreFunctionSpec,
@@ -372,6 +377,10 @@
     try {
       await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}/stop`, {
         method: 'POST',
+        headers: {
+          'X-CSRF-Token': $csrf,
+        },
+        credentials: 'same-origin',
       });
       pollSliceStatus();
     } catch (e) {

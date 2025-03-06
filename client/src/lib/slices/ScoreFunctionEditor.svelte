@@ -14,6 +14,7 @@
 
   const dispatch = createEventDispatcher();
 
+  let csrf: Writable<string> = getContext('csrf');
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
 
@@ -133,10 +134,12 @@
             `/datasets/${$currentDataset}/slices/${$currentModel}/validate_score_function`,
           {
             method: 'POST',
-            body: JSON.stringify({ score_function: scoreFunction }),
             headers: {
               'Content-Type': 'application/json',
+              'X-CSRF-Token': $csrf,
             },
+            credentials: 'same-origin',
+            body: JSON.stringify({ score_function: scoreFunction }),
           }
         )
       ).json();

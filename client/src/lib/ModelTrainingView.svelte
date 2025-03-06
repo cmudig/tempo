@@ -1,9 +1,16 @@
 <svelte:options accessors />
 
 <script lang="ts">
-  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+  import {
+    createEventDispatcher,
+    getContext,
+    onDestroy,
+    onMount,
+  } from 'svelte';
   import { checkTrainingStatus, type TrainingStatus } from './training';
+  import type { Writable } from 'svelte/store';
 
+  let csrf: Writable<string> = getContext('csrf');
   const dispatch = createEventDispatcher();
 
   export let datasetName: string | null = null;
@@ -36,8 +43,11 @@
         await Promise.all(
           last.map(
             async (t) =>
-              (await (await fetch(import.meta.env.BASE_URL + `/tasks/${t.id}`)).json()).status ==
-              'complete'
+              (
+                await (
+                  await fetch(import.meta.env.BASE_URL + `/tasks/${t.id}`)
+                ).json()
+              ).status == 'complete'
           )
         )
       ).every((r) => r);
@@ -54,9 +64,16 @@
   async function stopTraining(taskID: string) {
     if (!!trainingStatusTimer) clearTimeout(trainingStatusTimer);
     try {
-      let result = await fetch(import.meta.env.BASE_URL + `/tasks/${taskID}/stop`, {
-        method: 'POST',
-      });
+      let result = await fetch(
+        import.meta.env.BASE_URL + `/tasks/${taskID}/stop`,
+        {
+          method: 'POST',
+          headers: {
+            'X-CSRF-Token': $csrf,
+          },
+          credentials: 'same-origin',
+        }
+      );
       if (result.status == 200) {
         console.log('canceled!');
         pollTrainingStatus();

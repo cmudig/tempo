@@ -1,11 +1,15 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, getContext } from 'svelte';
   import type { Dataset } from '../dataset';
   import ResizablePanel from '../utils/ResizablePanel.svelte';
   import DatasetInfoView from './DatasetInfoView.svelte';
   import DatasetSidebar from './DatasetSidebar.svelte';
   import { faXmark } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa';
+  import DatasetSpecificationView from './DatasetSpecificationView.svelte';
+  import type { Writable } from 'svelte/store';
+
+  let csrf: Writable<string> = getContext('csrf');
 
   const dispatch = createEventDispatcher();
 
@@ -40,7 +44,9 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-CSRF-Token': $csrf,
             },
+            credentials: 'same-origin',
           }
         );
         if (result.status != 200)
@@ -57,15 +63,22 @@
 
   async function createDataset(reference: string) {
     try {
-      let newDataset = await (
-        await fetch(
-          import.meta.env.BASE_URL +
-            (!!reference ? `/datasets/new/${reference}` : '/datasets/new'),
-          {
-            method: 'POST',
-          }
-        )
-      ).json();
+      let response = await fetch(
+        import.meta.env.BASE_URL +
+          (!!reference ? `/datasets/new/${reference}` : '/datasets/new'),
+        {
+          method: 'POST',
+          headers: {
+            'X-CSRF-Token': $csrf,
+          },
+          credentials: 'same-origin',
+        }
+      );
+      if (response.status != 200) {
+        alert('Error creating new model: ' + (await response.text()));
+        return;
+      }
+      let newDataset = await response.json();
       currentDataset = newDataset.name;
       selectedDatasets = [];
       setTimeout(() => {
@@ -97,7 +110,9 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'X-CSRF-Token': $csrf,
           },
+          credentials: 'same-origin',
           body: JSON.stringify({
             name: newName,
           }),
@@ -127,6 +142,10 @@
         datasetNames.map((n) =>
           fetch(import.meta.env.BASE_URL + `/datasets/${n}`, {
             method: 'DELETE',
+            headers: {
+              'X-CSRF-Token': $csrf,
+            },
+            credentials: 'same-origin',
           })
         )
       );
@@ -210,7 +229,12 @@
               <div class="text-slate-500">Multiple models selected</div>
             </div>
           {/if}
-        {:else if currentView == View.specification}{:else if currentView == View.utilities}
+        {:else if currentView == View.specification}
+          <DatasetSpecificationView
+            datasetName={currentDataset}
+            spec={datasets[currentDataset]?.spec}
+          />
+        {:else if currentView == View.utilities}
           <div
             class="mb-4 px-4 grid gap-4 items-center"
             style="grid-template-columns: max-content auto;"
