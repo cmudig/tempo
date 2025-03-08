@@ -8,6 +8,7 @@ import torch
 from google.cloud import storage
 from google.cloud.exceptions import NotFound
 from google.api_core import page_iterator
+from contextlib import contextmanager
 
 BINARY_FILE_TYPES = ('pickle', 'feather', 'bytes', 'pytorch')
 
@@ -53,6 +54,24 @@ class LocalFilesystem:
             else:
                 os.remove(fp)
             
+    @contextmanager
+    def open(self, *path, mode='r', format=None):
+        if any(p in ('r', 'rb', 'w', 'wb') for p in path):
+            raise ValueError("Did you forget to pass mode as a keyword argument?")
+        if mode.startswith("w"):
+            dest_path = os.path.join(self.base_path, *path)
+            if not os.path.exists(os.path.dirname(dest_path)):
+                os.makedirs(os.path.dirname(dest_path))
+                
+        if format is None: 
+            try:
+                format = FILE_TYPE_EXTENSIONS[os.path.splitext(path[-1])[-1].replace('.', '')]
+            except:
+                raise ValueError(f"Unknown format for path {path[-1]}")
+        f = open(os.path.join(self.base_path, *path), mode + 'b' if format in BINARY_FILE_TYPES and not mode.endswith('b') else mode)
+        yield f
+        f.close()
+    
     def read_file(self, *path, format=None, **kwargs):
         if format is None: 
             try:
@@ -108,15 +127,16 @@ class LocalFilesystem:
         """Copies the contents of the tree rooted in this object to the given destination filesystem."""
         if not isinstance(dest_fs, LocalFilesystem):
             raise ValueError(f"Unknown destination filesystem {dest_fs}")
-        shutil.copytree(self.base_path, dest_fs.base_path)
+        shutil.copytree(self.base_path, dest_fs.base_path, dirs_exist_ok=True)
         
     def copy_file(self, dest_fs, *path):
         """Copies the item at the given path (last arguments) to the given destination.
         Note that the destination comes first."""
         print("Copying", os.path.join(self.base_path, *path), dest_fs)
         if isinstance(dest_fs, LocalFilesystem):
-            if not dest_fs.exists():
-                os.makedirs(dest_fs.base_path)
+            dest_subpath = os.path.dirname(os.path.join(dest_fs.base_path, path[-1]))
+            if not os.path.exists(dest_subpath):
+                os.makedirs(dest_subpath)
             shutil.copyfile(os.path.join(self.base_path, *path), os.path.join(dest_fs.base_path, path[-1]))
         else:
             content = self.read_file(*path)
@@ -224,7 +244,21 @@ class GCSFilesystem:
         # Delete if a subdirectory
         for blob in self.bucket.list_blobs(prefix=full_path):
             blob.delete()
-            
+           
+    @contextmanager
+    def open(self, *path, mode='r', format=None):
+        if any(p in ('r', 'rb', 'w', 'wb') for p in path):
+            raise ValueError("Did you forget to pass mode as a keyword argument?")
+        if format is None: 
+            try:
+                format = FILE_TYPE_EXTENSIONS[os.path.splitext(path[-1])[-1].replace('.', '')]
+            except:
+                raise ValueError(f"Unknown format for path {path[-1]}")
+        full_path = self.make_full_path(*path)
+        f = self.bucket.blob(full_path).open(mode + 'b' if format in BINARY_FILE_TYPES and not mode.endswith('b') else mode)
+        yield f
+        f.close()
+         
     def read_file(self, *path, format=None, **kwargs):
         if format is None: 
             try:

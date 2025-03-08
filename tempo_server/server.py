@@ -44,11 +44,12 @@ if __name__ == '__main__':
     base_fs = make_filesystem_from_info(fs_info)
     
     app = Flask(__name__, template_folder=FRONTEND_BUILD_DIR)
-    if args.users:
-        csrf = CSRFProtect(app)
+    csrf = CSRFProtect(app)
+    if not args.users:
+        app.config['WTF_CSRF_CHECK_DEFAULT'] = False
 
-    partition_by_user = (os.environ.get("LOGIN_DISABLED") == "1" or not args.users)
-    app.config['LOGIN_DISABLED'] = partition_by_user
+    partition_by_user = args.users
+    app.config['LOGIN_DISABLED'] = os.environ.get("LOGIN_DISABLED") == "1" or not partition_by_user
 
     # Read secret key from secret.txt if available, otherwise fallback (dev only)
     if os.path.exists("secret.txt"):

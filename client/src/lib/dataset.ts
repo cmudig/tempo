@@ -1,14 +1,18 @@
+export type DataSource = {
+  type: string;
+  path?: string;
+  time_field?: string;
+  id_field?: string;
+  type_field?: string;
+  value_field?: string;
+  start_time_field?: string;
+  end_time_field?: string;
+};
 export type Dataset = {
-  sources: {
-    type: string;
-    path?: string;
-    time_field?: string;
-    id_field?: string;
-    type_field?: string;
-    value_field?: string;
-    start_time_field?: string;
-    end_time_field?: string;
-  }[];
+  error?: string;
+  data: {
+    sources?: DataSource[];
+  };
   split?: {
     train?: number;
     val?: number;

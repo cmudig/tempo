@@ -57,7 +57,61 @@ def task_runner(fs_info, partition_by_user, task_info, update_fn):
     logging.info(f"My filesystem is {filesystem}, performing task {task_info}")
         
     cmd = task_info['cmd']
-    if cmd == Commands.TRAIN_MODEL:
+    if cmd == Commands.BUILD_DATASET:
+        print("BUILD DATASET")
+        update_fn({'message': 'Building dataset'})
+        dataset_name = task_info['dataset_name']
+        
+        spec = task_info["spec"]
+        if "error" in spec: del spec["error"]
+        
+        # Make sure the dataset can be loaded in the draft stage
+        update_fn({'message': 'Sandboxing dataset for validation'})
+        sandbox_dataset = Dataset(filesystem.subdirectory("dataset_sandbox", dataset_name))
+        if sandbox_dataset.fs.exists():
+            sandbox_dataset.fs.delete()
+        filesystem.subdirectory("datasets", dataset_name).copy_directory_contents(sandbox_dataset.fs)
+        if filesystem.subdirectory("dataset_drafts", dataset_name).exists():
+            filesystem.subdirectory("dataset_drafts", dataset_name).copy_directory_contents(sandbox_dataset.fs)
+        sandbox_dataset.write_spec(spec)
+        
+        try:
+            update_fn({'message': 'Loading data for validation'})
+            sandbox_dataset.load_data()
+            
+            update_fn({'message': 'Transferring files'})
+            
+            # Delete existing data files
+            old_dataset = Dataset(filesystem.subdirectory("datasets", dataset_name))
+            old_spec = old_dataset.get_spec()
+            for source in old_spec.get("data", {}).get("sources", []):
+                if source["path"]:
+                    old_dataset.fs.delete(source["path"])
+            old_dataset.global_cache_dir.delete()
+            if isinstance(old_dataset.global_cache_dir, GCSFilesystem) and old_dataset.global_cache_dir.get_local_fallback():
+                old_dataset.global_cache_dir.get_local_fallback().delete()
+                    
+            # Move new data files
+            old_dataset.write_spec(spec)
+            for source in spec.get("data", {}).get("sources", []):
+                if source["path"]:
+                    sandbox_dataset.fs.copy_file(old_dataset.fs, source["path"])
+                    
+            # Delete draft and sandbox
+            sandbox_dataset.fs.delete()
+            filesystem.subdirectory("dataset_drafts", dataset_name).delete()
+            
+            update_fn({'message': 'Loading dataset'})
+            new_dataset = Dataset(filesystem.subdirectory("datasets", dataset_name))
+            new_dataset.load_data()
+        except Exception as e:
+            logging.info("Error building dataset: " + traceback.format_exc())
+            Dataset(filesystem.subdirectory("dataset_drafts", dataset_name)).write_spec({**spec, "error": str(e)})
+            raise e
+            
+        del sandbox_dataset
+        print("DONE BUILDING DATASET")
+    elif cmd == Commands.TRAIN_MODEL:
         update_fn({'message': 'Loading data'})
         dataset = _get_dataset(filesystem, task_info['dataset_name'])
         logging.info(f"Split sizes: {[len(x) for x in dataset.split_ids]}")
