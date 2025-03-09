@@ -10,7 +10,7 @@ from tempo_server.blueprints.datasets import datasets_blueprint
 from tempo_server.blueprints.tasks import tasks_blueprint
 from tempo_server.blueprints.slices import slices_blueprint
 from tempo_server.blueprints.user import User, create_user
-from tempo_server.compute.run import setup_worker, make_filesystem_from_info
+from tempo_server.compute.run import setup_worker, make_filesystem_from_info, get_filesystem
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
 
@@ -21,14 +21,25 @@ if __name__ == '__main__':
                 prog='Tempo',
                 description='Start a Flask server to create, interpret, and compare time-series prediction model formulations.')
 
-    parser.add_argument('--local-data', type=str, help='Path to local directory containing a "datasets" directory which contains tempo datasets. Can also be passed via the TEMPO_LOCAL_DATA environment variable.')
+    parser.add_argument('--local-data', type=str, 
+                        help='Path to local directory containing a "datasets" directory which \
+                            contains tempo datasets. Can also be passed via the TEMPO_LOCAL_DATA \
+                            environment variable.')
     parser.add_argument('--port', type=int, default=4999, help='Port to run the server on')
     parser.add_argument('--public', action='store_true', default=False, help='Open the server to public network traffic')
     parser.add_argument('--profile', action='store_true', default=False, help='Print cProfile performance logs for each API call')
     parser.add_argument('--single-thread', action='store_true', default=False, help='Disable multithreading for slice finding')
     parser.add_argument('--users', action='store_true', default=False, help='Partition datasets by users and require login')
     parser.add_argument('--debug', action='store_true', default=False, help='Print detailed logging messages')
-    parser.add_argument('--gcs-bucket', type=str, default=None, help='If provided, store models and data in this GCS bucket (assumed google auth credentials are defined in an env variable). Option can also be passed via the TEMPO_GCS_BUCKET environemnt variable.')
+    parser.add_argument('--gcs-bucket', type=str, default=None, 
+                        help='If provided, store models and data in this GCS bucket \
+                            (assumed google auth credentials are defined in an env variable). \
+                            Option can also be passed via the TEMPO_GCS_BUCKET environment variable.')
+    parser.add_argument('--demo-data', type=str, default=None, 
+                        help='Path to a directory containing demo datasets *relative* to the \
+                            GCS bucket (if provided) or the local data directory. If --users is \
+                            specified, these demo datasets will be copied into the user datasets folder. \
+                            Can also be specified using the TEMPO_DEMO_DATA environment variable.')
     
     args = parser.parse_args()
     public = args.public or os.environ.get("TEMPO_PRODUCTION") == "1"
@@ -42,6 +53,12 @@ if __name__ == '__main__':
             raise ValueError("Must provide a local data directory (--local-data command-line argument) if not using GCS")
         fs_info = {'type': 'local', 'path': args.local_data}
     base_fs = make_filesystem_from_info(fs_info)
+    demo_data_dir = args.demo_data or os.environ.get("TEMPO_DEMO_DATA", None)
+    if args.users and demo_data_dir:
+        demo_data_fs = base_fs.subdirectory(demo_data_dir)
+        assert demo_data_fs.exists(), f"Demo data must exist in {base_fs}"
+    else:
+        demo_data_fs = None
     
     app = Flask(__name__, template_folder=FRONTEND_BUILD_DIR)
     csrf = CSRFProtect(app)
@@ -99,6 +116,9 @@ if __name__ == '__main__':
         user = create_user(base_fs, user_id, password)
         if user:
             login_user(user, remember=remember)
+            if demo_data_fs and partition_by_user:
+                # Copy demo data into this user's directory
+                demo_data_fs.copy_directory_contents(get_filesystem().subdirectory("datasets"))
             return jsonify({"success": True, "user_id": user_id})
         else:
             return jsonify({"success": False, "error": 'That username is taken.'})

@@ -369,6 +369,7 @@
       showingLogin = false;
       showingSignup = false;
       currentUser = response.user_id;
+      showingDatasetManagement = false;
       refreshDatasets();
     } catch (e) {
       loginErrorMessage = 'Error occurred while creating account';
