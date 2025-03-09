@@ -210,6 +210,17 @@
       downloadProgress = null;
     }
   }
+
+  // detect when the cache is cleared and refresh
+  let cacheNonempty: boolean = false;
+  $: if (!!$queryResultCache) {
+    if (Object.keys($queryResultCache).length > 0) {
+      cacheNonempty = true;
+    } else {
+      if (cacheNonempty && query.length > 0) liveEvaluateQuery();
+      cacheNonempty = false;
+    }
+  }
 </script>
 
 <div

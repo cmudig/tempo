@@ -183,6 +183,8 @@ class XGBoost:
                     metrics["predictions"] = make_series_summary(pd.Series([spec["output_values"][int(i)] for i in max_predictions]))
 
                     submodel_metric = "Macro F1"
+                else:
+                    raise ValueError("Invalid prediction task: are there enough labels?")
                 
                 if full_metrics:
                     # Check whether any classes are never predicted
@@ -197,6 +199,7 @@ class XGBoost:
                             })
             else:
                 submodel_metric = None
+                raise ValueError("Invalid prediction task: are there enough labels?")
                 
         metrics["n_train"] = {"instances": train_mask.sum(), "trajectories": len(np.unique(ids[train_mask]))}
         metrics["n_val"] = {"instances": val_mask.sum(), "trajectories": len(np.unique(ids[val_mask]))}

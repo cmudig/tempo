@@ -185,6 +185,7 @@
       if (!!buildTaskID && (await taskSuccessful(buildTaskID)) == true)
         currentView = View.info;
       buildTaskID = null;
+      dispatch('clearcache');
     }
     console.log('build status:', buildStatus);
 

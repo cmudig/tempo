@@ -70,11 +70,16 @@ def build_dataset(dataset_name):
         return "Dataset not found", 404
     
     worker = get_worker()
+    worker.submit_task({
+        "cmd": Commands.CLEAR_MEMORY_CACHE
+    })
     task_id = worker.submit_task({
         "cmd": Commands.BUILD_DATASET,
         "dataset_name": dataset_name,
         "spec": body["spec"]
     })
+    
+    clear_sample_dataset()
     
     return jsonify({ "task_id": task_id })
 
