@@ -8,24 +8,24 @@ export type DataSource = {
   start_time_field?: string;
   end_time_field?: string;
 };
+export type DataSplit = { train?: number; val?: number; test?: number };
+export type SamplerSettings = {
+  min_items_fraction?: number;
+  n_samples?: number;
+  max_features?: number;
+  scoring_fraction?: number;
+  num_candidates?: number;
+  similarity_threshold?: number;
+  n_slices?: number;
+};
+
 export type Dataset = {
   error?: string;
   data: {
     sources?: DataSource[];
-  };
-  split?: {
-    train?: number;
-    val?: number;
-    test?: number;
+    split?: DataSplit;
   };
   slices?: {
-    sampler?: {
-      min_items_fraction?: number;
-      n_samples?: number;
-      max_features?: number;
-      scoring_fraction?: number;
-      num_candidates?: number;
-      similarity_threshold?: number;
-    };
+    sampler?: SamplerSettings;
   };
 };

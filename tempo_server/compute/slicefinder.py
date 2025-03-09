@@ -25,6 +25,7 @@ class SlicingVariableSpec:
         self.ids = None
         
     def get_spec(self):
+        print(self.spec_fs)
         try:
             return self.spec_fs.read_file("spec.json")
         except:
@@ -357,7 +358,22 @@ class SliceFinder:
         
         return df.encode_filter(make_rule_object(rule_filter))
     
-    def _find_slices(self, model_name, variable_spec, score_function_spec, update_fn=None, rule_filter=None, n_samples=100, n_slices=20, similarity_threshold=0.5, min_items_fraction=0.02, final_num_candidates=1000, **kwargs):
+    def _find_slices(self, model_name, variable_spec, score_function_spec, update_fn=None, rule_filter=None, n_samples=None, n_slices=None, similarity_threshold=None, min_items_fraction=None, final_num_candidates=None, **kwargs):
+        if n_samples is None:
+            n_samples = self.dataset.get_spec().get("slices", {}).get("sampler", {}).get("n_samples", 100)
+        if n_slices is None:
+            n_slices = self.dataset.get_spec().get("slices", {}).get("sampler", {}).get("n_slices", 20)
+        if similarity_threshold is None:
+            similarity_threshold = self.dataset.get_spec().get("slices", {}).get("sampler", {}).get("similarity_threshold", 0.5)
+        if min_items_fraction is None:
+            min_items_fraction = self.dataset.get_spec().get("slices", {}).get("sampler", {}).get("min_items_fraction", 0.02)
+        if kwargs.get("max_features", None) is None:
+            kwargs["max_features"] = self.dataset.get_spec().get("slices", {}).get("sampler", {}).get("max_features", 3)
+        if kwargs.get("scoring_fraction", None) is None:
+            kwargs["scoring_fraction"] = self.dataset.get_spec().get("slices", {}).get("sampler", {}).get("scoring_fraction", 3)
+        if kwargs.get("num_candidates", None) is None:
+            kwargs["num_candidates"] = self.dataset.get_spec().get("slices", {}).get("sampler", {}).get("num_candidates", 20)
+
         (discovery_score_fns, eval_score_fns), _, weights, valid_masks, sampling_mask = self.make_score_functions(score_function_spec, model_name)
         
         discovery_ids = self.dataset.split_ids[1]  # validation set

@@ -76,6 +76,12 @@ def get_slice_finding_results(dataset_name, model_name):
         return jsonify(job_info)
     
     try:
+        model = dataset.get_model(model_name)
+        try:
+            model.get_metrics()
+        except:
+            raise ValueError("The model must be trained before retrieving subgroup results.")
+        
         if dataset_name not in slice_evaluators:
             slice_evaluators[dataset_name] = SliceFinder(dataset)
         slice_evaluator = slice_evaluators[dataset_name]
@@ -85,7 +91,7 @@ def get_slice_finding_results(dataset_name, model_name):
             body['score_function_spec']
         )
         
-        timestep_def = dataset.get_model(model_name).get_spec()['timestep_definition']
+        timestep_def = model.get_spec()['timestep_definition']
         evaluation_results = slice_evaluator.evaluate_slices(
             results if results else [], 
             timestep_def, 

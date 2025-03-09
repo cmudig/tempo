@@ -232,11 +232,12 @@ def make_new_dataset(reference_name=None):
             "slices": {
                 "sampler": {
                     "min_items_fraction": 0.02,
-                    "samples_per_model": 100,
+                    "n_samples": 100,
                     "max_features": 3,
-                    "scoring_fraction": 0.2,
+                    "scoring_fraction": 1.0,
                     "num_candidates": 20,
-                    "similarity_threshold": 0.5
+                    "similarity_threshold": 0.5,
+                    "n_slices": 20
                 }
             }
         }

@@ -1,11 +1,17 @@
 <script lang="ts">
   import type { Writable } from 'svelte/store';
-  import type { Dataset, DataSource } from '../dataset';
+  import type {
+    Dataset,
+    DataSource,
+    DataSplit,
+    SamplerSettings,
+  } from '../dataset';
   import { createEventDispatcher, getContext } from 'svelte';
   import Fa from 'svelte-fa';
   import { faPlus, faXmark } from '@fortawesome/free-solid-svg-icons';
   import DataSourceEditor from './DataSourceEditor.svelte';
   import { areObjectsEqual, deepCopy } from '../slices/utils/utils';
+  import Tooltip from '../utils/Tooltip.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -127,12 +133,6 @@
     }
   }
 
-  function setDraftSpec(newDraft: Dataset) {
-    console.log('setting draft spec to', newDraft, hasDraft);
-    draftSpec = newDraft;
-    dataSources = deepCopy(draftSpec?.data.sources ?? []);
-  }
-
   let addingNewSource: boolean = false;
   let isUploading: boolean = false;
   let uploadError: string | null = null;
@@ -170,11 +170,54 @@
   }
 
   let dataSources: DataSource[] = [];
+  let splitSizes: DataSplit = {
+    train: 50,
+    val: 25,
+    test: 25,
+  };
+  let samplerSettings: SamplerSettings = {};
+
+  function convertToPercentages(obj: DataSplit): DataSplit {
+    return {
+      train: obj.train !== undefined ? obj.train * 100 : undefined,
+      val: obj.val !== undefined ? obj.val * 100 : undefined,
+      test: obj.test !== undefined ? obj.test * 100 : undefined,
+    };
+  }
+
+  function setDraftSpec(newDraft: Dataset) {
+    console.log('setting draft spec to', newDraft, hasDraft);
+    draftSpec = newDraft;
+    dataSources = deepCopy(draftSpec?.data.sources ?? []);
+    splitSizes = convertToPercentages(
+      deepCopy({
+        train: draftSpec?.data?.split?.train ?? 0.5,
+        val: draftSpec?.data?.split?.val ?? 0.25,
+        test: draftSpec?.data?.split?.test ?? 0.25,
+      })
+    );
+    samplerSettings = deepCopy(
+      draftSpec?.slices?.sampler ?? {
+        min_items_fraction: 0.02,
+        n_samples: 100,
+        max_features: 3,
+        scoring_fraction: 1.0,
+        num_candidates: 20,
+        similarity_threshold: 0.5,
+        n_slices: 20,
+      }
+    );
+  }
 
   let saveDraftTimer: NodeJS.Timeout | null = null;
   $: if (
     !!draftSpec &&
-    !areObjectsEqual(draftSpec?.data?.sources, dataSources)
+    (!areObjectsEqual(draftSpec?.data?.sources, dataSources) ||
+      !areObjectsEqual(
+        convertToPercentages(draftSpec?.data?.split ?? {}),
+        splitSizes
+      ) ||
+      !areObjectsEqual(draftSpec?.slices?.sampler, samplerSettings))
   ) {
     console.log('saving draft');
     draftSaved = false;
@@ -184,14 +227,58 @@
       data: {
         ...draftSpec.data,
         sources: dataSources,
+        split: {
+          ...(splitSizes.train !== undefined
+            ? { train: splitSizes.train * 0.01 }
+            : {}),
+          ...(splitSizes.val !== undefined
+            ? { val: splitSizes.val * 0.01 }
+            : {}),
+          ...(splitSizes.test !== undefined
+            ? { test: splitSizes.test * 0.01 }
+            : {}),
+        },
       },
-      slices: draftSpec.slices,
+      slices: {
+        ...draftSpec.slices,
+        sampler: {
+          ...(draftSpec.slices?.sampler ?? {}),
+          ...samplerSettings,
+        },
+      },
     };
   }
 
   function scheduleSaveDraft() {
     if (!!saveDraftTimer) clearTimeout(saveDraftTimer);
     saveDraftTimer = setTimeout(updateDraftSpec, 5000);
+  }
+
+  function adjustSplit(field: string, val: number) {
+    val = Math.round(val);
+    let fieldNames = ['train', 'val', 'test'];
+    let totalRemaining =
+      100 -
+      fieldNames
+        .slice(0, fieldNames.indexOf(field) + 1)
+        .reduce(
+          (prev, curr) => prev + (splitSizes[curr as keyof DataSplit] ?? 0),
+          0
+        );
+    let oldTotal = fieldNames
+      .slice(fieldNames.indexOf(field) + 1)
+      .reduce(
+        (prev, curr) => prev + (splitSizes[curr as keyof DataSplit] ?? 0),
+        0
+      );
+    fieldNames.slice(fieldNames.indexOf(field) + 1).forEach((f) => {
+      splitSizes = {
+        ...splitSizes,
+        [f]: Math.round(
+          ((splitSizes[f as keyof DataSplit] ?? 0) * totalRemaining) / oldTotal
+        ),
+      };
+    });
   }
 </script>
 
@@ -301,6 +388,159 @@
       <Fa icon={faPlus} class="inline mr-2" />Add New
     </button>
     <div class="px-4 font-bold mt-4 mb-2">Split Sizes</div>
+    <div class="px-4 flex gap-4 flex-wrap w-full">
+      <div
+        class="gap-1 items-center flex text-sm basis-1"
+        style="min-width: 200px;"
+      >
+        <div>Training:</div>
+        <input
+          class="flat-text-input flex-auto"
+          type="number"
+          min="0"
+          max="100"
+          step="1"
+          bind:value={splitSizes.train}
+          on:change={(e) => adjustSplit('train', e.target.value)}
+        />
+        <div>%</div>
+      </div>
+      <div
+        class="gap-1 items-center flex text-sm basis-1"
+        style="min-width: 200px;"
+      >
+        <div>Validation:</div>
+        <input
+          class="flat-text-input flex-auto"
+          type="number"
+          min="0"
+          max="100"
+          step="1"
+          bind:value={splitSizes.val}
+          on:change={(e) => adjustSplit('val', e.target.value)}
+        />
+        <div>%</div>
+      </div>
+      <div
+        class="gap-1 items-center flex text-sm basis-1"
+        style="min-width: 200px;"
+      >
+        <div>Testing:</div>
+        <input
+          class="flat-text-input flex-auto"
+          type="number"
+          min="0"
+          max="100"
+          step="1"
+          bind:value={splitSizes.test}
+          on:change={(e) => adjustSplit('test', e.target.value)}
+        />
+        <div>%</div>
+      </div>
+    </div>
     <div class="px-4 font-bold mt-4 mb-2">Subgroup Discovery Settings</div>
+    <div
+      class="grid gap-2 mx-4 items-center pb-4"
+      style="grid-template-columns: max-content auto;"
+    >
+      <div class="flex-auto text-sm">
+        Number of samples <Tooltip
+          title="Rows to sample when discovering subgroups. More sampled rows yields more thorough search."
+        />
+      </div>
+      <input
+        class="flat-text-input flex-auto"
+        type="number"
+        min="0"
+        max="500"
+        placeholder="100"
+        step="1"
+        bind:value={samplerSettings.n_samples}
+      />
+      <div class="flex-auto text-sm">
+        Minimum support <Tooltip
+          title="Minimum fraction of the dataset that returned subgroups should contain."
+        />
+      </div>
+      <input
+        class="flat-text-input flex-auto"
+        type="number"
+        min="0"
+        max="1"
+        placeholder="0.02"
+        step="0.01"
+        bind:value={samplerSettings.min_items_fraction}
+      />
+      <div class="flex-auto text-sm">
+        Maximum rule features <Tooltip
+          title="Max number of features to combine in a single returned subgroup."
+        />
+      </div>
+      <input
+        class="flat-text-input flex-auto"
+        type="number"
+        min="1"
+        max="5"
+        placeholder="3"
+        step="1"
+        bind:value={samplerSettings.max_features}
+      />
+      <div class="flex-auto text-sm">
+        Beam search size <Tooltip
+          title="Number of candidate subgroups to expand in each iteration. Increase to perform more thorough search."
+        />
+      </div>
+      <input
+        class="flat-text-input flex-auto"
+        type="number"
+        min="0"
+        max="200"
+        placeholder="20"
+        step="1"
+        bind:value={samplerSettings.num_candidates}
+      />
+      <div class="flex-auto text-sm">
+        Scoring fraction <Tooltip
+          title="Fraction of the dataset to use for scoring slices. Reduce to improve performance on large datasets."
+        />
+      </div>
+      <input
+        class="flat-text-input flex-auto"
+        type="number"
+        min="0"
+        max="1"
+        placeholder="1"
+        step="0.1"
+        bind:value={samplerSettings.scoring_fraction}
+      />
+      <div class="flex-auto text-sm">
+        Number of subgroup results <Tooltip
+          title="Number of final subgroups to return."
+        />
+      </div>
+      <input
+        class="flat-text-input flex-auto"
+        type="number"
+        min="0"
+        max="50"
+        placeholder="20"
+        step="1"
+        bind:value={samplerSettings.n_slices}
+      />
+      <div class="flex-auto text-sm">
+        Similarity threshold <Tooltip
+          title="Jaccard similarity for subgroup membership that will lead to redundant subgroups being removed from the returned list."
+        />
+      </div>
+      <input
+        class="flat-text-input flex-auto"
+        type="number"
+        min="0"
+        max="1"
+        placeholder="0.5"
+        step="0.1"
+        bind:value={samplerSettings.similarity_threshold}
+      />
+    </div>
   {/if}
 </div>
