@@ -417,26 +417,29 @@
       class="mr-3 btn btn-dark-slate"
       on:click={() => (showingDatasetManagement = true)}
       ><Fa icon={faDatabase} class="inline mr-2" />
-      {#if !!$currentDataset}Select Dataset <span
+      {#if !!$currentDataset}Dataset <span
           class="font-normal font-mono text-slate-300 text-sm ml-1"
           >{$currentDataset}</span
         >{:else}Select Dataset{/if}
     </button>
-    <button
-      class="mr-3 btn btn-dark-slate"
-      on:click={() => (showingQueryBuilder = true)}
-      ><Fa icon={faSearch} class="inline mr-2" /> Query
-      <span class="font-normal text-slate-300 text-sm ml-1"
-        >{#if navigator.platform
-          .toLowerCase()
-          .startsWith('mac')}&#8984;K{:else}Cmd+K{/if}</span
-      ></button
-    >
     <ActionMenuButton buttonClass="btn btn-dark-slate" align="right">
       <span slot="button-content">
         <Fa icon={faWrench} class="inline mr-2" /> Tools
       </span>
       <div slot="options">
+        <a
+          href="#"
+          tabindex="0"
+          role="menuitem"
+          title="Open an editor to test out Tempo queries"
+          on:click={() => (showingQueryBuilder = true)}
+          ><Fa icon={faSearch} class="inline mr-2" /> Query
+          <span class="font-normal text-slate-500 text-sm ml-1"
+            >{#if navigator.platform
+              .toLowerCase()
+              .startsWith('mac')}&#8984;K{:else}Cmd+K{/if}</span
+          ></a
+        >
         <a
           href="#"
           tabindex="0"

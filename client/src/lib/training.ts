@@ -44,6 +44,15 @@ export async function checkDatasetBuildStatus(
   return taskStatuses.length > 0 ? taskStatuses[0] : null;
 }
 
+export async function taskSuccessful(taskID: string): Promise<boolean | null> {
+  let status = await (
+    await fetch(import.meta.env.BASE_URL + `/tasks/${taskID}`)
+  ).json();
+  if (status['status'] == 'complete' || status['status'] == 'error')
+    return status['status'] == 'complete';
+  return null;
+}
+
 export type SliceFindingStatus = {
   searching: boolean;
   errors?: { [key: string]: string };

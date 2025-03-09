@@ -81,8 +81,14 @@
   }
 </script>
 
-<div class="w-full">
-  <div class="flex items-stretch p-4 gap-4">
+<div class="w-full relative overflow-y-auto" style="max-height: 80vh;">
+  <div
+    class="flex items-stretch p-4 gap-4 sticky top-0 bg-white z-30 {showingDatasetInfo ||
+    showingQueryReference ||
+    queryHistory.length > 0
+      ? 'rounded-t-md border-b border-slate-400'
+      : 'rounded-md'}"
+  >
     <div class="flex-auto flex flex-col">
       <div class="relative w-full flex-auto min-h-32 mb-2">
         <QueryEditorTextarea
@@ -144,18 +150,15 @@
     </div>
   </div>
   {#if showingDatasetInfo}
-    <div
-      class="w-full border-t border-slate-400 pb-4 overflow-y-auto"
-      style="max-height: 50vh;"
-    >
+    <div class="w-full pb-4" style="max-height: 50vh;">
       <DatasetInfoView showHeader={false} />
     </div>
   {:else if showingQueryReference}
-    <div class="w-full border-t border-slate-400" style="height: 50vh;">
+    <div class="w-full" style="height: 50vh;">
       <QueryLanguageReferenceView showHeader={false} />
     </div>
   {:else if queryHistory.length > 0}
-    <div class="overflow-y-auto w-full border-t border-slate-400">
+    <div class="w-full">
       {#each queryHistory as historyItem (historyItem)}
         <button
           class="p-4 w-full flex items-stretch gap-4 appearance-none hover:bg-slate-100 text-left"

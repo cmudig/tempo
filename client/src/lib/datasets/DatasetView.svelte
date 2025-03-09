@@ -8,7 +8,11 @@
   import Fa from 'svelte-fa';
   import DatasetSpecificationView from './DatasetSpecificationView.svelte';
   import type { Writable } from 'svelte/store';
-  import { checkDatasetBuildStatus, type TrainingStatus } from '../training';
+  import {
+    checkDatasetBuildStatus,
+    taskSuccessful,
+    type TrainingStatus,
+  } from '../training';
 
   let csrf: Writable<string> = getContext('csrf');
 
@@ -30,7 +34,7 @@
     info = 'Info',
     utilities = 'Utilities',
   }
-  let currentView: View = View.specification;
+  let currentView: View = View.info;
 
   let clearingCache: boolean = false;
   let clearCacheMessage: string | null = null;
@@ -178,6 +182,8 @@
     if (wasBuilding && !buildStatus) {
       console.log('refreshing datasets');
       dispatch('refresh');
+      if (!!buildTaskID && (await taskSuccessful(buildTaskID)) == true)
+        currentView = View.info;
       buildTaskID = null;
     }
     console.log('build status:', buildStatus);
