@@ -12,6 +12,8 @@
   import DataSourceEditor from './DataSourceEditor.svelte';
   import { areObjectsEqual, deepCopy } from '../slices/utils/utils';
   import Tooltip from '../utils/Tooltip.svelte';
+  import { Carta, MarkdownEditor } from 'carta-md';
+  import DOMPurify from 'isomorphic-dompurify';
 
   const dispatch = createEventDispatcher();
 
@@ -176,6 +178,7 @@
     test: 25,
   };
   let samplerSettings: SamplerSettings = {};
+  let description: string = '';
 
   function convertToPercentages(obj: DataSplit): DataSplit {
     return {
@@ -207,12 +210,14 @@
         n_slices: 20,
       }
     );
+    description = draftSpec.description ?? '';
   }
 
   let saveDraftTimer: NodeJS.Timeout | null = null;
   $: if (
     !!draftSpec &&
-    (!areObjectsEqual(draftSpec?.data?.sources, dataSources) ||
+    ((draftSpec.description ?? '') !== description ||
+      !areObjectsEqual(draftSpec?.data?.sources, dataSources) ||
       !areObjectsEqual(
         convertToPercentages(draftSpec?.data?.split ?? {}),
         splitSizes
@@ -224,6 +229,7 @@
     scheduleSaveDraft();
     draftSpec = {
       ...draftSpec,
+      description,
       data: {
         ...draftSpec.data,
         sources: dataSources,
@@ -280,6 +286,10 @@
       };
     });
   }
+
+  const carta = new Carta({
+    sanitizer: DOMPurify.sanitize,
+  });
 </script>
 
 <div class="p-4 grow-0 shrink-0 w-full flex items-center gap-2">
@@ -320,6 +330,10 @@
         {draftSpec.error}
       </div>
     {/if}
+    <h3 class="px-4 font-bold mb-2">Dataset Description</h3>
+    <div class="px-4 mb-2">
+      <MarkdownEditor {carta} theme={'tempo'} bind:value={description} />
+    </div>
     <div class="px-4 font-bold mb-2">Data Sources</div>
     {#each dataSources as source, i}
       <DataSourceEditor

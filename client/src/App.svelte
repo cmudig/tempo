@@ -237,7 +237,7 @@
   }
 
   async function renameModel(modelName: string, newName: string) {
-    if (modelName == newName) return;
+    if (modelName == newName || newName.length == 0) return;
     try {
       let result = await fetch(
         import.meta.env.BASE_URL +
@@ -714,7 +714,12 @@
         class="w-2/3 h-2/3 z-20 rounded-md bg-white pointer-events-auto"
         style="min-width: 300px; max-width: 90%;"
       >
-        <DatasetInfoView on:close={() => (showingDatasetInfo = false)} />
+        <DatasetInfoView
+          on:close={() => (showingDatasetInfo = false)}
+          spec={!!$currentDataset
+            ? (datasetOptions[$currentDataset]?.spec ?? null)
+            : null}
+        />
       </div>
     </div>
   {:else if showingDatasetManagement}

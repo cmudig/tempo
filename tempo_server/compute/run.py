@@ -233,7 +233,7 @@ def setup_worker(fs_info, log_path, verbose=False, partition_by_user=False):
     global filesystem
     global fs_partition_by_user
     fs_partition_by_user = partition_by_user
-    worker = BackgroundWorker(partial(task_runner, fs_info, partition_by_user), log_path, verbose=verbose)
+    worker = BackgroundWorker(partial(task_runner, fs_info, partition_by_user), log_path, verbose=verbose, partition_by_user=partition_by_user)
     filesystem = make_filesystem_from_info(fs_info)
     return worker
 

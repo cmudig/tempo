@@ -226,6 +226,7 @@ def make_new_dataset(reference_name=None):
     """
     if reference_name is None:
         base_spec = {
+            "description": "",
             "data": {
                 "sources": [],
             },

@@ -15,6 +15,9 @@
     performAutocomplete,
   } from '../utils/query_autocomplete';
   import type { Writable } from 'svelte/store';
+  import type { Dataset } from '../dataset';
+  import { Markdown, Carta } from 'carta-md';
+  import DOMPurify from 'isomorphic-dompurify';
 
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
@@ -27,6 +30,7 @@
     events: { [key: string]: QueryResult };
     intervals: { [key: string]: QueryResult };
   };
+  export let spec: Dataset | null = null;
   export let datasetInfo: DatasetInfo | null = null;
   export let showHeader: boolean = true;
   let loadingInfo: boolean = false;
@@ -105,6 +109,10 @@
       errorMessage = 'Error loading dataset info';
     }
   }
+
+  const carta = new Carta({
+    sanitizer: DOMPurify.sanitize,
+  });
 </script>
 
 <div class="w-full {scroll ? 'flex flex-col h-full' : ''}">
@@ -160,6 +168,15 @@
         </div>
       </div>
     {:else if !!datasetInfo}
+      {#if !!spec && !!spec.description}
+        <div class="w-full px-4 mb-2">
+          <Markdown
+            {carta}
+            theme={'tempo-preview'}
+            value={spec.description ?? ''}
+          />
+        </div>
+      {/if}
       <div class="w-full px-4 py-2 flex gap-3 sticky top-0 bg-white z-10">
         {#each tabNames as tab}
           <button

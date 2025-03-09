@@ -20,6 +20,7 @@ export type SamplerSettings = {
 };
 
 export type Dataset = {
+  description?: string;
   error?: string;
   data: {
     sources?: DataSource[];

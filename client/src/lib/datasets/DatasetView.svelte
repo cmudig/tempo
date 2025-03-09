@@ -94,6 +94,7 @@
   }
 
   async function renameDataset(datasetName: string, newName: string) {
+    if (datasetName == newName || newName.length == 0) return;
     console.log('renaming dataset', datasetName, newName);
     try {
       let result = await fetch(
@@ -277,6 +278,7 @@
                   showHeader={false}
                   showCloseButton={false}
                   scroll={false}
+                  spec={datasets[currentDataset]?.spec ?? null}
                 />
               </div>
             {:else}
