@@ -334,6 +334,7 @@
       showingLogin = false;
       showingSignup = false;
       currentUser = response.user_id;
+      showingDatasetManagement = false;
       refreshDatasets();
     } catch (e) {
       loginErrorMessage = 'Error occurred while logging in';
@@ -626,6 +627,16 @@
           records. Log in or create an account below to try using Tempo on a
           sample dataset, or upload your own. All user data is deleted every 7
           days.
+        </div>
+        <div class="w-full leading-relaxed mb-4 text-sm">
+          <em>Note:</em> This demo is not optimized for performance or security.
+          To use Tempo on large or sensitive datasets, please run your own
+          instance of Tempo from the
+          <a
+            href="https://github.com/cmudig/tempo"
+            target="_blank"
+            class="text-blue-500 hover:opacity-50">source code</a
+          >.
         </div>
         {#if loggingIn}
           <div class="w-full flex flex-col justify-center items-center h-32">

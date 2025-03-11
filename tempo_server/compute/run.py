@@ -225,6 +225,7 @@ def task_runner(fs_info, partition_by_user, task_info, update_fn):
 # these variables are only used in the main script
 worker = None
 filesystem = None
+demo_data_fs = None
 sample_dataset = None # tuple (name, Dataset)
 fs_partition_by_user = False
 
@@ -232,9 +233,16 @@ def setup_worker(fs_info, log_path, verbose=False, partition_by_user=False):
     global worker
     global filesystem
     global fs_partition_by_user
+    global demo_data_fs
     fs_partition_by_user = partition_by_user
     worker = BackgroundWorker(partial(task_runner, fs_info, partition_by_user), log_path, verbose=verbose, partition_by_user=partition_by_user)
     filesystem = make_filesystem_from_info(fs_info)
+    
+    if 'demo_data' in fs_info:
+        demo_data_fs = filesystem.subdirectory(fs_info['demo_data'])
+    else:
+        demo_data_fs = None
+
     return worker
 
 def get_worker():
@@ -244,6 +252,9 @@ def get_filesystem():
     if fs_partition_by_user and current_user.is_authenticated:
         return filesystem.subdirectory("users", current_user.get_id())
     return filesystem
+
+def get_demo_data_fs():
+    return demo_data_fs
 
 def get_sample_dataset(dataset_name):
     global sample_dataset

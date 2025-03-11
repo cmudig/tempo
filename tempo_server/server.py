@@ -9,7 +9,7 @@ from tempo_server.blueprints.models import models_blueprint
 from tempo_server.blueprints.datasets import datasets_blueprint
 from tempo_server.blueprints.tasks import tasks_blueprint
 from tempo_server.blueprints.slices import slices_blueprint
-from tempo_server.blueprints.user import User, create_user
+from tempo_server.blueprints.user import User, user_blueprint
 from tempo_server.compute.run import setup_worker, make_filesystem_from_info, get_filesystem
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
@@ -28,7 +28,9 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=4999, help='Port to run the server on')
     parser.add_argument('--public', action='store_true', default=False, help='Open the server to public network traffic')
     parser.add_argument('--profile', action='store_true', default=False, help='Print cProfile performance logs for each API call')
-    parser.add_argument('--single-thread', action='store_true', default=False, help='Disable multithreading for slice finding')
+    parser.add_argument('--single-thread', action='store_true', default=False, 
+                        help='Disable multithreading for slice finding. Option can also be passed via the \
+                            TEMPO_SINGLE_THREAD environment variable.')
     parser.add_argument('--users', action='store_true', default=False, help='Partition datasets by users and require login')
     parser.add_argument('--debug', action='store_true', default=False, help='Print detailed logging messages')
     parser.add_argument('--gcs-bucket', type=str, default=None, 
@@ -40,7 +42,7 @@ if __name__ == '__main__':
                             GCS bucket (if provided) or the local data directory. If --users is \
                             specified, these demo datasets will be copied into the user datasets folder. \
                             Can also be specified using the TEMPO_DEMO_DATA environment variable.')
-    
+
     args = parser.parse_args()
     public = args.public or os.environ.get("TEMPO_PRODUCTION") == "1"
     local_data_dir = args.local_data or os.environ.get("TEMPO_LOCAL_DATA") or os.path.dirname(os.path.dirname(__file__))
@@ -57,9 +59,8 @@ if __name__ == '__main__':
     if args.users and demo_data_dir:
         demo_data_fs = base_fs.subdirectory(demo_data_dir)
         assert demo_data_fs.exists(), f"Demo data must exist in {base_fs}"
-    else:
-        demo_data_fs = None
-    
+        fs_info['demo_data'] = demo_data_dir
+
     app = Flask(__name__, template_folder=FRONTEND_BUILD_DIR)
     csrf = CSRFProtect(app)
     if not args.users:
@@ -85,7 +86,8 @@ if __name__ == '__main__':
     app.register_blueprint(datasets_blueprint)
     app.register_blueprint(tasks_blueprint)
     app.register_blueprint(slices_blueprint)
-    
+    app.register_blueprint(user_blueprint)
+
     # Path for our main Svelte page
     @app.route("/")
     def client():
@@ -95,53 +97,6 @@ if __name__ == '__main__':
     @app.route("/<path:path>")
     def base(path):
         return send_from_directory('../client/dist', path)
-    
-    @app.post("/login")
-    def login():
-        user_id = request.json.get('user_id')
-        password = request.json.get('password')
-        remember = True if request.json.get('remember') else False
-        user = User.authenticate(base_fs, user_id, password)
-        if user:
-            login_user(user, remember=remember)
-            return jsonify({"success": True, "user_id": user_id})
-        else:
-            return jsonify({"success": False, "error": 'The user ID and password you entered are invalid.'})
-
-    @app.post("/create_user")
-    def signup_user():
-        user_id = request.json.get('user_id')
-        password = request.json.get('password')
-        remember = True if request.json.get('remember') else False
-        user = create_user(base_fs, user_id, password)
-        if user:
-            login_user(user, remember=remember)
-            if demo_data_fs and partition_by_user:
-                # Copy demo data into this user's directory
-                demo_data_fs.copy_directory_contents(get_filesystem().subdirectory("datasets"))
-            return jsonify({"success": True, "user_id": user_id})
-        else:
-            return jsonify({"success": False, "error": 'That username is taken.'})
-
-    @app.get("/user_info")
-    @login_required
-    def get_user_info():
-        return jsonify({"user_id": current_user.get_id()})
-    
-    @app.route("/logout")
-    @login_required
-    def logout():
-        logout_user()
-        return redirect("/")
-    
-    @login_manager.user_loader
-    def load_user(user_id):
-        if not args.users: return None
-        return User.get(user_id)
-
-    @login_manager.unauthorized_handler
-    def unauthorized_callback():
-        return "You must be logged in to access this content.", 403
 
     @app.route("/logs")
     def logs():
@@ -156,12 +111,21 @@ if __name__ == '__main__':
                 </body>
             </html>
             """
-                
+            
+    @login_manager.user_loader
+    def load_user(user_id):
+        if not args.users: return None
+        return User.get(user_id)
+
+    @login_manager.unauthorized_handler
+    def unauthorized_callback():
+        return "You must be logged in to access this content.", 403
+    
     if args.profile:
         app.wsgi_app = ProfilerMiddleware(app.wsgi_app, sort_by=["cumtime"], restrictions=[100])
         
     worker = None
-    
+
     if public or is_running_from_reloader():
         print("Starting a worker")
         log_dir = os.path.join(local_data_dir, "logs")
@@ -169,11 +133,11 @@ if __name__ == '__main__':
             os.mkdir(os.path.join(log_dir))
         worker = setup_worker(fs_info, log_dir, verbose=args.debug, partition_by_user=partition_by_user)
         worker.start()
-    
+
     def close_running_threads():
         if worker is not None:
             worker.terminate()
             print("Shut down model worker")
     atexit.register(close_running_threads)
-    
-    app.run(debug=not args.public, port=args.port, host='0.0.0.0' if public else '127.0.0.1', threaded=not args.single_thread)
+
+    app.run(debug=not args.public, port=args.port, host='0.0.0.0' if public else '127.0.0.1', threaded=not (args.single_thread or os.environ.get("TEMPO_SINGLE_THREAD") == "1"))

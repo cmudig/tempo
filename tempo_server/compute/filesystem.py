@@ -132,7 +132,6 @@ class LocalFilesystem:
     def copy_file(self, dest_fs, *path):
         """Copies the item at the given path (last arguments) to the given destination.
         Note that the destination comes first."""
-        print("Copying", os.path.join(self.base_path, *path), dest_fs)
         if isinstance(dest_fs, LocalFilesystem):
             dest_subpath = os.path.dirname(os.path.join(dest_fs.base_path, path[-1]))
             if not os.path.exists(dest_subpath):
@@ -319,7 +318,6 @@ class GCSFilesystem:
     def copy_file(self, dest_fs, *path):
         """Copies the item at the given path (last arguments) to the given destination.
         Note that the destination comes first."""
-        print("Copying", self.make_full_path(*path), dest_fs)
         if isinstance(dest_fs, GCSFilesystem):
             self.bucket.copy_blob(self.bucket.blob(self.make_full_path(*path)), 
                                 dest_fs.bucket,

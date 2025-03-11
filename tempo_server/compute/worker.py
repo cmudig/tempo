@@ -2,7 +2,7 @@
 A reusable module for running a lightweight multiprocessing background worker 
 with cancelable tasks and status reporting.
 """
-import multiprocessing as mp
+import multiprocessing
 import time
 import os
 import threading
@@ -15,12 +15,15 @@ from flask_login import current_user
 
 from functools import partial
 
+mp = multiprocessing.get_context('spawn')
+
 def listener_process(queue, path):
-    root = logging.getLogger()
-    h = logging.handlers.RotatingFileHandler(os.path.join(path, 'log.txt'), 'a', 100000, 10)
-    f = logging.Formatter('%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s')
-    h.setFormatter(f)
-    root.addHandler(h)
+    if path is not None:
+        root = logging.getLogger()
+        h = logging.handlers.RotatingFileHandler(os.path.join(path, 'log.txt'), 'a', 100000, 10)
+        f = logging.Formatter('%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s')
+        h.setFormatter(f)
+        root.addHandler(h)
     
     while True:
         try:
