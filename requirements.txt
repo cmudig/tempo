@@ -17,3 +17,4 @@ flask-login==0.6.0
 Flask-WTF>=1.2.0
 Werkzeug==2.3.7
 gunicorn>=20.1.0
+google-cloud-compute>=1.26.0
