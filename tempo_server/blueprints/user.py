@@ -85,3 +85,6 @@ def logout():
     logout_user()
     return redirect("/")
 
+def clear_all_users():
+    base_fs = get_filesystem()
+    base_fs.delete("credentials.pkl")

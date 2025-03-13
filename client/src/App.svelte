@@ -334,8 +334,7 @@
       showingLogin = false;
       showingSignup = false;
       currentUser = response.user_id;
-      showingDatasetManagement = false;
-      refreshDatasets();
+      location.reload();
     } catch (e) {
       loginErrorMessage = 'Error occurred while logging in';
     }
@@ -372,8 +371,7 @@
       showingLogin = false;
       showingSignup = false;
       currentUser = response.user_id;
-      showingDatasetManagement = false;
-      refreshDatasets();
+      location.reload();
     } catch (e) {
       loginErrorMessage = 'Error occurred while creating account';
     }

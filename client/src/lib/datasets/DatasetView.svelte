@@ -86,6 +86,7 @@
       }
       let newDataset = await response.json();
       currentDataset = newDataset.name;
+      currentView = View.specification;
       selectedDatasets = [];
       setTimeout(() => {
         if (!!sidebar && !!currentDataset)

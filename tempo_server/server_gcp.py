@@ -7,7 +7,7 @@ from tempo_server.blueprints.models import models_blueprint
 from tempo_server.blueprints.datasets import datasets_blueprint
 from tempo_server.blueprints.tasks import tasks_blueprint
 from tempo_server.blueprints.slices import slices_blueprint
-from tempo_server.blueprints.user import User, user_blueprint
+from tempo_server.blueprints.user import User, user_blueprint, clear_all_users
 from tempo_server.compute.run import setup_worker, make_filesystem_from_info, get_filesystem
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
@@ -74,6 +74,15 @@ def load_user(user_id):
 def unauthorized_callback():
     return "You must be logged in to access this content.", 403
 
+@app.route("/clear_user_data")
+def clear_user_data():
+    if request.headers.get('x-appengine-cron') is None:
+        return "Permission denied", 403
+    clear_all_users()
+    filesystem = get_filesystem()
+    filesystem.subdirectory("users").delete()
+    return "Success"
+    
 worker = None
 
 def close_running_threads():
@@ -81,13 +90,11 @@ def close_running_threads():
         worker.terminate()
         print("Shut down model worker")
 
-if public or is_running_from_reloader():
-    print("Starting a worker")
-    log_dir = None
-    worker = setup_worker(fs_info, log_dir, verbose=False, partition_by_user=partition_by_user)
-    worker.start()
-    atexit.register(close_running_threads)
-
+print("Starting a worker")
+log_dir = None
+worker = setup_worker(fs_info, log_dir, verbose=False, partition_by_user=partition_by_user)
+worker.start()
+atexit.register(close_running_threads)
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0' if public else '127.0.0.1', threaded=os.environ.get("TEMPO_SINGLE_THREAD") != "1")

@@ -1,0 +1,4 @@
+cron:
+  - description: 'clear all user data'
+    url: /clear_user_data
+    schedule: every monday 00:00
