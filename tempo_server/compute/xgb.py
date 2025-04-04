@@ -59,7 +59,7 @@ class XGBoost:
         else:
             return self.model.predict_proba(test_X)[:,1]
     
-    def explain(self, test_X, test_ids, sample=False):
+    def explain(self, test_X, test_ids, background_X, background_ids, sample=False):
         """Returns the SHAP values for the given set of instances as a matrix,
         one row per input and one column per feature."""
         explainer = shap.TreeExplainer(self.model)
@@ -206,7 +206,7 @@ class XGBoost:
             if progress_fn is not None:
                 progress_fn({"message": "Calculating feature importances"})
             try:
-                shap_values = np.abs(self.explain(test_X, ids[test_mask], sample=True))
+                shap_values = np.abs(self.explain(test_X, ids[test_mask], variables[train_mask], ids[train_mask], sample=True))
                 perf = np.mean(shap_values,axis=0)
                 perf_std = np.std(shap_values,axis=0)
                 sorted_perf_index = np.flip(np.argsort(perf))

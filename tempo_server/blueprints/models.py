@@ -346,7 +346,9 @@ def get_model_predictions(dataset_name, model_name):
         in the data. If 'inputs' is provided, should be a list of dictionaries
         where each key is an input feature in the model. (Use /datasets/<dataset_name>/models/<model_name>
         to get the spec, which contains the variable names in the "variables"
-        field.)
+        field.) Pass a key "n_feature_importances" to specify the number of
+        SHAP values to return for each instance (or 0 to skip computation of
+        SHAP values).
     Returns: JSON with an "outputs" key whose value is a list of predictions
         for each input id or record. The predictions contain the following fields:
             "index": a dictionary of id and time for the record if using ids, or the
@@ -371,7 +373,7 @@ def get_model_predictions(dataset_name, model_name):
     model = dataset.get_model(model_name)
     if not model.fs.exists():
         return "Model does not exist", 404
-    result = model.lookup_prediction_results(ids=body.get("ids", None), inputs=body.get("inputs", None))
+    result = model.lookup_prediction_results(ids=body.get("ids", None), inputs=body.get("inputs", None), n_feature_importances=body.get("n_feature_importances", 5))
     if result:
         return jsonify({"result": result})
         
@@ -381,7 +383,8 @@ def get_model_predictions(dataset_name, model_name):
         'cmd': Commands.RUN_MODEL_INFERENCE,
         'dataset_name': dataset_name,
         'model_name': model_name,
-        **({'ids': body["ids"]} if 'ids' in body else {'inputs': body["inputs"]})
+        **({'ids': body["ids"]} if 'ids' in body else {'inputs': body["inputs"]}),
+        'n_feature_importances': body.get("n_feature_importances", 5)
     }  
     matching_job = next((j for j in worker.current_jobs() if j['info'] == task_info), None)  
     if matching_job:

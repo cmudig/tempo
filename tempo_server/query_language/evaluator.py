@@ -455,12 +455,12 @@ class EvaluateExpression(lark.visitors.Transformer):
                     
                 if len(value.get_values()) != len(condition.get_values()):
                     raise ValueError(f"Case expression operands must be same length")
-                result = value.where(condition.fillna(False).astype(bool), result)
+                result = value.where(condition.astype(pd.BooleanDtype()).fillna(False).astype(bool), result)
                 result = result.where(~condition.isna(), pd.NA)
             elif isinstance(result, (Events, Attributes, Intervals, TimeSeries)):
                 if len(result.get_values()) != len(condition.get_values()):
                     raise ValueError(f"Case expression operands must be same length")
-                result = result.where(~condition.fillna(False).astype(bool), value)
+                result = result.where(~condition.astype(pd.BooleanDtype()).fillna(False).astype(bool), value)
             elif isinstance(condition, (Attributes, Events, Intervals, TimeSeries)):
                 # We need to broadcast both value and result to condition's type
                 result = condition.apply(lambda x: pd.NA if pd.isna(x) else (value if x else result))
@@ -1015,7 +1015,8 @@ if __name__ == '__main__':
         'end': [91, 87, 168],
         'a1': [3, 5, 1],
         'a2': [10, pd.NA, 42],
-        'a3': [61, 21, pd.NA]
+        'a3': [61, 21, pd.NA],
+        'a4': ['male', 'female', pd.NA]
     }, index=ids))
 
     events = EventSet(pd.DataFrame([{
@@ -1034,7 +1035,8 @@ if __name__ == '__main__':
     } for _ in range(10)]))
 
     dataset = QueryEngine([attributes], [events], [intervals])
-    print(dataset.query("{a2} impute mean"))
+    print(dataset.query('{a4} impute "Missing"'))
+    print(dataset.query('{a4} impute "Missing" at every {e1}'))
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
     # print(dataset.query("min {e1} from #now - 30 seconds to #now cut 3 quantiles impute 'Missing' at every {e1} from #mintime to #maxtime"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))
@@ -1042,6 +1044,6 @@ if __name__ == '__main__':
     # print(dataset.query("mean {e1} * 3 from now - 30 s to now"))
     # print(dataset.query("max(mean {e2} from now - 30 seconds to now, mean {e1} from now - 30 seconds to now) at every {e2} from {start} to {end}"))
     # print(events.get('e1'))
-    print(dataset.query("{e1} - (last {e1} before {e1})"))
+    # print(dataset.query("{e1} - (last {e1} before {e1})"))
     # print(dataset.query("mean {e1} where {e1} > (last {e1} from #now - 30 sec to #now) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
     # print(dataset.query("mean (case when {e1} > (last {e2} from #now - 30 sec to #now) then {e1} else 0 end) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
