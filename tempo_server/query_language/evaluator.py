@@ -498,7 +498,8 @@ class EvaluateExpression(lark.visitors.Transformer):
         if args[1].value in ("mean", "median"):
             impute_method = args[1].value.lower()
             numpy_func = {"mean": np.nanmean, "median": np.nanmedian}[impute_method]
-            return var_exp.replace(pd.NA, np.nan).astype(np.float64).where(nan_mask, numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float)))
+            impute_value = numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float))
+            result = var_exp.replace(pd.NA, np.nan).astype(np.float64).where(nan_mask, impute_value)
         else:
             impute_method = self._parse_literal(args[1].value)
             dtype = var_exp.get_values().dtype
@@ -509,8 +510,11 @@ class EvaluateExpression(lark.visitors.Transformer):
                 # convert all values to strings
                 var_exp = var_exp.with_values(var_exp.get_values().astype(pd.StringDtype()))
                 dtype = var_exp.get_values().dtype
-            scalar = dtype.type(impute_method)
-            return var_exp.with_values(var_exp.get_values().where(nan_mask, scalar))
+            impute_value = dtype.type(impute_method)
+            result = var_exp.with_values(var_exp.get_values().where(nan_mask, impute_value))
+        if isinstance(result, Attributes):
+            result = result.with_impute_value(impute_value)
+        return result
             
     def _perform_binary_numpy_function(self, operands, function_name, numpy_func):
         if isinstance(operands[0], Compilable):
@@ -789,7 +793,10 @@ class EvaluateQuery(lark.visitors.Interpreter):
         if evaluator.time_index is not None:
             if isinstance(var_exp, Attributes):
                 # Cast the attributes over the time index
-                var_exp = TimeSeries(evaluator.time_index, make_aligned_value_series(evaluator.time_index, var_exp))
+                attrs = var_exp
+                var_exp = TimeSeries(evaluator.time_index, make_aligned_value_series(evaluator.time_index, attrs))
+                if attrs.impute_value is not None:
+                    var_exp = evaluator.impute_clause([var_exp, lark.Token("LITERAL", repr(attrs.impute_value))])
             elif isinstance(var_exp, TimeIndex):
                 # Use the times as the time series values
                 var_exp = TimeSeries(var_exp, var_exp.get_times())
@@ -1009,7 +1016,7 @@ class QueryEngine:
         self.eventtype_macros = macros
         
 if __name__ == '__main__':
-    ids = [100, 101, 102]
+    ids = [100, 101, 102, 103]
     attributes = AttributeSet(pd.DataFrame({
         'start': [20, 31, 112],
         'end': [91, 87, 168],
@@ -1017,7 +1024,7 @@ if __name__ == '__main__':
         'a2': [10, pd.NA, 42],
         'a3': [61, 21, pd.NA],
         'a4': ['male', 'female', pd.NA]
-    }, index=ids))
+    }, index=ids[:3]))
 
     events = EventSet(pd.DataFrame([{
         'id': np.random.choice(ids),

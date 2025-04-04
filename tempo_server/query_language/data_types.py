@@ -426,10 +426,14 @@ class Compilable:
                           time_expression=self.time_expression)
 
 class Attributes(TimeSeriesQueryable):
-    def __init__(self, series):
+    def __init__(self, series, impute_value=None):
         """The series' index should be the set of instance IDs"""
         self.series = series
         self.name = self.series.name
+
+        # Attributes need to store their impute value because rows could be added
+        # to fit a timestep definition later        
+        self.impute_value = impute_value
         
     def __repr__(self):
         return f"<Attributes '{self.name}': {len(self.series)} values>\n{repr(self.series)}"
@@ -450,15 +454,18 @@ class Attributes(TimeSeriesQueryable):
     def with_values(self, new_values):
         return Attributes(pd.Series(np.array(new_values), index=self.series.index, name=self.series.name))
     
+    def with_impute_value(self, impute_value):
+        return Attributes(self.series, impute_value=impute_value)
+    
     def serialize(self):
-        return {"type": "Attributes", "name": self.name}, pd.DataFrame(self.series)
+        return {"type": "Attributes", "name": self.name, "impute_value": self.impute_value}, pd.DataFrame(self.series)
     
     def to_csv(self, *args, **kwargs):
         return pd.DataFrame(self.series).to_csv(*args, **kwargs)
     
     @staticmethod
     def deserialize(metadata, df):
-        return Attributes(df[df.columns[0]])
+        return Attributes(df[df.columns[0]], impute_value=metadata.get("impute_value", None))
     
     def filter(self, mask):
         """Returns a new Attributes with only steps for which the mask is True."""
