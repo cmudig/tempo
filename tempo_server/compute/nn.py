@@ -63,6 +63,9 @@ class TrajectoryDataset(Dataset):
    
     def __len__(self):
         return len(self.id_pos)
+    
+    def max_trajectory_length(self):
+        return max((y - x) for x, y in self.id_pos)
                 
     def __getitem__(self, idx):
         trajectory_indexes = np.arange(*self.id_pos[idx])
@@ -277,26 +280,40 @@ class NeuralNetwork:
                 predict.append(x[:l].detach().numpy())
         return np.concatenate(predict)
     
-    def explain(self, test_X, test_ids, num_batches=None):
+    def explain(self, test_X, test_ids, background_X, background_ids, num_batches=None, update_fn=None):
         test_dataset = self.create_dataset(test_X, np.zeros(len(test_X)), test_ids)
+        bg_dataset = self.create_dataset(background_X, np.zeros(len(background_X)), background_ids)
+        max_length = max(test_dataset.max_trajectory_length(), bg_dataset.max_trajectory_length())
+        bg_dataloader = DataLoader(bg_dataset, 
+                                batch_size=self.best_config['batch_size'] if self.best_config else 32,
+                                collate_fn=self.pad_collate,
+                                shuffle=True)
         dataloader = DataLoader(test_dataset, 
                                 batch_size=self.best_config['batch_size'] if self.best_config else 32,
                                 collate_fn=self.pad_collate,
                                 shuffle=num_batches is not None)
-        background = next(iter(dataloader))[0]
+        background = next(iter(bg_dataloader))[0]
+        if background.shape[1] < max_length:
+            background = torch.cat((background, torch.zeros((background.shape[0], max_length - background.shape[1], background.shape[2]))), 1)
         explainer = shap.DeepExplainer(self.model, background)
         shap_values = []
         for i, batch in enumerate(dataloader):
+            if num_batches is not None and i >= num_batches:
+                break
+            if update_fn is not None:
+                update_fn({'message': f'Calculating feature importances (batch {i + 1}/{num_batches or len(dataloader)})'})
             target, _, lengths = batch
-            shaps = explainer.shap_values(target)
+            if target.shape[1] < max_length:
+                target = torch.cat((target, torch.zeros((target.shape[0], max_length - target.shape[1], target.shape[2]))), 1)
+            # If the input is (N, L, O), this returns a list of L numpy arrays shaped (N, L, O)
+            # where each array i has only the sub-matrix i in the 2nd dimension filled, so by
+            # adding together all of these we get the full shap matrix
+            shaps = explainer.shap_values(target, check_additivity=False)
+            shaps = np.sum(np.stack(shaps, axis=0), axis=0)
             for x, l in zip(shaps, lengths):
                 size = l.item()
                 trunc_x = x[:size, :]
-                flat_x = trunc_x.flatten()
-                x_array = flat_x.detach().numpy()
-                shap_values.append(x_array)
-            if num_batches is not None and i >= num_batches:
-                break
+                shap_values.append(trunc_x)
         return np.concatenate(shap_values)
     
     def train(self, train_X, train_y, train_ids, val_X, val_y, val_ids, progress_fn=None, num_samples=8, checkpoint_fs=None):
@@ -519,19 +536,19 @@ class NeuralNetwork:
         metrics["n_val"] = {"instances": val_mask.sum(), "trajectories": len(np.unique(ids[val_mask]))}
         metrics["n_test"] = {"instances": test_mask.sum(), "trajectories": len(np.unique(ids[test_mask]))}
 
-        # print('shap values')
-        # if progress_fn is not None:
-        #     progress_fn({'message': 'Calculating feature importances'})
-        # try:
-        #     shap_values = self.explain(variables[test_mask], ids[test_mask], num_batches=10)
-        #     perf = np.mean(shap_values,axis=0)
-        #     perf_std = np.std(shap_values,axis=0)
-        #     sorted_perf_index = np.flip(np.argsort(perf))
-        #     metrics['feature_importances'] = [{'feature': variables.columns[i], 'mean': perf[i], 'std': perf_std[i]} 
-        #                                      for i in sorted_perf_index]
-        # except:
-        #     logging.error(traceback.format_exc())
-        #     print("Error calculating shap values")
+        logging.info('shap values')
+        if progress_fn is not None:
+            progress_fn({'message': 'Calculating feature importances'})
+        try:
+            shap_values = np.abs(self.explain(variables[test_mask], ids[test_mask], variables[train_mask], ids[train_mask], num_batches=5, update_fn=progress_fn))
+            perf = np.mean(shap_values,axis=0)
+            perf_std = np.std(shap_values,axis=0)
+            sorted_perf_index = np.flip(np.argsort(perf))
+            metrics['feature_importances'] = [{'feature': variables.columns[i], 'mean': perf[i], 'std': perf_std[i]} 
+                                             for i in sorted_perf_index]
+        except:
+            logging.error(traceback.format_exc())
+            print("Error calculating shap values")
         
         # batch = next(iter(self.test_dataloader))
         # target,label,l = batch

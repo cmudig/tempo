@@ -366,7 +366,7 @@ class Model:
             
         return modeling_df, outcome, return_ids
 
-    def lookup_prediction_results(self, ids=None, inputs=None):
+    def lookup_prediction_results(self, ids=None, inputs=None, n_feature_importances=5):
         """
         Returns the results of the model prediction operation (as a list of
         records) if they have already been computed. If the operation resulted in an error,
@@ -378,12 +378,14 @@ class Model:
         
         if ids is not None:
             result_key = 'ids'
-            result_idx = ",".join(str(x) for x in ids)
-            matching_result = self._prediction_cache['ids'].get(result_idx, None)
+            result_id = ",".join(str(x) for x in ids)
+            result_idx, matching_result = next(((i, result) for i, result in enumerate(self._prediction_cache['ids'].get(result_id, []))
+                                    if result['n_feature_importances'] == n_feature_importances), (None, None))
         elif inputs is not None:
             result_key = 'inputs'
+            result_id = None
             result_idx, matching_result = next(((i, result) for i, result in enumerate(self._prediction_cache['inputs'])
-                                                if result['inputs'] == inputs), (None, None))
+                                                if result['inputs'] == inputs and result['n_feature_importances'] == n_feature_importances), (None, None))
         
         if matching_result:
             try:
@@ -391,7 +393,10 @@ class Model:
             except:
                 logging.info("Prediction results file was removed")
                 # file was removed
-                del self._prediction_cache[result_key][result_idx]
+                if result_id is not None:
+                    del self._prediction_cache[result_key][result_id][result_idx]
+                else:
+                    del self._prediction_cache[result_key][result_idx]
                 self.write_cache()
             else:
                 if isinstance(results_json, dict) and "error" in results_json:
@@ -400,7 +405,7 @@ class Model:
                 return results_json
         return None
 
-    def compute_model_predictions(self, dataset, ids=None, inputs=None, update_fn=None):
+    def compute_model_predictions(self, dataset, ids=None, inputs=None, update_fn=None, n_feature_importances=5):
         """
         Compute model predictions for instances corresponding to the given 
         trajectory IDs or inputs.
@@ -417,9 +422,13 @@ class Model:
             
         spec = self.get_spec()
         metrics = self.get_metrics()
-        if "dummy_variables" not in metrics:
-            raise ValueError("Model was not trained with dummy variables saved, please re-train")
-        dv = metrics["dummy_variables"]
+        
+        query_engine = dataset.make_query_engine()
+        background_df, dv = self.make_modeling_variables(query_engine, 
+                                                         spec, update_fn=update_fn)
+        background_outcome = query_engine.query("((" + spec['outcome'] + 
+                                    (f") where ({spec['cohort']})" if spec.get('cohort', '') else ')') + ") " + 
+                                    spec["timestep_definition"])
         
         if ids is not None:
             modeling_df, outcome, return_ids = self.get_modeling_inputs(dataset, ids, update_fn=update_fn)
@@ -446,7 +455,7 @@ class Model:
         # load the model
         if update_fn is not None: update_fn({'message': "Loading model"})
         model = self._make_model_trainer(spec, 
-                                         sum(v.get("enabled", True) for v in spec["variables"].values()),
+                                         modeling_df.shape[1],
                                          len(spec["output_values"]) if "output_values" in spec else 1)
         model.load(metrics["model_architecture"]["hyperparameters"], self.result_fs)
         logging.info("Loaded model")
@@ -454,17 +463,23 @@ class Model:
         if update_fn is not None: update_fn({'message': "Running model"})
         preds = model.predict(modeling_df, modeling_ids).tolist()
         
-        shap_values = model.explain(modeling_df, modeling_ids)
-        k_features = 5
+        if n_feature_importances > 0:
+            try:
+                shap_values = model.explain(modeling_df, modeling_ids, background_df, background_outcome.get_ids())
+            except Exception as e:
+                logging.info(f"Error getting SHAP values for prediction: {traceback.format_exc()}")
+                shap_values = None
+        else:
+            shap_values = None
         
         results = convert_to_native_types([
             {'input': return_ids[i],
              'prediction': preds[i],
              **({'ground_truth': outcome[i]} if outcome is not None else {}),
-             'feature_importances': [
+             **({'feature_importances': [
                  {'feature': modeling_df.columns[f], 'importance': shap_values[i, f]}
-                 for f in np.flip(np.argsort(np.abs(shap_values[i])))[:k_features]
-             ]
+                 for f in np.flip(np.argsort(np.abs(shap_values[i])))[:n_feature_importances]
+             ]} if shap_values is not None else {})
              }
             for i in range(len(return_ids))
         ])
@@ -473,12 +488,14 @@ class Model:
         self._prediction_cache_fs.write_file(results, path)
         self.load_cache_if_needed()
         if ids is not None:
-            self._prediction_cache['ids'][",".join(str(x) for x in ids)] = {
+            self._prediction_cache['ids'].setdefault(",".join(str(x) for x in ids), []).append({
+                "n_feature_importances": n_feature_importances,
                 "path": path
-            }
+            })
         elif inputs is not None:
             self._prediction_cache['inputs'].append({
                 "inputs": inputs,
+                "n_feature_importances": n_feature_importances,
                 "path": path
             })
         self.write_cache()

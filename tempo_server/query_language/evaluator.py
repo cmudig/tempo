@@ -455,12 +455,12 @@ class EvaluateExpression(lark.visitors.Transformer):
                     
                 if len(value.get_values()) != len(condition.get_values()):
                     raise ValueError(f"Case expression operands must be same length")
-                result = value.where(condition.fillna(False).astype(bool), result)
+                result = value.where(condition.astype(pd.BooleanDtype()).fillna(False).astype(bool), result)
                 result = result.where(~condition.isna(), pd.NA)
             elif isinstance(result, (Events, Attributes, Intervals, TimeSeries)):
                 if len(result.get_values()) != len(condition.get_values()):
                     raise ValueError(f"Case expression operands must be same length")
-                result = result.where(~condition.fillna(False).astype(bool), value)
+                result = result.where(~condition.astype(pd.BooleanDtype()).fillna(False).astype(bool), value)
             elif isinstance(condition, (Attributes, Events, Intervals, TimeSeries)):
                 # We need to broadcast both value and result to condition's type
                 result = condition.apply(lambda x: pd.NA if pd.isna(x) else (value if x else result))
@@ -498,7 +498,8 @@ class EvaluateExpression(lark.visitors.Transformer):
         if args[1].value in ("mean", "median"):
             impute_method = args[1].value.lower()
             numpy_func = {"mean": np.nanmean, "median": np.nanmedian}[impute_method]
-            return var_exp.replace(pd.NA, np.nan).astype(np.float64).where(nan_mask, numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float)))
+            impute_value = numpy_func(var_exp.get_values().replace(pd.NA, np.nan).astype(float))
+            result = var_exp.replace(pd.NA, np.nan).astype(np.float64).where(nan_mask, impute_value)
         else:
             impute_method = self._parse_literal(args[1].value)
             dtype = var_exp.get_values().dtype
@@ -509,8 +510,11 @@ class EvaluateExpression(lark.visitors.Transformer):
                 # convert all values to strings
                 var_exp = var_exp.with_values(var_exp.get_values().astype(pd.StringDtype()))
                 dtype = var_exp.get_values().dtype
-            scalar = dtype.type(impute_method)
-            return var_exp.with_values(var_exp.get_values().where(nan_mask, scalar))
+            impute_value = dtype.type(impute_method)
+            result = var_exp.with_values(var_exp.get_values().where(nan_mask, impute_value))
+        if isinstance(result, Attributes):
+            result = result.with_impute_value(impute_value)
+        return result
             
     def _perform_binary_numpy_function(self, operands, function_name, numpy_func):
         if isinstance(operands[0], Compilable):
@@ -789,7 +793,10 @@ class EvaluateQuery(lark.visitors.Interpreter):
         if evaluator.time_index is not None:
             if isinstance(var_exp, Attributes):
                 # Cast the attributes over the time index
-                var_exp = TimeSeries(evaluator.time_index, make_aligned_value_series(evaluator.time_index, var_exp))
+                attrs = var_exp
+                var_exp = TimeSeries(evaluator.time_index, make_aligned_value_series(evaluator.time_index, attrs))
+                if attrs.impute_value is not None:
+                    var_exp = evaluator.impute_clause([var_exp, lark.Token("LITERAL", repr(attrs.impute_value))])
             elif isinstance(var_exp, TimeIndex):
                 # Use the times as the time series values
                 var_exp = TimeSeries(var_exp, var_exp.get_times())
@@ -1009,14 +1016,15 @@ class QueryEngine:
         self.eventtype_macros = macros
         
 if __name__ == '__main__':
-    ids = [100, 101, 102]
+    ids = [100, 101, 102, 103]
     attributes = AttributeSet(pd.DataFrame({
         'start': [20, 31, 112],
         'end': [91, 87, 168],
         'a1': [3, 5, 1],
         'a2': [10, pd.NA, 42],
-        'a3': [61, 21, pd.NA]
-    }, index=ids))
+        'a3': [61, 21, pd.NA],
+        'a4': ['male', 'female', pd.NA]
+    }, index=ids[:3]))
 
     events = EventSet(pd.DataFrame([{
         'id': np.random.choice(ids),
@@ -1034,7 +1042,8 @@ if __name__ == '__main__':
     } for _ in range(10)]))
 
     dataset = QueryEngine([attributes], [events], [intervals])
-    print(dataset.query("{a2} impute mean"))
+    print(dataset.query('{a4} impute "Missing"'))
+    print(dataset.query('{a4} impute "Missing" at every {e1}'))
     # print(dataset.query("(min e2: min {'e1', e2} from now - 30 seconds to now, max e2: max {e2} from now - 30 seconds to now) at every {e1} from {start} to {end}"))
     # print(dataset.query("min {e1} from #now - 30 seconds to #now cut 3 quantiles impute 'Missing' at every {e1} from #mintime to #maxtime"))
     # print(dataset.query("myagg: mean ((now - (last time({e1}) from -1000 to now)) at every {e1} from 0 to {end}) from {start} to {end}"))
@@ -1042,6 +1051,6 @@ if __name__ == '__main__':
     # print(dataset.query("mean {e1} * 3 from now - 30 s to now"))
     # print(dataset.query("max(mean {e2} from now - 30 seconds to now, mean {e1} from now - 30 seconds to now) at every {e2} from {start} to {end}"))
     # print(events.get('e1'))
-    print(dataset.query("{e1} - (last {e1} before {e1})"))
+    # print(dataset.query("{e1} - (last {e1} before {e1})"))
     # print(dataset.query("mean {e1} where {e1} > (last {e1} from #now - 30 sec to #now) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
     # print(dataset.query("mean (case when {e1} > (last {e2} from #now - 30 sec to #now) then {e1} else 0 end) from #now to #now + 30 sec every 30 sec from {start} to {end}", use_cache=False))
