@@ -11,6 +11,7 @@ class Commands:
     GENERATE_QUERY_DOWNLOAD = "generate_query_download"
     RUN_MODEL_INFERENCE = "run_model_inference"
     GET_MODEL_INSTANCES = "get_model_instances"
+    CLEAR_MEMORY_CACHE = "clear_memory_cache"
     
 def make_series_summary(values, value_type=None):
     summary = {}

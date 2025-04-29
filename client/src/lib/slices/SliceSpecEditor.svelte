@@ -1,21 +1,15 @@
 <script lang="ts">
   import { createEventDispatcher, getContext, onMount } from 'svelte';
-  import type { SliceFilter, SliceSpec, VariableDefinition } from '../model';
+  import type { SliceSpec, VariableDefinition } from '../model';
   import VariableEditorPanel from '../model_editor/VariableEditorPanel.svelte';
   import {
     areObjectsEqual,
     base64ToBlob,
     deepCopy,
   } from '../slices/utils/utils';
-  import {
-    faChevronLeft,
-    faRotateRight,
-  } from '@fortawesome/free-solid-svg-icons';
-  import Fa from 'svelte-fa/src/fa.svelte';
   import type { Writable } from 'svelte/store';
-  import { scoreFunctionToString, type ScoreFunction } from './scorefunctions';
-  import ScoreFunctionPanel from './ScoreFunctionPanel.svelte';
 
+  let csrf: Writable<string> = getContext('csrf');
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
 
@@ -81,7 +75,9 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'X-CSRF-Token': $csrf,
           },
+          credentials: 'same-origin',
           body: JSON.stringify(newSpec),
         }
       );
@@ -150,7 +146,9 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'X-CSRF-Token': $csrf,
           },
+          credentials: 'same-origin',
           body: JSON.stringify({
             queries: {
               variables: `(\n\t${inputVariableString}\n)\n${timestepDefinition}`,

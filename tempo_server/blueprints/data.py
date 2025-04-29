@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from flask_login import login_required
 from ..compute.run import get_filesystem, get_worker, get_sample_dataset
 from ..compute.utils import Commands, QUERY_RESULT_TYPENAMES, make_query_result_summary, acquire_lock
 from threading import Lock
@@ -24,6 +25,7 @@ def _get_data_summary_task(dataset_name):
 
     
 @data_blueprint.route("/datasets/<dataset_name>/data/summary")
+@login_required
 def get_data_summary(dataset_name):
     """
     Parameters:
@@ -53,7 +55,10 @@ def get_data_summary(dataset_name):
     if not fs.exists("datasets", dataset_name, "spec.json"):
         return "Dataset not found", 404
 
-    dataset = get_sample_dataset(dataset_name)
+    try:
+        dataset = get_sample_dataset(dataset_name)
+    except:
+        return "Dataset spec error", 400
     summary = dataset.get_summary()
     if summary is None:
         worker = get_worker()
@@ -66,6 +71,7 @@ def get_data_summary(dataset_name):
     return jsonify(summary)
     
 @data_blueprint.route("/datasets/<dataset_name>/data/fields")
+@login_required
 def list_data_fields(dataset_name):
     """
     Parameters:
@@ -74,7 +80,10 @@ def list_data_fields(dataset_name):
     Returns: JSON of the format [ "field_1", "field_2", ... ] where each
         field is the name of an attribute, event, or interval
     """
-    sample_dataset = get_sample_dataset(dataset_name)
+    try:
+        sample_dataset = get_sample_dataset(dataset_name)
+    except:
+        return "Dataset spec error", 400
     result = [
         *[c for attr_set in sample_dataset.attributes for c in attr_set.df.columns],
         *[c for event_set in sample_dataset.events for c in event_set.get_types().unique()],
@@ -83,6 +92,7 @@ def list_data_fields(dataset_name):
     return jsonify({"fields": convert_to_native_types(result)})
     
 @data_blueprint.route("/datasets/<dataset_name>/data/query")
+@login_required
 def query_dataset(dataset_name):
     """
     Parameters:
@@ -153,6 +163,7 @@ def query_dataset(dataset_name):
 
     
 @data_blueprint.post("/datasets/<dataset_name>/data/download")
+@login_required
 def download_batch_queries(dataset_name):
     """
     Parameters:
@@ -173,7 +184,10 @@ def download_batch_queries(dataset_name):
     """
     body = request.json
     if "queries" not in body: return "/data/download request body must include a queries dictionary", 400
-    dataset = get_sample_dataset(dataset_name)
+    try:
+        dataset = get_sample_dataset(dataset_name)
+    except:
+        return "Dataset spec error", 400
     if (result_path := dataset.get_downloadable_query(body["queries"])) is not None:
         contents = dataset.read_downloadable_query_result(result_path)
         return { 
@@ -197,6 +211,7 @@ def download_batch_queries(dataset_name):
 
     
 @data_blueprint.post("/datasets/<dataset_name>/data/validate_syntax")
+@login_required
 def validate_syntax(dataset_name):
     """
     Parameters:

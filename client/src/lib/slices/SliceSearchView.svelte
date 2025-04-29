@@ -11,6 +11,7 @@
   import type { Writable } from 'svelte/store';
   import { type ScoreFunction, scoreFunctionToString } from './scorefunctions';
 
+  let csrf: Writable<string> = getContext('csrf');
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
 
@@ -119,7 +120,9 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-CSRF-Token': $csrf,
             },
+            credentials: 'same-origin',
             body: JSON.stringify({
               slices: requests,
               score_function_spec: scoreFunctionSpec,

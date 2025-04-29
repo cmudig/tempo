@@ -15,6 +15,9 @@
     performAutocomplete,
   } from '../utils/query_autocomplete';
   import type { Writable } from 'svelte/store';
+  import type { Dataset } from '../dataset';
+  import { Markdown, Carta } from 'carta-md';
+  import DOMPurify from 'isomorphic-dompurify';
 
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
@@ -27,6 +30,7 @@
     events: { [key: string]: QueryResult };
     intervals: { [key: string]: QueryResult };
   };
+  export let spec: Dataset | null = null;
   export let datasetInfo: DatasetInfo | null = null;
   export let showHeader: boolean = true;
   let loadingInfo: boolean = false;
@@ -35,6 +39,7 @@
     status: string;
     status_info?: { message: string };
   } | null = null;
+  let errorMessage: string | null = null;
   export let showCloseButton: boolean = true;
 
   let tabNames: (keyof DatasetInfo)[] = ['attributes', 'events', 'intervals'];
@@ -72,6 +77,16 @@
       let response = await fetch(
         import.meta.env.BASE_URL + `/datasets/${datasetName}/data/summary`
       );
+      if (datasetName !== $currentDataset) {
+        loadingInfo = false;
+        return;
+      }
+      if (response.status != 200) {
+        errorMessage = await response.text();
+        loadingInfo = false;
+        return;
+      }
+      errorMessage = null;
       let result = await response.json();
       if (!!result.attributes) {
         datasetInfo = result;
@@ -91,8 +106,13 @@
     } catch (e) {
       console.error('Error loading dataset info:', e);
       loadingInfo = false;
+      errorMessage = 'Error loading dataset info';
     }
   }
+
+  const carta = new Carta({
+    sanitizer: DOMPurify.sanitize,
+  });
 </script>
 
 <div class="w-full {scroll ? 'flex flex-col h-full' : ''}">
@@ -141,7 +161,22 @@
           </svg>
         </div>
       </div>
+    {:else if !!errorMessage}
+      <div class="w-full flex-auto flex flex-col items-center justify-center">
+        <div class="text-center mb-4 text-red-600">
+          {errorMessage}
+        </div>
+      </div>
     {:else if !!datasetInfo}
+      {#if !!spec && !!spec.description}
+        <div class="w-full px-4 mb-2">
+          <Markdown
+            {carta}
+            theme={'tempo-preview'}
+            value={spec.description ?? ''}
+          />
+        </div>
+      {/if}
       <div class="w-full px-4 py-2 flex gap-3 sticky top-0 bg-white z-10">
         {#each tabNames as tab}
           <button

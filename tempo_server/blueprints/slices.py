@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from flask_login import login_required
 from ..compute.run import get_worker, get_filesystem
 from ..compute.utils import Commands
 from ..compute.dataset import Dataset
@@ -35,6 +36,7 @@ def slice_finding_job_info(dataset_name, model_name, variable_spec_name, score_f
     ), None)
 
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>")    
+@login_required
 def get_slice_finding_results(dataset_name, model_name):
     """
     Parameters:
@@ -74,6 +76,12 @@ def get_slice_finding_results(dataset_name, model_name):
         return jsonify(job_info)
     
     try:
+        model = dataset.get_model(model_name)
+        try:
+            model.get_metrics()
+        except:
+            raise ValueError("The model must be trained before retrieving subgroup results.")
+        
         if dataset_name not in slice_evaluators:
             slice_evaluators[dataset_name] = SliceFinder(dataset)
         slice_evaluator = slice_evaluators[dataset_name]
@@ -83,7 +91,7 @@ def get_slice_finding_results(dataset_name, model_name):
             body['score_function_spec']
         )
         
-        timestep_def = dataset.get_model(model_name).get_spec()['timestep_definition']
+        timestep_def = model.get_spec()['timestep_definition']
         evaluation_results = slice_evaluator.evaluate_slices(
             results if results else [], 
             timestep_def, 
@@ -98,6 +106,7 @@ def get_slice_finding_results(dataset_name, model_name):
         return f"Error occurred while retrieving subgroups: {str(e)}", 500
     
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/find")
+@login_required
 def start_slice_finding(dataset_name, model_name):
     """
     Parameters:
@@ -169,6 +178,7 @@ def start_slice_finding(dataset_name, model_name):
     return jsonify(worker.task_info(task_id))
     
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/validate_score_function")
+@login_required
 def validate_score_function_spec(dataset_name, model_name):
     """
     Parameters:
@@ -208,6 +218,7 @@ def validate_score_function_spec(dataset_name, model_name):
         return jsonify({"error": str(e)})
     
 @slices_blueprint.post("/datasets/<dataset_name>/slices/<model_name>/score")
+@login_required
 def score_slice(dataset_name, model_name):
     """
     Parameters:
@@ -251,6 +262,7 @@ def score_slice(dataset_name, model_name):
     return jsonify({ "slices": convert_to_native_types(evaluation_results) })
 
 @slices_blueprint.route("/datasets/<dataset_name>/slices/<model_name>/compare", methods=["POST"])
+@login_required
 def get_slice_comparisons(dataset_name, model_name):
     """
     Parameters:
@@ -356,6 +368,7 @@ def get_slice_comparisons(dataset_name, model_name):
         return jsonify(convert_to_native_types(differences))
     
 @slices_blueprint.route("/datasets/<dataset_name>/slices/specs", methods=["GET"])
+@login_required
 def get_slice_specs(dataset_name):
     """
     Parameters:
@@ -376,6 +389,7 @@ def get_slice_specs(dataset_name):
     return jsonify({spec_name: spec.get_spec() for spec_name, spec in specs.items()})
 
 @slices_blueprint.get("/datasets/<dataset_name>/slices/specs/<spec_name>")
+@login_required
 def get_slice_spec(dataset_name, spec_name):
     """
     Parameters:
@@ -397,6 +411,7 @@ def get_slice_spec(dataset_name, spec_name):
         
 
 @slices_blueprint.post("/datasets/<dataset_name>/slices/specs/<spec_name>")
+@login_required
 def edit_slice_spec(dataset_name, spec_name):
     """
     Parameters:

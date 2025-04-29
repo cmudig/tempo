@@ -91,7 +91,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
-  on:click
+  on:click={isEditingName ? undefined : () => dispatch('click')}
   class="w-full inline-flex slice-row items-center justify-center flex-wrap py-4 cursor-pointer {isActive
     ? 'bg-blue-100'
     : 'hover:bg-slate-100'} "
@@ -124,12 +124,14 @@
           {/if}
         </div>
       {/if}
-      <div class="flex-auto min-w-0">
+      <div class="flex-auto min-w-0" class:ml-2={!showCheckbox}>
         {#if isEditingName}
           <form
             class="w-full"
-            on:submit|preventDefault={() =>
-              dispatch('rename', { old: displayItem.name, new: newName })}
+            on:submit|preventDefault|stopPropagation={() => {
+              console.log('renaming!');
+              dispatch('rename', { old: displayItem.name, new: newName });
+            }}
           >
             <div class="flex w-full items-center gap-2">
               <input

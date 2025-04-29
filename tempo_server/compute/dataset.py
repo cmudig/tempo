@@ -8,6 +8,7 @@ import time
 import uuid
 from tempo_server.compute.model import Model
 from tempo_server.compute.slicefinder import SlicingVariableSpec
+from tempo_server.compute.filesystem import GCSFilesystem
 
 DEFAULT_SPLIT = {"train": 0.5, "val": 0.25, "test": 0.25}
 
@@ -17,7 +18,10 @@ class Dataset:
         dataset_fs: A Filesystem object that stores the dataset.
         """
         self.fs = dataset_fs
-        self.spec = self.fs.read_file("spec.json")
+        try:
+            self.spec = self.fs.read_file("spec.json")
+        except:
+            self.spec = None
         self.split = split
         
         self.global_cache_dir = self.fs.subdirectory("_cache")
@@ -121,43 +125,46 @@ class Dataset:
             if "type" not in source_config: raise ValueError(f"source config must have a 'type' field: {source_config}")
             source_type = source_config["type"].lower()
             if source_type not in ("attributes", "events", "intervals"):
-                raise ValueError("source type should be one of (attributes, events, intervals)")
+                raise ValueError(f"source type for '{source_config.get('path', '')}' should be one of (attributes, events, intervals)")
 
-            if "path" in source_config:
-                df = self.fs.read_file(source_config["path"])
-            else:
-                print(f"Don't know how to import source {source_config}, skipping")
-            
-            if source_type == "attributes":
-                id_field = source_config.get("id_field", "id")
-                if id_field in df.columns:
-                    df = df.set_index(id_field, drop=True)
+            try:
+                if "path" in source_config:
+                    df = self.fs.read_file(source_config["path"])
                 else:
-                    print("ID column not found in attributes, using the dataframe index")
-                    df = df.set_index(self.assign_numerical_ids(df.index))
-                attributes.append(AttributeSet(df))
-                    
-            elif source_type == "events":
-                id_field = source_config.get("id_field", "id")
-                df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
-                events.append(EventSet(df,
-                                       id_field=id_field, 
-                                       type_field=source_config.get("type_field", "eventtype"), 
-                                       value_field=source_config.get("value_field", "value"), 
-                                       time_field=source_config.get("time_field", "time")))
-
-            elif source_type == "intervals":
-                id_field = source_config.get("id_field", "id")
-                # prev_unique = len(df[id_field].unique())
-                df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
-                # assert prev_unique == len(df[id_field].unique()), "NOT SAME NUMBER OF IDS"
-                intervals.append(IntervalSet(df,
-                                             id_field=id_field, 
-                                             type_field=source_config.get("type_field", "intervaltype"), 
-                                             value_field=source_config.get("value_field", "value"), 
-                                             start_time_field=source_config.get("start_time_field", "starttime"),
-                                             end_time_field=source_config.get("end_time_field", "endtime")))
+                    print(f"Don't know how to import source {source_config}, skipping")
                 
+                if source_type == "attributes":
+                    id_field = source_config.get("id_field", "id")
+                    if id_field in df.columns:
+                        df = df.set_index(id_field, drop=True)
+                    else:
+                        print("ID column not found in attributes, using the dataframe index")
+                        df = df.set_index(self.assign_numerical_ids(df.index))
+                    attributes.append(AttributeSet(df))
+                        
+                elif source_type == "events":
+                    id_field = source_config.get("id_field", "id")
+                    df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
+                    events.append(EventSet(df,
+                                        id_field=id_field, 
+                                        type_field=source_config.get("type_field", "eventtype"), 
+                                        value_field=source_config.get("value_field", "value"), 
+                                        time_field=source_config.get("time_field", "time")))
+
+                elif source_type == "intervals":
+                    id_field = source_config.get("id_field", "id")
+                    # prev_unique = len(df[id_field].unique())
+                    df = df.assign(**{id_field: self.assign_numerical_ids(df[id_field])})
+                    # assert prev_unique == len(df[id_field].unique()), "NOT SAME NUMBER OF IDS"
+                    intervals.append(IntervalSet(df,
+                                                id_field=id_field, 
+                                                type_field=source_config.get("type_field", "intervaltype"), 
+                                                value_field=source_config.get("value_field", "value"), 
+                                                start_time_field=source_config.get("start_time_field", "starttime"),
+                                                end_time_field=source_config.get("end_time_field", "endtime")))
+            except Exception as e:
+                raise ValueError(f"Error parsing data source '{source_config['path']}': {e}")
+            
         assert attributes or events or intervals, "At least one of attributes, events, or intervals must be provided"
         ids = get_all_trajectory_ids(attributes, events, intervals)
             
@@ -213,8 +220,18 @@ class Dataset:
 
     def get_variable_cache_fs(self):
         if self.split_cache_dir is not None:
-            return self.split_cache_dir.subdirectory("variables")
+            result = self.split_cache_dir.subdirectory("variables")
+            if isinstance(result, GCSFilesystem):
+                return result.get_local_fallback() or result
+            return result
     
+    def get_slicing_variable_cache_fs(self):
+        if self.split_cache_dir is not None:
+            result = self.split_cache_dir.subdirectory("slicing_variables")
+            if isinstance(result, GCSFilesystem):
+                return result.get_local_fallback() or result
+            return result
+        
     def make_query_engine(self, cache_fs=None):
         """If cache_fs is None, uses the default variable cache."""
         if self.attributes is None:

@@ -57,13 +57,14 @@ Below is an example of the dataset specification (`spec.json`):
   },
   "slices": {
     "sampler": {
-      // subgroup discovery settings required by Divisi
+      // subgroup discovery settings used by Divisi
       "min_items_fraction": 0.02,
       "n_samples": 100,
-      "max_features": 2,
-      "scoring_fraction": 0.5,
+      "max_features": 3,
+      "scoring_fraction": 1.0,
       "num_candidates": 20,
-      "similarity_threshold": 0.5
+      "similarity_threshold": 0.5,
+      "n_slices": 20
     }
   },
   "models": {

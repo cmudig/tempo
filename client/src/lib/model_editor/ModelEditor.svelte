@@ -39,6 +39,8 @@
   import QueryEditorTextarea from './QueryEditorTextarea.svelte';
   import HyperparameterEditor from './HyperparameterEditor.svelte';
 
+  let csrf: Writable<string> = getContext('csrf');
+
   let {
     currentDataset,
     dataFields,
@@ -264,7 +266,9 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-CSRF-Token': $csrf,
             },
+            credentials: 'same-origin',
             body: JSON.stringify({
               name: m,
               draft: {},
@@ -285,6 +289,10 @@
               `/datasets/${$currentDataset}/models/${m}`,
             {
               method: 'DELETE',
+              headers: {
+                'X-CSRF-Token': $csrf,
+              },
+              credentials: 'same-origin',
             }
           )
         )
@@ -316,7 +324,9 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-CSRF-Token': $csrf,
             },
+            credentials: 'same-origin',
             body: JSON.stringify({
               name: modelsToSave[i],
               spec: {
@@ -400,7 +410,9 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-CSRF-Token': $csrf,
             },
+            credentials: 'same-origin',
             body: JSON.stringify({
               name: modelsToSave[i],
               draft,
@@ -453,7 +465,9 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-CSRF-Token': $csrf,
         },
+        credentials: 'same-origin',
         body: JSON.stringify({
           name: modelName,
           draft: {},
@@ -507,7 +521,9 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'X-CSRF-Token': $csrf,
           },
+          credentials: 'same-origin',
           body: JSON.stringify({
             queries: {
               inputs: `(\n\t${inputVariableString}\n)\n${timestepDefinition}`,

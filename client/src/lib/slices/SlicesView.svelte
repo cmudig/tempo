@@ -1,22 +1,13 @@
 <script lang="ts">
-  import { type ModelMetrics, type VariableDefinition } from '../model';
   import {
     createEventDispatcher,
     getContext,
     onDestroy,
     onMount,
   } from 'svelte';
-  import * as d3 from 'd3';
-  import ModelTrainingView from '../ModelTrainingView.svelte';
-  import {
-    checkSlicingStatus,
-    checkTrainingStatus,
-    type SliceFindingStatus,
-    type TrainingStatus,
-  } from '../training';
+  import { checkTrainingStatus, type TrainingStatus } from '../training';
   import SliceSearchView from './SliceSearchView.svelte';
   import {
-    SliceSearchControl,
     type Slice,
     type SliceFeatureBase,
   } from '../slices/utils/slice.type';
@@ -28,19 +19,17 @@
     faChevronLeft,
     faHeart,
     faPlus,
-    faWrench,
   } from '@fortawesome/free-solid-svg-icons';
   import Fa from 'svelte-fa';
   import SliceSpecEditor from './SliceSpecEditor.svelte';
   import { scoreFunctionToString, type ScoreFunction } from './scorefunctions';
   import ScoreFunctionPanel from './ScoreFunctionPanel.svelte';
   import RuleFilterPanel from './RuleFilterPanel.svelte';
-  import { RuleFilterType, type RuleFilter } from './rulefilters';
+  import type { RuleFilter } from './rulefilters';
 
+  let csrf: Writable<string> = getContext('csrf');
   let { currentDataset }: { currentDataset: Writable<string | null> } =
     getContext('dataset');
-
-  const dispatch = createEventDispatcher();
 
   export let modelName: string | null = null;
   export let modelsToShow: string[];
@@ -281,7 +270,9 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'X-CSRF-Token': $csrf,
           },
+          credentials: 'same-origin',
           body: JSON.stringify({
             variable_spec_name: sliceSpec,
             score_function_spec: scoreFunctionSpec,
@@ -355,7 +346,9 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-CSRF-Token': $csrf,
             },
+            credentials: 'same-origin',
             body: JSON.stringify({
               variable_spec_name: sliceSpec,
               score_function_spec: scoreFunctionSpec,
@@ -384,6 +377,10 @@
     try {
       await fetch(import.meta.env.BASE_URL + `/tasks/${searchTaskID}/stop`, {
         method: 'POST',
+        headers: {
+          'X-CSRF-Token': $csrf,
+        },
+        credentials: 'same-origin',
       });
       pollSliceStatus();
     } catch (e) {

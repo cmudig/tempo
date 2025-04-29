@@ -249,3 +249,9 @@ input[type='search'].flat-text-input {
   @apply rounded bg-blue-200/60 border border-blue-400 border-opacity-50;
   padding: 0 calc(1ch - 1px);
 }
+
+input::file-selector-button {
+  border: none;
+  box-shadow: none;
+  @apply btn btn-slate cursor-pointer;
+}

@@ -17,6 +17,8 @@
   import { getContext } from 'svelte';
   import ActionMenuButton from '../slices/utils/ActionMenuButton.svelte';
 
+  let csrf: Writable<string> = getContext('csrf');
+
   let {
     currentDataset,
     dataFields,
@@ -192,7 +194,9 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-CSRF-Token': $csrf,
             },
+            credentials: 'same-origin',
             body: JSON.stringify({ query }),
           }
         )

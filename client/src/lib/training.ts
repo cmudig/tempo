@@ -13,11 +13,44 @@ export async function checkTrainingStatus(
   modelNames: string[]
 ): Promise<TrainingStatus[] | null> {
   let taskStatuses: TrainingStatus[] = await (
-    await fetch(import.meta.env.BASE_URL + `/tasks?cmd=train_model&dataset_name=${datasetName}`)
+    await fetch(
+      import.meta.env.BASE_URL +
+        `/tasks?cmd=train_model&dataset_name=${datasetName}`
+    )
   ).json();
   return taskStatuses.filter((task) =>
     modelNames.includes(task.info.model_name)
   );
+}
+
+export async function checkDatasetBuildStatus(
+  datasetName: string,
+  taskID: string | null = null
+): Promise<TrainingStatus | null> {
+  if (!!taskID) {
+    let status = await (
+      await fetch(import.meta.env.BASE_URL + `/tasks/${taskID}`)
+    ).json();
+    if (status['status'] == 'complete' || status['status'] == 'error')
+      return null;
+    return status;
+  }
+  let taskStatuses: TrainingStatus[] = await (
+    await fetch(
+      import.meta.env.BASE_URL +
+        `/tasks?cmd=build_dataset&dataset_name=${datasetName}`
+    )
+  ).json();
+  return taskStatuses.length > 0 ? taskStatuses[0] : null;
+}
+
+export async function taskSuccessful(taskID: string): Promise<boolean | null> {
+  let status = await (
+    await fetch(import.meta.env.BASE_URL + `/tasks/${taskID}`)
+  ).json();
+  if (status['status'] == 'complete' || status['status'] == 'error')
+    return status['status'] == 'complete';
+  return null;
 }
 
 export type SliceFindingStatus = {

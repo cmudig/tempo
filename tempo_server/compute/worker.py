@@ -2,7 +2,7 @@
 A reusable module for running a lightweight multiprocessing background worker 
 with cancelable tasks and status reporting.
 """
-import multiprocessing as mp
+import multiprocessing
 import time
 import os
 import threading
@@ -11,15 +11,19 @@ import uuid
 import traceback
 import logging
 import logging.handlers
+from flask_login import current_user
 
 from functools import partial
 
+mp = multiprocessing.get_context('spawn')
+
 def listener_process(queue, path):
-    root = logging.getLogger()
-    h = logging.handlers.RotatingFileHandler(os.path.join(path, 'log.txt'), 'a', 100000, 10)
-    f = logging.Formatter('%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s')
-    h.setFormatter(f)
-    root.addHandler(h)
+    if path is not None:
+        root = logging.getLogger()
+        h = logging.handlers.RotatingFileHandler(os.path.join(path, 'log.txt'), 'a', 100000, 10)
+        f = logging.Formatter('%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s')
+        h.setFormatter(f)
+        root.addHandler(h)
     
     while True:
         try:
@@ -111,7 +115,7 @@ def start_worker(task_runner, interrupt_event, request_queue, status, log_queue,
             status[task_id] = (TaskStatus.CANCELED, None)
             
 class BackgroundWorker:
-    def __init__(self, task_runner, log_path, verbose=False):
+    def __init__(self, task_runner, log_path, verbose=False, partition_by_user=False):
         """
         Args:
         * task_runner: A function that takes a task_info object and an update
@@ -123,6 +127,9 @@ class BackgroundWorker:
         status element in the error task status. NOTE: This function must be in
         the global scope for the multiprocessing implementation to work correctly.
         * verbose: Whether or not to output background worker messages.
+        
+        If partition_by_user is True, all tasks will be filtered and submitted
+        with user ID information.
         """
         self.task_runner = task_runner
         self.verbose = verbose
@@ -133,6 +140,7 @@ class BackgroundWorker:
         self.task_cache = {}
         self.task_lock = mp.Lock()
         self.worker_process = None
+        self.partition_by_user = partition_by_user
         
         self.log_queue = mp.Queue()
         self.log_path = log_path
@@ -150,6 +158,8 @@ class BackgroundWorker:
         self.log_process.start()
         
     def submit_task(self, task_info):
+        if self.partition_by_user and current_user.is_authenticated:
+            task_info = {**task_info, "user_id": current_user.get_id()}
         with self.task_lock:
             task_id = uuid.uuid4().hex
             task_summary = (task_id, task_info)
@@ -159,9 +169,15 @@ class BackgroundWorker:
             return task_id
     
     def status(self, task_id):
+        if self.partition_by_user and current_user.is_authenticated and task_id in self.task_status:
+            if self.task_cache[task_id]["user_id"] != current_user.get_id():
+                raise KeyError(task_id)
         return self.task_status[task_id]
     
     def task_info(self, task_id):
+        if self.partition_by_user and current_user.is_authenticated and task_id in self.task_status:
+            if self.task_cache[task_id]["user_id"] != current_user.get_id():
+                raise KeyError(task_id)
         status = self.task_status[task_id]
         return {
             'id': task_id, 
@@ -176,7 +192,10 @@ class BackgroundWorker:
             'info': self.task_cache[id], 
             'status': status[0],
             **({'status_info': status[1]} if status[1] is not None else {})
-        } for id, status in self.task_status.items() if status[0] in (TaskStatus.WAITING, TaskStatus.RUNNING)]
+        } for id, status in self.task_status.items() 
+                if status[0] in (TaskStatus.WAITING, TaskStatus.RUNNING)
+                and not (self.partition_by_user and current_user.is_authenticated and
+                         self.task_cache[id]['user_id'] != current_user.get_id())]
         
     def all_jobs(self):
         return [{
@@ -184,10 +203,16 @@ class BackgroundWorker:
             'info': self.task_cache[id], 
             'status': status[0],
             **({'status_info': status[1]} if status[1] is not None else {})
-        } for id, status in self.task_status.items()]
+        } for id, status in self.task_status.items()
+                if not (self.partition_by_user and current_user.is_authenticated and
+                         self.task_cache[id]['user_id'] != current_user.get_id())]
         
     def cancel_task(self, task_id):
         with self.task_lock:
+            if self.partition_by_user and current_user.is_authenticated and task_id in self.task_status:
+                if self.task_cache[task_id]["user_id"] != current_user.get_id():
+                    logging.info(f"[cancel_task]: Task {task_id} not in list of tasks for this user")
+                    return
             if task_id not in self.task_status:
                 logging.info(f"[cancel_task]: Task {task_id} not in list of tasks")
                 return

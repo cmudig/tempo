@@ -35,7 +35,10 @@
         if (!container || !button) return;
         let bounds = button.getBoundingClientRect();
         let containerBounds = container.getBoundingClientRect();
-        menuX = bounds.left - containerBounds.left;
+        if (align == 'left') menuX = bounds.left - containerBounds.left;
+        else if (align == 'right') menuX = bounds.right - containerBounds.left;
+        else if (align == 'center')
+          menuX = bounds.left + bounds.width / 2 - containerBounds.left;
         menuY = bounds.bottom - containerBounds.top;
       });
       observer.observe(button);
